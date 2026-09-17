@@ -51,12 +51,12 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
-      <h1 className="mb-1 text-lg font-semibold">Справочники</h1>
-      <p className="mb-6 text-sm text-neutral-500">
-        Разделы 8-10, 36 ТЗ. Управление доступно роли Куратор.
-      </p>
+      <div className="animate-fade-in mb-6">
+        <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Справочники</h1>
+        <p className="mt-0.5 text-[13px] text-neutral-500">Разделы 8-10, 36 ТЗ. Управление доступно роли Куратор.</p>
+      </div>
       {forbidden && (
-        <p className="mb-4 text-sm text-red-600">
+        <p className="animate-fade-in mb-4 rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">
           У вашей роли нет прав на изменение справочников (раздел 36 ТЗ).
         </p>
       )}
@@ -91,97 +91,83 @@ function UserAdmin({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("RESPONSIBLE");
+  const [submitting, setSubmitting] = useState(false);
 
   async function createUser() {
     onError(null);
-    const res = await fetch("/api/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, role }),
-    });
-    if (res.status === 403) {
-      onForbidden();
-      return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password, role }),
+      });
+      if (res.status === 403) {
+        onForbidden();
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        onError(body?.error === "EMAIL_TAKEN" ? "Такой email уже зарегистрирован." : "Не удалось создать пользователя.");
+        return;
+      }
+      setName("");
+      setEmail("");
+      setPassword("");
+      onCreated();
+    } finally {
+      setSubmitting(false);
     }
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      onError(body?.error === "EMAIL_TAKEN" ? "Такой email уже зарегистрирован." : "Не удалось создать пользователя.");
-      return;
-    }
-    setName("");
-    setEmail("");
-    setPassword("");
-    onCreated();
   }
 
   return (
-    <div className="mb-6 rounded-xl border border-neutral-200 bg-white p-4">
-      <h2 className="mb-2 text-sm font-semibold">Пользователи</h2>
-      <p className="mb-3 text-xs text-neutral-500">
+    <div className="surface animate-fade-in mb-6 p-5">
+      <h2 className="mb-1 text-[14px] font-semibold text-neutral-800">Пользователи</h2>
+      <p className="mb-3 text-[12px] text-neutral-500">
         Раздел 34 ТЗ: self-signup отсутствует, пользователей создаёт администратор (роль Куратор).
       </p>
-      <ul className="mb-3 divide-y divide-neutral-100 text-sm">
+      <ul className="mb-3 divide-y divide-[var(--border)] text-[13px]">
         {users.map((u) => (
-          <li key={u.id} className="flex justify-between py-1.5">
-            <span>{u.name} ({u.email})</span>
+          <li key={u.id} className="row-hover -mx-1 flex justify-between rounded-lg px-1 py-1.5">
+            <span className="text-neutral-800">
+              {u.name} <span className="text-neutral-400">({u.email})</span>
+            </span>
             <span className="text-neutral-500">{ROLE_LABEL[u.role] ?? u.role}</span>
           </li>
         ))}
       </ul>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <input
-          placeholder="Имя"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
-        />
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
-        />
+        <input placeholder="Имя" value={name} onChange={(e) => setName(e.target.value)} className="input" />
+        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" />
         <input
           placeholder="Пароль"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
+          className="input"
         />
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-          className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
-        >
+        <select value={role} onChange={(e) => setRole(e.target.value)} className="select">
           <option value="RESPONSIBLE">Ответственный</option>
           <option value="CURATOR">Куратор</option>
           <option value="MANAGER">Руководитель</option>
         </select>
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      <button onClick={createUser} className="mt-3 rounded-md bg-neutral-900 px-3 py-1 text-sm text-white">
-        Создать пользователя
+      {error && <p className="mt-2 animate-fade-in text-[13px] text-[var(--danger)]">{error}</p>}
+      <button onClick={createUser} disabled={submitting} className="btn-primary mt-3">
+        {submitting ? "Создание…" : "Создать пользователя"}
       </button>
     </div>
   );
 }
 
-function RefList({
-  title,
-  items,
-  onAdd,
-}: {
-  title: string;
-  items: Ref[];
-  onAdd: (name: string) => void;
-}) {
+function RefList({ title, items, onAdd }: { title: string; items: Ref[]; onAdd: (name: string) => void }) {
   const [value, setValue] = useState("");
   return (
-    <div className="mb-6 rounded-xl border border-neutral-200 bg-white p-4">
-      <h2 className="mb-2 text-sm font-semibold">{title}</h2>
-      <ul className="mb-3 divide-y divide-neutral-100 text-sm">
+    <div className="surface animate-fade-in mb-6 p-5">
+      <h2 className="mb-2 text-[14px] font-semibold text-neutral-800">{title}</h2>
+      <ul className="mb-3 divide-y divide-[var(--border)] text-[13px]">
         {items.map((i) => (
-          <li key={i.id} className="py-1.5">
+          <li key={i.id} className="row-hover -mx-1 rounded-lg px-1 py-1.5 text-neutral-800">
             {i.name}
           </li>
         ))}
@@ -191,7 +177,7 @@ function RefList({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Новое значение"
-          className="flex-1 rounded-md border border-neutral-300 px-2 py-1 text-sm"
+          className="input flex-1"
         />
         <button
           onClick={() => {
@@ -199,7 +185,7 @@ function RefList({
             onAdd(value.trim());
             setValue("");
           }}
-          className="rounded-md bg-neutral-900 px-3 py-1 text-sm text-white"
+          className="btn-primary"
         >
           Добавить
         </button>

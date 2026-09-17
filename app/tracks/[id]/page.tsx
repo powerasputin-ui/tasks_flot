@@ -106,24 +106,30 @@ export default function TrackDetailPage() {
     load();
   }
 
-  if (loading) return <div className="mx-auto max-w-5xl px-6 py-10 text-sm text-neutral-500">Загрузка…</div>;
-  if (!track) return <div className="mx-auto max-w-5xl px-6 py-10 text-sm text-neutral-500">Трек не найден.</div>;
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-6">
+        <div className="skeleton mb-3 h-6 w-2/3 rounded" />
+        <div className="skeleton mb-6 h-4 w-1/2 rounded" />
+        <div className="skeleton h-24 rounded-2xl" />
+      </div>
+    );
+  }
+  if (!track) return <div className="mx-auto max-w-5xl px-6 py-10 text-[13px] text-neutral-500">Трек не найден.</div>;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
-      <h1 className="text-xl font-semibold">{track.name}</h1>
-      {track.description && <p className="mt-1 text-sm text-neutral-600">{track.description}</p>}
+      <div className="animate-fade-in">
+        <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">{track.name}</h1>
+        {track.description && <p className="mt-1 text-[13px] text-neutral-500">{track.description}</p>}
+      </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl border border-neutral-200 bg-white p-4 sm:grid-cols-4">
+      <div className="surface animate-fade-in mt-4 grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
         <Field label="Сегмент">{track.segment?.name ?? "—"}</Field>
         <Field label="Привлекательность">{track.attractiveness?.name ?? "—"}</Field>
         <Field label="Ответственный">
           {me?.role === "CURATOR" ? (
-            <select
-              value={track.owner?.id ?? ""}
-              onChange={(e) => changeOwner(e.target.value)}
-              className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
-            >
+            <select value={track.owner?.id ?? ""} onChange={(e) => changeOwner(e.target.value)} className="select">
               <option value="">Без ответственного</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
@@ -136,11 +142,7 @@ export default function TrackDetailPage() {
           )}
         </Field>
         <Field label="Статус">
-          <select
-            value={track.statusId ?? ""}
-            onChange={(e) => changeStatus(e.target.value)}
-            className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
-          >
+          <select value={track.statusId ?? ""} onChange={(e) => changeStatus(e.target.value)} className="select">
             <option value="">—</option>
             {statuses.map((s) => (
               <option key={s.id} value={s.id}>
@@ -150,20 +152,22 @@ export default function TrackDetailPage() {
           </select>
         </Field>
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="mt-2 animate-fade-in rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">{error}</p>
+      )}
 
       <Section title="Задачи">
         {track.tasks.length === 0 ? (
           <EmptyState text="У этого трека пока нет задач." />
         ) : (
-          <ul className="divide-y divide-neutral-100">
+          <ul className="divide-y divide-[var(--border)]">
             {track.tasks.map((t) => (
-              <li key={t.id} className="py-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span>{t.title}</span>
-                  <span className="text-neutral-500">{t.status?.name ?? "—"}</span>
+              <li key={t.id} className="row-hover -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-neutral-800">{t.title}</span>
+                  <span className="shrink-0 text-neutral-500">{t.status?.name ?? "—"}</span>
                 </div>
-                <div className="mt-0.5 text-xs text-neutral-500">
+                <div className="mt-0.5 text-[12px] text-neutral-400">
                   {t.owner?.name ?? "Без ответственного"} ·{" "}
                   {t.deadline ? new Date(t.deadline).toLocaleDateString("ru-RU") : "без срока"}
                 </div>
@@ -177,14 +181,14 @@ export default function TrackDetailPage() {
         {track.vesselOptions.length === 0 ? (
           <EmptyState text="У этого трека пока нет вариантов судов." />
         ) : (
-          <ul className="divide-y divide-neutral-100">
+          <ul className="divide-y divide-[var(--border)]">
             {track.vesselOptions.map((v) => (
-              <li key={v.id} className="py-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span>{v.name}</span>
-                  <span className="text-neutral-500">{v.status?.name ?? "—"}</span>
+              <li key={v.id} className="row-hover -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-neutral-800">{v.name}</span>
+                  <span className="shrink-0 text-neutral-500">{v.status?.name ?? "—"}</span>
                 </div>
-                <div className="mt-0.5 text-xs text-neutral-500">
+                <div className="mt-0.5 text-[12px] text-neutral-400">
                   {v.cost ?? "стоимость не указана"} · {v.attractiveness?.name ?? "—"}
                 </div>
               </li>
@@ -197,11 +201,11 @@ export default function TrackDetailPage() {
         {history.length === 0 ? (
           <EmptyState text="Изменений пока нет." />
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {history.map((h) => (
-              <li key={h.id} className="text-xs text-neutral-600">
+              <li key={h.id} className="text-[12px] text-neutral-500">
                 <span className="text-neutral-400">{new Date(h.timestamp).toLocaleString("ru-RU")}</span>{" "}
-                — {h.actor?.name ?? "система"} · {h.action}
+                — {h.actor?.name ?? "система"} · <span className="text-neutral-700">{h.action}</span>
                 {h.fieldName && (
                   <>
                     {" "}
@@ -220,21 +224,21 @@ export default function TrackDetailPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-xs font-medium text-neutral-500">{label}</div>
-      <div className="mt-0.5 text-sm">{children}</div>
+      <div className="text-[11px] font-medium text-neutral-500">{label}</div>
+      <div className="mt-0.5 text-[13px] text-neutral-800">{children}</div>
     </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mt-6">
-      <h2 className="mb-2 text-sm font-semibold text-neutral-700">{title}</h2>
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">{children}</div>
+    <div className="animate-fade-in mt-6">
+      <h2 className="mb-2 text-[13px] font-semibold text-neutral-700">{title}</h2>
+      <div className="surface p-4">{children}</div>
     </div>
   );
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <p className="text-sm text-neutral-400">{text}</p>;
+  return <p className="text-[13px] text-neutral-400">{text}</p>;
 }

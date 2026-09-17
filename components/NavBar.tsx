@@ -12,10 +12,17 @@ const ROLE_LABEL: Record<string, string> = {
   MANAGER: "Руководитель",
 };
 
+const NAV_ITEMS = [
+  { href: "/tracks", label: "Треки" },
+  { href: "/tasks", label: "Задачи" },
+  { href: "/vessel-options", label: "Варианты судов" },
+];
+
 export function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (pathname === "/login") return;
@@ -28,46 +35,51 @@ export function NavBar() {
   if (pathname === "/login") return null;
 
   async function logout() {
+    setLoggingOut(true);
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
   }
 
+  const items = me?.role === "CURATOR" ? [...NAV_ITEMS, { href: "/settings", label: "Справочники" }] : NAV_ITEMS;
+
   return (
-    <header className="border-b border-neutral-200 bg-white">
+    <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         <div className="flex items-center gap-8">
-          <Link href="/tracks" className="text-sm font-semibold tracking-tight">
+          <Link href="/tracks" className="text-[13px] font-semibold tracking-tight text-neutral-900">
             ГШП ФЛОТ-ТРЕКЕР
           </Link>
-          <nav className="flex gap-5 text-sm text-neutral-600">
-            <Link href="/tracks" className={pathname.startsWith("/tracks") ? "text-neutral-900 font-medium" : ""}>
-              Треки
-            </Link>
-            <Link href="/tasks" className={pathname.startsWith("/tasks") ? "text-neutral-900 font-medium" : ""}>
-              Задачи
-            </Link>
-            <Link
-              href="/vessel-options"
-              className={pathname.startsWith("/vessel-options") ? "text-neutral-900 font-medium" : ""}
-            >
-              Варианты судов
-            </Link>
-            {me?.role === "CURATOR" && (
-              <Link href="/settings" className={pathname.startsWith("/settings") ? "text-neutral-900 font-medium" : ""}>
-                Справочники
-              </Link>
-            )}
+          <nav className="flex gap-1 text-[13px]">
+            {items.map((item) => {
+              const active = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`relative rounded-md px-2.5 py-1.5 transition-colors duration-150 ${
+                    active ? "text-neutral-900" : "text-neutral-500 hover:text-neutral-800"
+                  }`}
+                >
+                  {item.label}
+                  <span
+                    className={`absolute inset-x-2.5 -bottom-[13px] h-[2px] rounded-full bg-neutral-900 transition-transform duration-200 ${
+                      active ? "scale-x-100" : "scale-x-0"
+                    }`}
+                  />
+                </Link>
+              );
+            })}
           </nav>
         </div>
-        <div className="flex items-center gap-3 text-sm text-neutral-500">
+        <div className="flex items-center gap-3 text-[13px] text-neutral-500">
           {me && (
-            <span>
-              {me.name} · {ROLE_LABEL[me.role]}
+            <span className="hidden sm:inline">
+              {me.name} <span className="text-neutral-300">·</span> {ROLE_LABEL[me.role]}
             </span>
           )}
-          <button onClick={logout} className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-neutral-100">
-            Выйти
+          <button onClick={logout} disabled={loggingOut} className="btn-ghost">
+            {loggingOut ? "Выход…" : "Выйти"}
           </button>
         </div>
       </div>

@@ -96,33 +96,27 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
     []
   );
 
+  const columns = fixedType ? 10 : 11;
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-6">
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+      <div className="surface mb-4 flex flex-wrap items-end gap-3 p-4">
         <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={segments} />
         <Select label="Статус" value={statusId} onChange={setStatusId} options={statuses} />
         <Select label="Привлекательность" value={attractivenessId} onChange={setAttractivenessId} options={attractiveness} />
         <Select label="Ответственный" value={ownerId} onChange={setOwnerId} options={users} />
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-600">Опер-флаг</label>
-          <select
-            value={operFlag}
-            onChange={(e) => setOperFlag(e.target.value)}
-            className="rounded-md border border-neutral-300 px-2 py-1.5 text-sm"
-          >
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Опер-флаг</label>
+          <select value={operFlag} onChange={(e) => setOperFlag(e.target.value)} className="select">
             <option value="">Все</option>
             <option value="true">Да</option>
             <option value="false">Нет</option>
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-neutral-600">Сортировка</label>
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Сортировка</label>
           <div className="flex gap-1">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="rounded-md border border-neutral-300 px-2 py-1.5 text-sm"
-            >
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="select">
               {SORT_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
@@ -131,7 +125,7 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
             </select>
             <button
               onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
-              className="rounded-md border border-neutral-300 px-2 py-1.5 text-sm"
+              className="select w-9 transition-transform duration-150 active:scale-90"
               title="Направление сортировки"
             >
               {sortDir === "asc" ? "↑" : "↓"}
@@ -140,10 +134,10 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
-        <table className="w-full text-sm">
+      <div className="surface overflow-x-auto">
+        <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs font-medium uppercase tracking-wide text-neutral-500">
+            <tr className="border-b border-[var(--border)] text-left text-[11px] font-medium uppercase tracking-wide text-neutral-400">
               <Th>Сегмент</Th>
               <Th>Трек</Th>
               {!fixedType && <Th>Тип</Th>}
@@ -158,34 +152,55 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={`${row.type}-${row.id}`} className="border-b border-neutral-100 hover:bg-neutral-50">
-                <Td>{row.segmentName ?? "—"}</Td>
-                <Td>
-                  <Link href={`/tracks/${row.trackId}`} className="text-neutral-700 hover:underline">
-                    {row.trackName}
-                  </Link>
-                </Td>
-                {!fixedType && <Td>{TYPE_LABEL[row.type]}</Td>}
-                <Td className="max-w-xs truncate" title={row.name}>
-                  {row.name}
-                </Td>
-                <Td>{row.attractivenessName ?? "—"}</Td>
-                <Td>{row.ownerName ?? "—"}</Td>
-                <Td className={isOverdue(row) ? "font-medium text-red-600" : ""}>
-                  {row.deadline ? new Date(row.deadline).toLocaleDateString("ru-RU") : "—"}
-                </Td>
-                <Td>{row.deadlineWeek ?? "—"}</Td>
-                <Td>{row.statusName ?? "—"}</Td>
-                <Td>{row.operFlag ? "да" : "—"}</Td>
-                <Td className="max-w-xs truncate" title={row.comment ?? ""}>
-                  {row.comment ?? "—"}
-                </Td>
-              </tr>
-            ))}
+            {loading &&
+              Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b border-[var(--border)]">
+                  {Array.from({ length: columns }).map((__, j) => (
+                    <td key={j} className="px-4 py-3">
+                      <div className="skeleton h-3.5 w-full rounded" />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            {!loading &&
+              rows.map((row, i) => (
+                <tr
+                  key={`${row.type}-${row.id}`}
+                  className="row-hover animate-fade-in border-b border-[var(--border)] last:border-0"
+                  style={{ animationDelay: `${Math.min(i, 20) * 12}ms` }}
+                >
+                  <Td>{row.segmentName ?? "—"}</Td>
+                  <Td>
+                    <Link href={`/tracks/${row.trackId}`} className="link-subtle">
+                      {row.trackName}
+                    </Link>
+                  </Td>
+                  {!fixedType && (
+                    <Td>
+                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">
+                        {TYPE_LABEL[row.type]}
+                      </span>
+                    </Td>
+                  )}
+                  <Td className="max-w-xs truncate" title={row.name}>
+                    {row.name}
+                  </Td>
+                  <Td>{row.attractivenessName ?? "—"}</Td>
+                  <Td>{row.ownerName ?? "—"}</Td>
+                  <Td className={isOverdue(row) ? "font-medium text-[var(--danger)]" : ""}>
+                    {row.deadline ? new Date(row.deadline).toLocaleDateString("ru-RU") : "—"}
+                  </Td>
+                  <Td>{row.deadlineWeek ?? "—"}</Td>
+                  <Td>{row.statusName ?? "—"}</Td>
+                  <Td>{row.operFlag ? "да" : "—"}</Td>
+                  <Td className="max-w-xs truncate" title={row.comment ?? ""}>
+                    {row.comment ?? "—"}
+                  </Td>
+                </tr>
+              ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={fixedType ? 10 : 11} className="px-4 py-10 text-center text-sm text-neutral-500">
+                <td colSpan={columns} className="px-4 py-14 text-center text-[13px] text-neutral-400">
                   Нет записей по выбранным фильтрам.
                 </td>
               </tr>
@@ -193,7 +208,6 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
           </tbody>
         </table>
       </div>
-      {loading && <p className="mt-3 text-sm text-neutral-400">Загрузка…</p>}
     </div>
   );
 }
@@ -211,12 +225,8 @@ function Select({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-neutral-600">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-neutral-300 px-2 py-1.5 text-sm"
-      >
+      <label className="mb-1 block text-[11px] font-medium text-neutral-500">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="select">
         <option value="">Все</option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>
@@ -234,7 +244,7 @@ function Th({ children }: { children: React.ReactNode }) {
 
 function Td({ children, className = "", title }: { children: React.ReactNode; className?: string; title?: string }) {
   return (
-    <td className={`px-4 py-2.5 ${className}`} title={title}>
+    <td className={`px-4 py-2.5 text-neutral-700 ${className}`} title={title}>
       {children}
     </td>
   );
