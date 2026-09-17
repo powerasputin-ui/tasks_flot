@@ -25,8 +25,19 @@ export type TableRow = {
   deadlineWeek: number | null;
   statusId: string | null;
   statusName: string | null;
+  statusColor: string | null;
   operFlag: boolean;
   comment: string | null;
+  cost: string | null; // раздел 16, только VesselOption
+  /**
+   * "Дата" по формулировке заказчика — факт последнего заполнения/обновления
+   * записи. Это НЕ бизнес-поле в схеме, а прямое отображение updatedAt
+   * (раздел 74: оно уже есть у каждой сущности). Не путать с deadline/
+   * deadlineWeek — те по-прежнему считаются только от deadline (раздел 14).
+   */
+  updatedAt: Date;
+  /** Недель прошло с updatedAt — для визуальной подсветки "давно не трогали". */
+  staleWeeks: number;
 };
 
 export type TableFilters = {
@@ -43,9 +54,14 @@ export type TableFilters = {
 };
 
 export type TableSort = {
-  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment";
+  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt";
   sortDir?: "asc" | "desc";
 };
+
+function weeksSince(date: Date, now: Date = new Date()): number {
+  const ms = now.getTime() - date.getTime();
+  return Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000)));
+}
 
 export async function loadTableRows(): Promise<TableRow[]> {
   const [tracks, tasks, vesselOptions] = await Promise.all([
@@ -87,8 +103,12 @@ export async function loadTableRows(): Promise<TableRow[]> {
     deadlineWeek: null,
     statusId: t.statusId,
     statusName: t.status?.name ?? null,
+    statusColor: t.status?.color ?? null,
     operFlag: t.operFlag,
     comment: null,
+    cost: null,
+    updatedAt: t.updatedAt,
+    staleWeeks: weeksSince(t.updatedAt),
   }));
 
   const taskRows: TableRow[] = tasks.map((t) => ({
@@ -107,8 +127,12 @@ export async function loadTableRows(): Promise<TableRow[]> {
     deadlineWeek: deadlineWeek(t.deadline),
     statusId: t.statusId,
     statusName: t.status?.name ?? null,
+    statusColor: t.status?.color ?? null,
     operFlag: t.operFlag,
     comment: t.comment,
+    cost: null,
+    updatedAt: t.updatedAt,
+    staleWeeks: weeksSince(t.updatedAt),
   }));
 
   const vesselRows: TableRow[] = vesselOptions.map((v) => ({
@@ -127,8 +151,12 @@ export async function loadTableRows(): Promise<TableRow[]> {
     deadlineWeek: null,
     statusId: v.statusId,
     statusName: v.status?.name ?? null,
+    statusColor: v.status?.color ?? null,
     operFlag: false,
     comment: v.comment,
+    cost: v.cost,
+    updatedAt: v.updatedAt,
+    staleWeeks: weeksSince(v.updatedAt),
   }));
 
   return [...trackRows, ...taskRows, ...vesselRows];
@@ -168,6 +196,8 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
         return r.ownerName ?? "";
       case "segment":
         return r.segmentName ?? "";
+      case "updatedAt":
+        return r.updatedAt.getTime();
       default:
         return "";
     }

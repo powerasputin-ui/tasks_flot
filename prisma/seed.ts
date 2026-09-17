@@ -16,8 +16,14 @@ const SEGMENTS = [
 // Раздел 9.
 const ATTRACTIVENESS = ["ВЫСОКАЯ", "ВЫШЕ СРЕДНЕГО", "СРЕДНЯЯ", "НИЗКАЯ"];
 
-// Раздел 10.
-const STATUSES = ["Не начато", "В работе", "Завершено", "На стопе", "Не актуально"];
+// Раздел 10. Цвета — оформление (не бизнес-значение), подобраны в стиле раздела 78.
+const STATUSES: Array<{ name: string; color: string }> = [
+  { name: "Не начато", color: "#9CA3AF" },
+  { name: "В работе", color: "#2563EB" },
+  { name: "Завершено", color: "#16A34A" },
+  { name: "На стопе", color: "#DC2626" },
+  { name: "Не актуально", color: "#A1A1AA" },
+];
 
 async function main() {
   for (const [i, name] of SEGMENTS.entries()) {
@@ -36,11 +42,11 @@ async function main() {
     });
   }
 
-  for (const [i, name] of STATUSES.entries()) {
+  for (const [i, s] of STATUSES.entries()) {
     await prisma.status.upsert({
-      where: { name },
-      update: {},
-      create: { name, sortOrder: i },
+      where: { name: s.name },
+      update: { color: s.color },
+      create: { name: s.name, color: s.color, sortOrder: i },
     });
   }
 

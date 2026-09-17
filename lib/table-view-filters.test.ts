@@ -18,8 +18,12 @@ function row(overrides: Partial<TableRow>): TableRow {
     deadlineWeek: null,
     statusId: "status-1",
     statusName: "В работе",
+    statusColor: "#2563EB",
     operFlag: false,
     comment: null,
+    cost: null,
+    updatedAt: new Date("2026-01-01"),
+    staleWeeks: 0,
     ...overrides,
   };
 }
@@ -38,6 +42,17 @@ describe("applyTableFilters (раздел 41 ТЗ)", () => {
   it("фильтрует по типу записи", () => {
     const rows = [row({ id: "1", type: "TRACK" }), row({ id: "2", type: "TASK" })];
     expect(applyTableFilters(rows, { type: "TASK" })).toHaveLength(1);
+  });
+});
+
+describe("staleWeeks (визуальная подсветка «давно не обновлялось», по запросу заказчика)", () => {
+  it("сортирует по дате последнего обновления (полю «Дата»)", () => {
+    const rows = [
+      row({ id: "1", updatedAt: new Date("2026-08-01") }),
+      row({ id: "2", updatedAt: new Date("2026-01-01") }),
+    ];
+    const sorted = applyTableSort(rows, { sortBy: "updatedAt", sortDir: "asc" });
+    expect(sorted.map((r) => r.id)).toEqual(["2", "1"]);
   });
 });
 
