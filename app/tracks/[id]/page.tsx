@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 type Ref = { id: string; name: string };
 
@@ -46,28 +46,33 @@ type AuditEvent = {
 };
 
 type UserRef = { id: string; name: string; role: string };
+type Me = { id: string; role: string } | null;
 
 export default function TrackDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const [track, setTrack] = useState<Track | null>(null);
   const [statuses, setStatuses] = useState<Ref[]>([]);
+  const [attractiveness, setAttractiveness] = useState<Ref[]>([]);
   const [users, setUsers] = useState<UserRef[]>([]);
-  const [me, setMe] = useState<{ role: string } | null>(null);
+  const [me, setMe] = useState<Me>(null);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [trackRes, statusesRes, auditRes, usersRes, meRes] = await Promise.all([
+    const [trackRes, statusesRes, attrRes, auditRes, usersRes, meRes] = await Promise.all([
       fetch(`/api/tracks/${params.id}`),
       fetch("/api/statuses"),
+      fetch("/api/attractiveness"),
       fetch(`/api/audit?entityType=Track&entityId=${params.id}`),
       fetch("/api/users"),
       fetch("/api/auth/me"),
     ]);
     if (trackRes.ok) setTrack((await trackRes.json()).track);
     if (statusesRes.ok) setStatuses((await statusesRes.json()).statuses);
+    if (attrRes.ok) setAttractiveness((await attrRes.json()).attractiveness);
     if (auditRes.ok) setHistory((await auditRes.json()).events);
     if (usersRes.ok) setUsers((await usersRes.json()).users);
     if (meRes.ok) setMe((await meRes.json()).user);
@@ -106,6 +111,39 @@ export default function TrackDetailPage() {
     load();
   }
 
+  async function archiveTrack() {
+    if (!confirm("Архивировать трек? Он перестанет отображаться в таблице.")) return;
+    setError(null);
+    const res = await fetch(`/api/tracks/${params.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setError("Не удалось архивировать трек. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    router.push("/tracks");
+  }
+
+  async function archiveTask(taskId: string) {
+    if (!confirm("Архивировать задачу?")) return;
+    setError(null);
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    if (!res.ok) {
+      setError("Не удалось архивировать задачу. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
+  async function archiveVesselOption(id: string) {
+    if (!confirm("Архивировать вариант судна?")) return;
+    setError(null);
+    const res = await fetch(`/api/vessel-options/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setError("Не удалось архивировать вариант судна. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-6">
@@ -117,11 +155,22 @@ export default function TrackDetailPage() {
   }
   if (!track) return <div className="mx-auto max-w-5xl px-6 py-10 text-[13px] text-neutral-500">Трек не найден.</div>;
 
+  const isResponsible = me?.role === "RESPONSIBLE";
+  const ownsTrack = isResponsible && track.owner?.id === me?.id;
+  const canCreateChildren = isResponsible; // раздел 35: Ответственный создаёт Task/VesselOption
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
-      <div className="animate-fade-in">
-        <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">{track.name}</h1>
-        {track.description && <p className="mt-1 text-[13px] text-neutral-500">{track.description}</p>}
+      <div className="animate-fade-in flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">{track.name}</h1>
+          {track.description && <p className="mt-1 text-[13px] text-neutral-500">{track.description}</p>}
+        </div>
+        {ownsTrack && (
+          <button onClick={archiveTrack} className="btn-ghost shrink-0 text-[var(--danger)]">
+            Архивировать трек
+          </button>
+        )}
       </div>
 
       <div className="surface animate-fade-in mt-4 grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
@@ -162,10 +211,21 @@ export default function TrackDetailPage() {
         ) : (
           <ul className="divide-y divide-[var(--border)]">
             {track.tasks.map((t) => (
-              <li key={t.id} className="row-hover -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
+              <li key={t.id} className="row-hover group -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-neutral-800">{t.title}</span>
-                  <span className="shrink-0 text-neutral-500">{t.status?.name ?? "—"}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-neutral-500">{t.status?.name ?? "—"}</span>
+                    {isResponsible && t.owner?.id === me?.id && (
+                      <button
+                        onClick={() => archiveTask(t.id)}
+                        className="text-neutral-300 opacity-0 transition-opacity hover:text-[var(--danger)] group-hover:opacity-100"
+                        title="Архивировать задачу"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-0.5 text-[12px] text-neutral-400">
                   {t.owner?.name ?? "Без ответственного"} ·{" "}
@@ -175,6 +235,9 @@ export default function TrackDetailPage() {
             ))}
           </ul>
         )}
+        {canCreateChildren && (
+          <AddTaskForm trackId={track.id} statuses={statuses} users={users} onCreated={load} />
+        )}
       </Section>
 
       <Section title="Варианты судов">
@@ -183,10 +246,21 @@ export default function TrackDetailPage() {
         ) : (
           <ul className="divide-y divide-[var(--border)]">
             {track.vesselOptions.map((v) => (
-              <li key={v.id} className="row-hover -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
+              <li key={v.id} className="row-hover group -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-neutral-800">{v.name}</span>
-                  <span className="shrink-0 text-neutral-500">{v.status?.name ?? "—"}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-neutral-500">{v.status?.name ?? "—"}</span>
+                    {ownsTrack && (
+                      <button
+                        onClick={() => archiveVesselOption(v.id)}
+                        className="text-neutral-300 opacity-0 transition-opacity hover:text-[var(--danger)] group-hover:opacity-100"
+                        title="Архивировать вариант судна"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-0.5 text-[12px] text-neutral-400">
                   {v.cost ?? "стоимость не указана"} · {v.attractiveness?.name ?? "—"}
@@ -194,6 +268,9 @@ export default function TrackDetailPage() {
               </li>
             ))}
           </ul>
+        )}
+        {canCreateChildren && (
+          <AddVesselOptionForm trackId={track.id} statuses={statuses} attractiveness={attractiveness} onCreated={load} />
         )}
       </Section>
 
@@ -217,6 +294,209 @@ export default function TrackDetailPage() {
           </ul>
         )}
       </Section>
+    </div>
+  );
+}
+
+function AddTaskForm({
+  trackId,
+  statuses,
+  users,
+  onCreated,
+}: {
+  trackId: string;
+  statuses: Ref[];
+  users: UserRef[];
+  onCreated: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [statusId, setStatusId] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    if (!title.trim()) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trackId,
+          title: title.trim(),
+          deadline: deadline || null,
+          statusId: statusId || null,
+          ownerId: ownerId || null,
+        }),
+      });
+      if (!res.ok) {
+        setErr("Не удалось сохранить изменения. Данные не потеряны. Попробуйте ещё раз.");
+        return;
+      }
+      setTitle("");
+      setDeadline("");
+      setStatusId("");
+      setOwnerId("");
+      setOpen(false);
+      onCreated();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="btn-ghost mt-3">
+        + Задача
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-[var(--border)] p-3 animate-fade-in">
+      <input
+        autoFocus
+        placeholder="Название задачи"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="input mb-2 w-full"
+      />
+      <div className="mb-2 flex flex-wrap gap-2">
+        <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input" />
+        <select value={statusId} onChange={(e) => setStatusId(e.target.value)} className="select">
+          <option value="">Статус —</option>
+          {statuses.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className="select">
+          <option value="">Без ответственного</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {err && <p className="mb-2 text-[13px] text-[var(--danger)]">{err}</p>}
+      <div className="flex gap-2">
+        <button onClick={submit} disabled={submitting || !title.trim()} className="btn-primary">
+          {submitting ? "Сохранение…" : "Добавить"}
+        </button>
+        <button onClick={() => setOpen(false)} className="btn-ghost">
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AddVesselOptionForm({
+  trackId,
+  statuses,
+  attractiveness,
+  onCreated,
+}: {
+  trackId: string;
+  statuses: Ref[];
+  attractiveness: Ref[];
+  onCreated: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [cost, setCost] = useState("");
+  const [statusId, setStatusId] = useState("");
+  const [attractivenessId, setAttractivenessId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    if (!name.trim()) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/vessel-options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trackId,
+          name: name.trim(),
+          cost: cost || null,
+          statusId: statusId || null,
+          attractivenessId: attractivenessId || null,
+        }),
+      });
+      if (!res.ok) {
+        setErr("Не удалось сохранить изменения. Данные не потеряны. Попробуйте ещё раз.");
+        return;
+      }
+      setName("");
+      setCost("");
+      setStatusId("");
+      setAttractivenessId("");
+      setOpen(false);
+      onCreated();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="btn-ghost mt-3">
+        + Судно
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-[var(--border)] p-3 animate-fade-in">
+      <input
+        autoFocus
+        placeholder="Название судна"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="input mb-2 w-full"
+      />
+      <div className="mb-2 flex flex-wrap gap-2">
+        <input
+          placeholder="Оценка стоимости (текст, напр. «10 млн.$»)"
+          value={cost}
+          onChange={(e) => setCost(e.target.value)}
+          className="input w-56"
+        />
+        <select value={attractivenessId} onChange={(e) => setAttractivenessId(e.target.value)} className="select">
+          <option value="">Потребность —</option>
+          {attractiveness.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        <select value={statusId} onChange={(e) => setStatusId(e.target.value)} className="select">
+          <option value="">Статус —</option>
+          {statuses.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {err && <p className="mb-2 text-[13px] text-[var(--danger)]">{err}</p>}
+      <div className="flex gap-2">
+        <button onClick={submit} disabled={submitting || !name.trim()} className="btn-primary">
+          {submitting ? "Сохранение…" : "Добавить"}
+        </button>
+        <button onClick={() => setOpen(false)} className="btn-ghost">
+          Отмена
+        </button>
+      </div>
     </div>
   );
 }
