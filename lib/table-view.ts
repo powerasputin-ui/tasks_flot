@@ -19,6 +19,7 @@ export type TableRow = {
   name: string; // Название (для Track/VesselOption) или title (для Task)
   attractivenessId: string | null;
   attractivenessName: string | null;
+  attractivenessColor: string | null;
   ownerId: string | null;
   ownerName: string | null;
   deadline: Date | null;
@@ -97,6 +98,7 @@ export async function loadTableRows(): Promise<TableRow[]> {
     name: t.name,
     attractivenessId: t.attractivenessId,
     attractivenessName: t.attractiveness?.name ?? null,
+    attractivenessColor: t.attractiveness?.color ?? null,
     ownerId: t.ownerId,
     ownerName: t.owner?.name ?? null,
     deadline: null, // Track не имеет deadline в модели ТЗ (раздел 11) — см. ANALYSIS.md UNRESOLVED #1
@@ -121,6 +123,7 @@ export async function loadTableRows(): Promise<TableRow[]> {
     name: t.title,
     attractivenessId: null, // Task не имеет привлекательности в модели ТЗ (раздел 12)
     attractivenessName: null,
+    attractivenessColor: null,
     ownerId: t.ownerId,
     ownerName: t.owner?.name ?? null,
     deadline: t.deadline,
@@ -145,6 +148,7 @@ export async function loadTableRows(): Promise<TableRow[]> {
     name: v.name,
     attractivenessId: v.attractivenessId,
     attractivenessName: v.attractiveness?.name ?? null,
+    attractivenessColor: v.attractiveness?.color ?? null,
     ownerId: null, // VesselOption не имеет ownerId (раздел 15, UNRESOLVED #2)
     ownerName: null,
     deadline: null,

@@ -55,6 +55,7 @@ model Segment {
 model Attractiveness {
   id        String   @id @default(cuid())
   name      String   @unique
+  color     String?
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())

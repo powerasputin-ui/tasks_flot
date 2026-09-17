@@ -14,6 +14,7 @@ type TableRow = {
   name: string;
   cost: string | null;
   attractivenessName: string | null;
+  attractivenessColor: string | null;
   ownerName: string | null;
   deadline: string | null;
   deadlineWeek: number | null;
@@ -24,6 +25,9 @@ type TableRow = {
   operFlag: boolean;
   comment: string | null;
 };
+
+/** По запросу заказчика данные в этих колонках центрируются. */
+const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
 
 /** Детерминированный цвет по строке (для Ответственного, у которого нет своего поля color в БД). */
 function stringToColor(input: string): string {
@@ -260,7 +264,20 @@ export function TableView() {
       case "cost":
         return row.cost ?? "—";
       case "attractiveness":
-        return row.attractivenessName ?? "—";
+        return row.attractivenessName ? (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium"
+            style={{
+              background: `${row.attractivenessColor ?? "#9CA3AF"}1a`,
+              color: row.attractivenessColor ?? "#6B7280",
+            }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: row.attractivenessColor ?? "#9CA3AF" }} />
+            {row.attractivenessName}
+          </span>
+        ) : (
+          "—"
+        );
       case "name":
         return row.name;
       case "deadline":
@@ -437,8 +454,8 @@ export function TableView() {
                     <td
                       key={col.key}
                       className={`truncate px-4 py-2.5 text-neutral-700 ${
-                        col.key === "deadline" && isOverdue(row) ? "font-medium text-[var(--danger)]" : ""
-                      }`}
+                        CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""
+                      } ${col.key === "deadline" && isOverdue(row) ? "font-medium text-[var(--danger)]" : ""}`}
                       title={
                         (col.key === "comment" && row.comment) || (col.key === "name" && row.name) || undefined
                       }
@@ -568,7 +585,11 @@ function ResizableTh({
   }
 
   return (
-    <th ref={thRef} className="relative px-4 py-2.5" style={{ width: `${(column.width / totalWeight) * 100}%` }}>
+    <th
+      ref={thRef}
+      className={`relative px-4 py-2.5 ${CENTERED_COLUMNS.includes(column.key) ? "text-center" : ""}`}
+      style={{ width: `${(column.width / totalWeight) * 100}%` }}
+    >
       {column.label}
       <span
         onMouseDown={onMouseDown}
