@@ -54,7 +54,7 @@ export type TableFilters = {
 };
 
 export type TableSort = {
-  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt";
+  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt" | "track";
   sortDir?: "asc" | "desc";
 };
 
@@ -196,6 +196,8 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
         return r.ownerName ?? "";
       case "segment":
         return r.segmentName ?? "";
+      case "track":
+        return r.trackName;
       case "updatedAt":
         return r.updatedAt.getTime();
       default:

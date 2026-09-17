@@ -33,22 +33,15 @@ function stringToColor(input: string): string {
   return `hsl(${hue}, 55%, 45%)`;
 }
 
-const TYPE_LABEL: Record<TableRow["type"], string> = {
-  TRACK: "Трек",
-  TASK: "Задача",
-  VESSEL_OPTION: "Судно",
-};
-
 /**
  * Реестр всех возможных колонок таблицы. По запросу заказчика колонки должны
  * быть настраиваемые: показать/скрыть, переименовать, изменить порядок и ширину.
- * Набор и порядок по умолчанию — как назвал заказчик (близко к исходному Excel),
- * "Тип"/"Неделя"/"Опер" оставлены доступными, но скрыты по умолчанию.
+ * "Тип" (Трек/Задача/Судно) сознательно убран из колонок — различение по типу
+ * теперь только через фильтр "Тип" над таблицей, не как отдельный столбец.
  */
 type ColumnKey =
   | "segment"
   | "track"
-  | "type"
   | "cost"
   | "attractiveness"
   | "updatedAt"
@@ -65,7 +58,6 @@ type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: nu
 const DEFAULT_LABEL: Record<ColumnKey, string> = {
   segment: "Сегмент",
   track: "Трек",
-  type: "Тип",
   cost: "Оценка $",
   attractiveness: "Потребность",
   updatedAt: "Дата",
@@ -89,7 +81,6 @@ const ALL_KEYS: ColumnKey[] = [
   "owner",
   "status",
   "comment",
-  "type",
   "deadlineWeek",
   "operFlag",
 ];
@@ -97,7 +88,6 @@ const ALL_KEYS: ColumnKey[] = [
 const WIDTH: Record<ColumnKey, number> = {
   segment: 140,
   track: 200,
-  type: 90,
   cost: 110,
   attractiveness: 130,
   updatedAt: 110,
@@ -122,7 +112,6 @@ function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
 const DEFAULT_COLUMNS: ColumnConfig[] = buildColumns([
   "segment",
   "track",
-  "type",
   "name",
   "cost",
   "attractiveness",
@@ -133,7 +122,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = buildColumns([
   "comment",
 ]);
 
-const STORAGE_KEY = "tasksflot.tableColumns.v3";
+const STORAGE_KEY = "tasksflot.tableColumns.v4";
 
 function loadColumns(): ColumnConfig[] {
   try {
@@ -149,14 +138,25 @@ function loadColumns(): ColumnConfig[] {
 
 const SORT_OPTIONS = [
   { value: "", label: "Без сортировки" },
+  { value: "segment", label: "Сегмент" },
+  { value: "track", label: "Трек" },
+  { value: "attractiveness", label: "Потребность" },
+  { value: "owner", label: "Ответственный" },
+  { value: "status", label: "Статус" },
   { value: "deadline", label: "Срок" },
   { value: "deadlineWeek", label: "Неделя" },
   { value: "updatedAt", label: "Дата" },
-  { value: "status", label: "Статус" },
-  { value: "attractiveness", label: "Потребность" },
-  { value: "owner", label: "Ответственный" },
-  { value: "segment", label: "Сегмент" },
 ];
+
+function isoWeekOf(dateStr: string): number {
+  const d = new Date(dateStr);
+  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNr = (target.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const diff = target.getTime() - firstThursday.getTime();
+  return 1 + Math.round(diff / (7 * 24 * 60 * 60 * 1000));
+}
 
 export function TableView() {
   const [rows, setRows] = useState<TableRow[]>([]);
@@ -176,6 +176,8 @@ export function TableView() {
   const [operFlag, setOperFlag] = useState("");
   const [sortBy, setSortBy] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [deadlineFrom, setDeadlineFrom] = useState("");
+  const [deadlineTo, setDeadlineTo] = useState("");
 
   useEffect(() => {
     setColumns(loadColumns());
@@ -212,6 +214,8 @@ export function TableView() {
     if (attractivenessId) params.set("attractivenessId", attractivenessId);
     if (ownerId) params.set("ownerId", ownerId);
     if (operFlag) params.set("operFlag", operFlag);
+    if (deadlineFrom) params.set("deadlineFrom", deadlineFrom);
+    if (deadlineTo) params.set("deadlineTo", deadlineTo);
     if (sortBy) {
       params.set("sortBy", sortBy);
       params.set("sortDir", sortDir);
@@ -221,7 +225,20 @@ export function TableView() {
       .then((r) => r.json())
       .then((d) => setRows(d.rows ?? []))
       .finally(() => setLoading(false));
-  }, [type, segmentId, statusId, attractivenessId, ownerId, operFlag, sortBy, sortDir]);
+  }, [type, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir]);
+
+  /** Раздел 22/50-стиль сигнал по запросу заказчика: заполненность по неделям в выбранном диапазоне дат. */
+  const weekOccupancy = useMemo(() => {
+    if (!deadlineFrom && !deadlineTo) return [];
+    const counts = new Map<number, number>();
+    for (const r of rows) {
+      if (!r.deadline) continue;
+      const week = isoWeekOf(r.deadline);
+      counts.set(week, (counts.get(week) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => a[0] - b[0]);
+  }, [rows, deadlineFrom, deadlineTo]);
+  const maxWeekCount = Math.max(1, ...weekOccupancy.map(([, c]) => c));
 
   const isOverdue = useMemo(
     () => (row: TableRow) => {
@@ -243,12 +260,6 @@ export function TableView() {
           <Link href={`/tracks/${row.trackId}`} className="link-subtle">
             {row.trackName}
           </Link>
-        );
-      case "type":
-        return (
-          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">
-            {TYPE_LABEL[row.type]}
-          </span>
         );
       case "cost":
         return row.cost ?? "—";
@@ -309,7 +320,7 @@ export function TableView() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="w-full px-6 py-6">
       <div className="surface mb-4 flex flex-wrap items-end gap-3 p-4">
         <div>
           <label className="mb-1 block text-[11px] font-medium text-neutral-500">Тип</label>
@@ -331,6 +342,26 @@ export function TableView() {
             <option value="true">Да</option>
             <option value="false">Нет</option>
           </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Срок: с</label>
+          <div className="flex items-center gap-1">
+            <input type="date" value={deadlineFrom} onChange={(e) => setDeadlineFrom(e.target.value)} className="input" />
+            <span className="text-neutral-400">по</span>
+            <input type="date" value={deadlineTo} onChange={(e) => setDeadlineTo(e.target.value)} className="input" />
+            {(deadlineFrom || deadlineTo) && (
+              <button
+                onClick={() => {
+                  setDeadlineFrom("");
+                  setDeadlineTo("");
+                }}
+                className="btn-ghost px-2 py-1.5"
+                title="Сбросить диапазон"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
         <div>
           <label className="mb-1 block text-[11px] font-medium text-neutral-500">Сортировка</label>
@@ -359,6 +390,27 @@ export function TableView() {
       </div>
 
       {configOpen && <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
+
+      {weekOccupancy.length > 0 && (
+        <div className="surface animate-fade-in mb-4 p-4">
+          <p className="mb-2 text-[12px] font-medium text-neutral-600">
+            Заполненность по неделям в выбранном диапазоне срока (задачи с deadline).
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            {weekOccupancy.map(([week, count]) => (
+              <div key={week} className="flex flex-col items-center gap-1">
+                <div
+                  className="w-6 rounded-t bg-neutral-900"
+                  style={{ height: `${8 + (count / maxWeekCount) * 48}px` }}
+                  title={`Неделя ${week}: ${count}`}
+                />
+                <span className="text-[10px] text-neutral-500">{week}</span>
+                <span className="text-[10px] font-medium text-neutral-700">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="surface overflow-x-auto">
         <table className="text-[13px]" style={{ width: visibleColumns.reduce((s, c) => s + c.width, 0), tableLayout: "fixed" }}>
