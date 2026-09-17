@@ -44,7 +44,6 @@ type ColumnKey =
   | "track"
   | "cost"
   | "attractiveness"
-  | "updatedAt"
   | "name"
   | "deadline"
   | "deadlineWeek"
@@ -53,6 +52,7 @@ type ColumnKey =
   | "operFlag"
   | "comment";
 
+/** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально этим весам. */
 type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number };
 
 const DEFAULT_LABEL: Record<ColumnKey, string> = {
@@ -60,7 +60,6 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
   track: "Трек",
   cost: "Оценка $",
   attractiveness: "Потребность",
-  updatedAt: "Дата",
   name: "Задача",
   deadline: "Срок",
   deadlineWeek: "Неделя",
@@ -75,7 +74,6 @@ const ALL_KEYS: ColumnKey[] = [
   "track",
   "cost",
   "attractiveness",
-  "updatedAt",
   "name",
   "deadline",
   "owner",
@@ -90,7 +88,6 @@ const WIDTH: Record<ColumnKey, number> = {
   track: 200,
   cost: 110,
   attractiveness: 130,
-  updatedAt: 110,
   name: 260,
   deadline: 110,
   deadlineWeek: 80,
@@ -118,11 +115,10 @@ const DEFAULT_COLUMNS: ColumnConfig[] = buildColumns([
   "owner",
   "deadline",
   "status",
-  "updatedAt",
   "comment",
 ]);
 
-const STORAGE_KEY = "tasksflot.tableColumns.v4";
+const STORAGE_KEY = "tasksflot.tableColumns.v5";
 
 function loadColumns(): ColumnConfig[] {
   try {
@@ -145,7 +141,6 @@ const SORT_OPTIONS = [
   { value: "status", label: "Статус" },
   { value: "deadline", label: "Срок" },
   { value: "deadlineWeek", label: "Неделя" },
-  { value: "updatedAt", label: "Дата" },
 ];
 
 function isoWeekOf(dateStr: string): number {
@@ -250,6 +245,7 @@ export function TableView() {
   );
 
   const visibleColumns = columns.filter((c) => c.visible);
+  const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
 
   function renderCell(row: TableRow, col: ColumnConfig) {
     switch (col.key) {
@@ -265,18 +261,6 @@ export function TableView() {
         return row.cost ?? "—";
       case "attractiveness":
         return row.attractivenessName ?? "—";
-      case "updatedAt":
-        return (
-          <span className="inline-flex items-center gap-1.5">
-            {row.staleWeeks >= 1 && (
-              <span
-                className="h-1.5 w-1.5 rounded-full bg-amber-400"
-                title={`Не обновлялось ${row.staleWeeks} нед.`}
-              />
-            )}
-            {new Date(row.updatedAt).toLocaleDateString("ru-RU")}
-          </span>
-        );
       case "name":
         return row.name;
       case "deadline":
@@ -412,17 +396,22 @@ export function TableView() {
         </div>
       )}
 
-      <div className="surface overflow-x-auto">
-        <table className="text-[13px]" style={{ width: visibleColumns.reduce((s, c) => s + c.width, 0), tableLayout: "fixed" }}>
+      <div className="surface overflow-hidden">
+        <table className="w-full text-[13px]" style={{ tableLayout: "fixed" }}>
           <colgroup>
             {visibleColumns.map((c) => (
-              <col key={c.key} style={{ width: c.width }} />
+              <col key={c.key} style={{ width: `${(c.width / totalWeight) * 100}%` }} />
             ))}
           </colgroup>
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-[11px] font-medium uppercase tracking-wide text-neutral-400">
               {visibleColumns.map((col) => (
-                <ResizableTh key={col.key} column={col} onResize={(w) => saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: w } : c)))} />
+                <ResizableTh
+                  key={col.key}
+                  column={col}
+                  totalWeight={totalWeight}
+                  onResize={(w) => saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: w } : c)))}
+                />
               ))}
             </tr>
           </thead>
@@ -482,6 +471,8 @@ function ColumnConfigPanel({
   onChange: (cols: ColumnConfig[]) => void;
   onReset: () => void;
 }) {
+  const visibleTotal = columns.filter((c) => c.visible).reduce((s, c) => s + c.width, 0) || 1;
+
   function update(key: ColumnKey, patch: Partial<ColumnConfig>) {
     onChange(columns.map((c) => (c.key === key ? { ...c, ...patch } : c)));
   }
@@ -519,7 +510,9 @@ function ColumnConfigPanel({
               onChange={(e) => update(col.key, { label: e.target.value })}
               className="input w-40 py-1"
             />
-            <span className="text-[11px] text-neutral-400">{col.width}px</span>
+            <span className="w-10 text-right text-[11px] text-neutral-400">
+              {col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%
+            </span>
             <div className="ml-auto flex gap-1">
               <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-ghost px-2 py-1 disabled:opacity-30">
                 ↑
@@ -539,18 +532,32 @@ function ColumnConfigPanel({
   );
 }
 
-function ResizableTh({ column, onResize }: { column: ColumnConfig; onResize: (width: number) => void }) {
+function ResizableTh({
+  column,
+  totalWeight,
+  onResize,
+}: {
+  column: ColumnConfig;
+  totalWeight: number;
+  onResize: (width: number) => void;
+}) {
+  const thRef = useRef<HTMLTableCellElement>(null);
   const startX = useRef(0);
-  const startWidth = useRef(column.width);
+  const startPixelWidth = useRef(0);
+  const startWeight = useRef(column.width);
 
   function onMouseDown(e: React.MouseEvent) {
     e.preventDefault();
     startX.current = e.clientX;
-    startWidth.current = column.width;
+    startPixelWidth.current = thRef.current?.getBoundingClientRect().width ?? 100;
+    startWeight.current = column.width;
 
+    // Перетаскивание меняет вес колонки пропорционально текущей отрисованной ширине,
+    // так что все колонки продолжают растягиваться на 100% относительно друг друга.
     function onMove(ev: MouseEvent) {
-      const next = Math.max(60, startWidth.current + (ev.clientX - startX.current));
-      onResize(next);
+      const nextPixelWidth = Math.max(60, startPixelWidth.current + (ev.clientX - startX.current));
+      const nextWeight = Math.max(20, startWeight.current * (nextPixelWidth / startPixelWidth.current));
+      onResize(Math.round(nextWeight));
     }
     function onUp() {
       window.removeEventListener("mousemove", onMove);
@@ -561,7 +568,7 @@ function ResizableTh({ column, onResize }: { column: ColumnConfig; onResize: (wi
   }
 
   return (
-    <th className="relative px-4 py-2.5">
+    <th ref={thRef} className="relative px-4 py-2.5" style={{ width: `${(column.width / totalWeight) * 100}%` }}>
       {column.label}
       <span
         onMouseDown={onMouseDown}

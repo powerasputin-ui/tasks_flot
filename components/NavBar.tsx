@@ -42,7 +42,7 @@ export function NavBar() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-white/80 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+      <div className="flex w-full items-center justify-between px-6 py-3">
         <div className="flex items-center gap-8">
           <Link href="/tracks" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-neutral-900">
             <Image src="/logo.svg" alt="" width={44} height={44} className="shrink-0" />
