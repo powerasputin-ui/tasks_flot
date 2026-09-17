@@ -51,6 +51,17 @@ export function canSetOperFlag(role: UserRole): boolean {
   return role === "CURATOR";
 }
 
+/**
+ * Подтверждено бизнес-заказчиком (не угадано): Куратор может назначать,
+ * переназначать и снимать владельца (ownerId) Track/Task независимо от того,
+ * назначен ли уже владелец — это решает тупик с 25 треками из Excel-импорта,
+ * у которых ownerId=NULL и которые иначе не мог бы отредактировать никто.
+ * См. ANALYSIS.md, ранее числилось в UNRESOLVED BUSINESS RULE (раздел 39 ТЗ).
+ */
+export function canManageOwnership(role: UserRole): boolean {
+  return role === "CURATOR";
+}
+
 export function canAccessManagerViews(role: UserRole): boolean {
   // Раздел 37: Dashboard/Digest/Export — доступ Руководителя (и Куратора/Ответственного тоже можно читать).
   return role === "MANAGER" || role === "CURATOR";

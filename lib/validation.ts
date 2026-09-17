@@ -43,6 +43,10 @@ export const operFlagSchema = z.object({
   operFlag: z.boolean(),
 });
 
+export const ownerIdSchema = z.object({
+  ownerId: z.string().nullable(),
+});
+
 export const referenceItemSchema = z.object({
   name: z.string().min(1),
   color: z.string().nullable().optional(),

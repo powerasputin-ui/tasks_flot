@@ -45,24 +45,32 @@ type AuditEvent = {
   actor: { name: string } | null;
 };
 
+type UserRef = { id: string; name: string; role: string };
+
 export default function TrackDetailPage() {
   const params = useParams<{ id: string }>();
   const [track, setTrack] = useState<Track | null>(null);
   const [statuses, setStatuses] = useState<Ref[]>([]);
+  const [users, setUsers] = useState<UserRef[]>([]);
+  const [me, setMe] = useState<{ role: string } | null>(null);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [trackRes, statusesRes, auditRes] = await Promise.all([
+    const [trackRes, statusesRes, auditRes, usersRes, meRes] = await Promise.all([
       fetch(`/api/tracks/${params.id}`),
       fetch("/api/statuses"),
       fetch(`/api/audit?entityType=Track&entityId=${params.id}`),
+      fetch("/api/users"),
+      fetch("/api/auth/me"),
     ]);
     if (trackRes.ok) setTrack((await trackRes.json()).track);
     if (statusesRes.ok) setStatuses((await statusesRes.json()).statuses);
     if (auditRes.ok) setHistory((await auditRes.json()).events);
+    if (usersRes.ok) setUsers((await usersRes.json()).users);
+    if (meRes.ok) setMe((await meRes.json()).user);
     setLoading(false);
   }, [params.id]);
 
@@ -84,6 +92,20 @@ export default function TrackDetailPage() {
     load();
   }
 
+  async function changeOwner(ownerId: string) {
+    setError(null);
+    const res = await fetch(`/api/tracks/${params.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerId: ownerId || null }),
+    });
+    if (!res.ok) {
+      setError("Не удалось сохранить изменения. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
   if (loading) return <div className="mx-auto max-w-5xl px-6 py-10 text-sm text-neutral-500">Загрузка…</div>;
   if (!track) return <div className="mx-auto max-w-5xl px-6 py-10 text-sm text-neutral-500">Трек не найден.</div>;
 
@@ -95,7 +117,24 @@ export default function TrackDetailPage() {
       <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl border border-neutral-200 bg-white p-4 sm:grid-cols-4">
         <Field label="Сегмент">{track.segment?.name ?? "—"}</Field>
         <Field label="Привлекательность">{track.attractiveness?.name ?? "—"}</Field>
-        <Field label="Ответственный">{track.owner?.name ?? "—"}</Field>
+        <Field label="Ответственный">
+          {me?.role === "CURATOR" ? (
+            <select
+              value={track.owner?.id ?? ""}
+              onChange={(e) => changeOwner(e.target.value)}
+              className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
+            >
+              <option value="">Без ответственного</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            track.owner?.name ?? "—"
+          )}
+        </Field>
         <Field label="Статус">
           <select
             value={track.statusId ?? ""}

@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ГШП Флот-Трекер
 
-## Getting Started
+Внутреннее корпоративное приложение для управления рабочими треками, задачами,
+вариантами судов и еженедельной отчётностью. Полное техническое задание — [TZ.md](./TZ.md),
+анализ исходных данных и зафиксированные бизнес-решения/открытые вопросы — [ANALYSIS.md](./ANALYSIS.md).
 
-First, run the development server:
+Текущий статус: **Phase 1 — Foundation + Data Core** (раздел 88 ТЗ).
+
+## Стек
+
+Next.js (App Router) + TypeScript + Prisma + PostgreSQL (Neon) + Tailwind CSS + Zod + Vitest.
+
+## Быстрый старт
 
 ```bash
+npm install
+npm run prisma:generate
+npm run prisma:migrate      # применить миграции к БД из DATABASE_URL
+npm run db:seed             # справочники (Segment/Status/Attractiveness) + стартовый Куратор
+npm run import:excel -- "source-data/Флот-приобретение и коммерция.xlsx"  # первичный импорт (раздел 52)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Скопируйте `.env.example` в `.env` и укажите реальный `DATABASE_URL` (Neon/любой PostgreSQL)
+и `AUTH_SECRET`. Для Neon через pooler-эндпоинт обязательны параметры
+`?sslmode=require&connect_timeout=30&pgbouncer=true` — без `pgbouncer=true` Prisma
+несовместим с PgBouncer в transaction-режиме, без `connect_timeout=30` первое
+подключение может обрываться на "холодном" старте compute.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Стартовый пользователь после `db:seed`: `curator@tasksflot.local` / `ChangeMe123!`
+(роль Куратор) — смените пароль или создайте реальные учётные записи через `/settings`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Тесты
 
-## Learn More
+```bash
+npm run test
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Структура
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+app/            — маршруты Next.js (App Router) и API-роуты (app/api/*)
+lib/            — бизнес-логика: auth, permissions, audit, deadline-week, table-view
+components/     — клиентские React-компоненты
+prisma/         — schema.prisma, миграции, seed.ts
+scripts/        — import-excel.ts (раздел 52-53 ТЗ)
+source-data/    — исходный Excel для первичной миграции (раздел 5; после импорта не источник истины)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Что входит в Phase 1, а что нет
 
-## Deploy on Vercel
+Входит (раздел 88): auth, роли, справочники, Track/Task/VesselOption, единая
+Table View с фильтрами/сортировкой, Audit Log, импорт Excel.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Сознательно не входит (Phase 2+): WeeklyUpdate, WeeklyDigest, Dashboard, Kanban,
+Comments, Notifications, AI, Canvas, Realtime, PPTX, SSO — см. TZ.md раздел 90-96.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Известные открытые вопросы
+
+См. [ANALYSIS.md](./ANALYSIS.md) — там же зафиксировано, какие решения уже
+подтверждены бизнес-заказчиком (например, право Куратора назначать/менять
+владельца Track/Task), а какие остаются `UNRESOLVED BUSINESS RULE`.

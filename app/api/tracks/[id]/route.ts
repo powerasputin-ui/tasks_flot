@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { canUpdateWorkEntity, canArchiveWorkEntity } from "@/lib/permissions";
-import { updateTrackSchema, operFlagSchema } from "@/lib/validation";
+import { canUpdateWorkEntity, canArchiveWorkEntity, canManageOwnership } from "@/lib/permissions";
+import { updateTrackSchema, operFlagSchema, ownerIdSchema } from "@/lib/validation";
 import { recordFieldChanges, recordAudit } from "@/lib/audit";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -64,6 +64,30 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       fieldName: "operFlag",
       before: String(existing.operFlag),
       after: String(updated.operFlag),
+    });
+    return NextResponse.json({ track: updated });
+  }
+
+  // Отдельная операция смены владельца — доступна Куратору всегда (подтверждённое
+  // бизнес-правило, см. lib/permissions.ts canManageOwnership и ANALYSIS.md), в том
+  // числе когда владелец ещё не назначен (импорт из Excel, раздел 38).
+  if (body && typeof body === "object" && "ownerId" in body && Object.keys(body).length === 1) {
+    const parsedOwner = ownerIdSchema.safeParse(body);
+    if (!parsedOwner.success) {
+      return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
+    }
+    if (!canManageOwnership(session.role)) {
+      return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+    }
+    const updated = await prisma.track.update({ where: { id }, data: { ownerId: parsedOwner.data.ownerId } });
+    await recordAudit({
+      entityType: "Track",
+      entityId: id,
+      actorId: session.userId,
+      action: "OWNER_CHANGE",
+      fieldName: "ownerId",
+      before: existing.ownerId,
+      after: updated.ownerId,
     });
     return NextResponse.json({ track: updated });
   }
