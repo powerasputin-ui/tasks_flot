@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -12,11 +13,7 @@ const ROLE_LABEL: Record<string, string> = {
   MANAGER: "Руководитель",
 };
 
-const NAV_ITEMS = [
-  { href: "/tracks", label: "Треки" },
-  { href: "/tasks", label: "Задачи" },
-  { href: "/vessel-options", label: "Варианты судов" },
-];
+const NAV_ITEMS = [{ href: "/tracks", label: "Треки" }];
 
 export function NavBar() {
   const pathname = usePathname();
@@ -41,13 +38,14 @@ export function NavBar() {
     router.refresh();
   }
 
-  const items = me?.role === "CURATOR" ? [...NAV_ITEMS, { href: "/settings", label: "Справочники" }] : NAV_ITEMS;
+  const items = me?.role === "CURATOR" ? [...NAV_ITEMS, { href: "/settings", label: "Настройки" }] : NAV_ITEMS;
 
   return (
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         <div className="flex items-center gap-8">
-          <Link href="/tracks" className="text-[13px] font-semibold tracking-tight text-neutral-900">
+          <Link href="/tracks" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-neutral-900">
+            <Image src="/logo.svg" alt="" width={44} height={44} className="shrink-0" />
             ГШП ФЛОТ-ТРЕКЕР
           </Link>
           <nav className="flex gap-1 text-[13px]">

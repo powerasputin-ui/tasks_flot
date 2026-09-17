@@ -52,8 +52,10 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
       <div className="animate-fade-in mb-6">
-        <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Справочники</h1>
-        <p className="mt-0.5 text-[13px] text-neutral-500">Разделы 8-10, 36 ТЗ. Управление доступно роли Куратор.</p>
+        <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Настройки</h1>
+        <p className="mt-0.5 text-[13px] text-neutral-500">
+          Справочники и пользователи (разделы 8-10, 34, 36 ТЗ). Управление доступно роли Куратор.
+        </p>
       </div>
       {forbidden && (
         <p className="animate-fade-in mb-4 rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">

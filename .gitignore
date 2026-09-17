@@ -39,6 +39,9 @@ yarn-error.log*
 # harness/internal
 .claude/scheduled_tasks.lock
 
+# source asset dropped at project root; served copy lives in public/logo.svg
+/logo.svg
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

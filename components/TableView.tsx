@@ -116,31 +116,34 @@ function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
 }
 
 /**
- * У каждого раздела (Треки/Задачи/Варианты судов) свой набор колонок по умолчанию —
- * это одна и та же модель данных (раздел 107-108), но Задачам не нужна стоимость/
- * потребность, а Судам не нужны срок/ответственный, поэтому виды не должны выглядеть
- * одинаково "из коробки". Каждый пользователь может дальше настроить это под себя.
+ * Единый экран (Треки/Задачи/Варианты судов больше не отдельные страницы —
+ * фильтруются через "Тип" в одной таблице, раздел 107-108: одна модель данных).
  */
-const DEFAULT_COLUMNS_BY_VIEW: Record<"all" | "TASK" | "VESSEL_OPTION", ColumnConfig[]> = {
-  all: buildColumns(["segment", "track", "type", "name", "attractiveness", "owner", "deadline", "status", "updatedAt", "comment"]),
-  TASK: buildColumns(["segment", "track", "name", "deadline", "owner", "status", "updatedAt", "comment"]),
-  VESSEL_OPTION: buildColumns(["segment", "track", "name", "cost", "attractiveness", "status", "updatedAt", "comment"]),
-};
+const DEFAULT_COLUMNS: ColumnConfig[] = buildColumns([
+  "segment",
+  "track",
+  "type",
+  "name",
+  "cost",
+  "attractiveness",
+  "owner",
+  "deadline",
+  "status",
+  "updatedAt",
+  "comment",
+]);
 
-function storageKeyFor(view: "all" | "TASK" | "VESSEL_OPTION") {
-  return `tasksflot.tableColumns.v2.${view}`;
-}
+const STORAGE_KEY = "tasksflot.tableColumns.v3";
 
-function loadColumns(view: "all" | "TASK" | "VESSEL_OPTION"): ColumnConfig[] {
-  const fallback = DEFAULT_COLUMNS_BY_VIEW[view];
+function loadColumns(): ColumnConfig[] {
   try {
-    const raw = localStorage.getItem(storageKeyFor(view));
-    if (!raw) return fallback;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_COLUMNS;
     const parsed = JSON.parse(raw) as ColumnConfig[];
     const known = new Set(parsed.map((c) => c.key));
-    return [...parsed, ...fallback.filter((c) => !known.has(c.key))];
+    return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
   } catch {
-    return fallback;
+    return DEFAULT_COLUMNS;
   }
 }
 
@@ -155,18 +158,18 @@ const SORT_OPTIONS = [
   { value: "segment", label: "Сегмент" },
 ];
 
-export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
+export function TableView() {
   const [rows, setRows] = useState<TableRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [segments, setSegments] = useState<Ref[]>([]);
   const [statuses, setStatuses] = useState<Ref[]>([]);
   const [attractiveness, setAttractiveness] = useState<Ref[]>([]);
   const [users, setUsers] = useState<Ref[]>([]);
-  const view = fixedType ?? "all";
-  const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS_BY_VIEW[view]);
+  const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [configOpen, setConfigOpen] = useState(false);
 
   const [segmentId, setSegmentId] = useState("");
+  const [type, setType] = useState<"" | TableRow["type"]>("");
   const [statusId, setStatusId] = useState("");
   const [attractivenessId, setAttractivenessId] = useState("");
   const [ownerId, setOwnerId] = useState("");
@@ -175,14 +178,13 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
-    setColumns(loadColumns(view));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+    setColumns(loadColumns());
+  }, []);
 
   function saveColumns(next: ColumnConfig[]) {
     setColumns(next);
     try {
-      localStorage.setItem(storageKeyFor(view), JSON.stringify(next));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
       // per-viewer удобство, не критично если недоступно (приватный режим и т.п.)
     }
@@ -204,7 +206,7 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (fixedType) params.set("type", fixedType);
+    if (type) params.set("type", type);
     if (segmentId) params.set("segmentId", segmentId);
     if (statusId) params.set("statusId", statusId);
     if (attractivenessId) params.set("attractivenessId", attractivenessId);
@@ -219,7 +221,7 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
       .then((r) => r.json())
       .then((d) => setRows(d.rows ?? []))
       .finally(() => setLoading(false));
-  }, [fixedType, segmentId, statusId, attractivenessId, ownerId, operFlag, sortBy, sortDir]);
+  }, [type, segmentId, statusId, attractivenessId, ownerId, operFlag, sortBy, sortDir]);
 
   const isOverdue = useMemo(
     () => (row: TableRow) => {
@@ -309,6 +311,15 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
   return (
     <div className="mx-auto max-w-7xl px-6 py-6">
       <div className="surface mb-4 flex flex-wrap items-end gap-3 p-4">
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Тип</label>
+          <select value={type} onChange={(e) => setType(e.target.value as typeof type)} className="select">
+            <option value="">Все</option>
+            <option value="TRACK">Трек</option>
+            <option value="TASK">Задача</option>
+            <option value="VESSEL_OPTION">Судно</option>
+          </select>
+        </div>
         <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={segments} />
         <Select label="Статус" value={statusId} onChange={setStatusId} options={statuses} />
         <Select label="Потребность" value={attractivenessId} onChange={setAttractivenessId} options={attractiveness} />
@@ -347,13 +358,7 @@ export function TableView({ fixedType }: { fixedType?: TableRow["type"] }) {
         </div>
       </div>
 
-      {configOpen && (
-        <ColumnConfigPanel
-          columns={columns}
-          onChange={saveColumns}
-          onReset={() => saveColumns(DEFAULT_COLUMNS_BY_VIEW[view])}
-        />
-      )}
+      {configOpen && <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
 
       <div className="surface overflow-x-auto">
         <table className="text-[13px]" style={{ width: visibleColumns.reduce((s, c) => s + c.width, 0), tableLayout: "fixed" }}>
