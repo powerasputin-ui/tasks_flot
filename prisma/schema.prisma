@@ -1,0 +1,187 @@
+// ГШП Флот-Трекер — Prisma schema, Phase 1 (Foundation + Data Core)
+// Модели ограничены разделом 88 ТЗ: сюда сознательно НЕ входят
+// WeeklyUpdate/WeeklyDigest/Comment/Notification/Attachment — это Phase 2/3.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  RESPONSIBLE // Ответственный
+  CURATOR // Куратор
+  MANAGER // Руководитель
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedTracks Track[] @relation("TrackOwner")
+  ownedTasks  Task[]  @relation("TaskOwner")
+
+  operSetOnTracks Track[] @relation("TrackOperSetBy")
+  operSetOnTasks  Task[]  @relation("TaskOperSetBy")
+
+  auditEvents AuditEvent[]
+
+  @@map("users")
+}
+
+model Segment {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tracks Track[]
+
+  @@map("segments")
+}
+
+model Attractiveness {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tracks        Track[]
+  vesselOptions VesselOption[]
+
+  @@map("attractiveness")
+}
+
+model Status {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  color     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tracks        Track[]
+  tasks         Task[]
+  vesselOptions VesselOption[]
+
+  @@map("statuses")
+}
+
+model Track {
+  id                String    @id @default(cuid())
+  segmentId         String?
+  segment           Segment?  @relation(fields: [segmentId], references: [id])
+  name              String
+  description       String?
+  attractivenessId  String?
+  attractiveness    Attractiveness? @relation(fields: [attractivenessId], references: [id])
+  statusId          String?
+  status            Status?   @relation(fields: [statusId], references: [id])
+  ownerId           String?
+  owner             User?     @relation("TrackOwner", fields: [ownerId], references: [id])
+  operFlag          Boolean   @default(false)
+  operSetById       String?
+  operSetBy         User?     @relation("TrackOperSetBy", fields: [operSetById], references: [id])
+  operSetAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  archivedAt        DateTime?
+
+  tasks         Task[]
+  vesselOptions VesselOption[]
+
+  @@index([segmentId])
+  @@index([statusId])
+  @@index([ownerId])
+  @@map("tracks")
+}
+
+model Task {
+  id           String    @id @default(cuid())
+  trackId      String
+  track        Track     @relation(fields: [trackId], references: [id])
+  title        String
+  description  String?
+  deadline     DateTime?
+  statusId     String?
+  status       Status?   @relation(fields: [statusId], references: [id])
+  ownerId      String?
+  owner        User?     @relation("TaskOwner", fields: [ownerId], references: [id])
+  comment      String?
+  operFlag     Boolean   @default(false)
+  operSetById  String?
+  operSetBy    User?     @relation("TaskOperSetBy", fields: [operSetById], references: [id])
+  operSetAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  archivedAt   DateTime?
+
+  @@index([trackId])
+  @@index([statusId])
+  @@index([ownerId])
+  @@index([deadline])
+  @@map("tasks")
+}
+
+model VesselOption {
+  id               String          @id @default(cuid())
+  trackId          String
+  track            Track           @relation(fields: [trackId], references: [id])
+  name             String
+  cost             String? // раздел 16: свободный текст, не numeric
+  attractivenessId String?
+  attractiveness   Attractiveness? @relation(fields: [attractivenessId], references: [id])
+  statusId         String?
+  status           Status?         @relation(fields: [statusId], references: [id])
+  comment          String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  archivedAt       DateTime?
+
+  @@index([trackId])
+  @@index([statusId])
+  @@map("vessel_options")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  STATUS_CHANGE
+  DEADLINE_CHANGE
+  OWNER_CHANGE
+  ATTRACTIVENESS_CHANGE
+  OPER_FLAG_CHANGE
+  ARCHIVE
+}
+
+model AuditEvent {
+  id         String      @id @default(cuid())
+  entityType String // "Track" | "Task" | "VesselOption"
+  entityId   String
+  actorId    String?
+  actor      User?       @relation(fields: [actorId], references: [id])
+  action     AuditAction
+  timestamp  DateTime    @default(now())
+  fieldName  String?
+  before     String?
+  after      String?
+
+  @@index([entityType, entityId])
+  @@index([timestamp])
+  @@map("audit_events")
+}

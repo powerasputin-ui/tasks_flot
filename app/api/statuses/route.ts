@@ -1,0 +1,30 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/session";
+import { canManageReferenceData } from "@/lib/permissions";
+import { referenceItemSchema } from "@/lib/validation";
+
+export async function GET() {
+  await requireSession();
+  const statuses = await prisma.status.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  return NextResponse.json({ statuses });
+}
+
+export async function POST(request: NextRequest) {
+  const session = await requireSession();
+  if (!canManageReferenceData(session.role)) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const parsed = referenceItemSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const status = await prisma.status.create({ data: parsed.data });
+  return NextResponse.json({ status }, { status: 201 });
+}
