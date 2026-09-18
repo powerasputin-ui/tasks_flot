@@ -48,7 +48,7 @@ export function NavBar() {
           </Link>
           <nav className="flex gap-1 text-[13px]">
             {(me?.role === "MANAGER" || me?.role === "CURATOR"
-              ? [{ href: "/dashboard", label: "Dashboard" }, ...NAV_ITEMS]
+              ? [{ href: "/dashboard", label: "Dashboard" }, ...NAV_ITEMS, { href: "/weekly-digest", label: "Дайджест недели" }]
               : NAV_ITEMS
             ).map((item) => {
               const active = pathname.startsWith(item.href);

@@ -37,6 +37,7 @@ model User {
 
   auditEvents  AuditEvent[]
   weeklyUpdates WeeklyUpdate[] @relation("WeeklyUpdateAuthor")
+  weeklyDigests WeeklyDigest[] @relation("WeeklyDigestGeneratedBy")
 
   @@map("users")
 }
@@ -194,6 +195,34 @@ model WeeklyUpdate {
   @@index([authorId])
   @@index([weekStart])
   @@map("weekly_updates")
+}
+
+enum WeeklyDigestStatus {
+  DRAFT
+  FINAL
+}
+
+/**
+ * Раздел 23-26 ТЗ. Сохранённый результат недельной агрегации — не считается
+ * на лету при каждом просмотре, а формируется явным действием (generatedBy)
+ * и хранится, чтобы прошлые недели оставались стабильными даже если данные
+ * изменятся позже. content — структура раздела 24 (Summary/Changes/By
+ * Segment/High Attractiveness/Stopped/Not Relevant/No Update/Manager Help),
+ * посчитанная детерминированно из Track/Task/VesselOption/WeeklyUpdate/
+ * AuditEvent (раздел 25, без AI).
+ */
+model WeeklyDigest {
+  id          String             @id @default(cuid())
+  weekStart   DateTime
+  weekEnd     DateTime
+  generatedAt DateTime           @default(now())
+  generatedById String
+  generatedBy User               @relation("WeeklyDigestGeneratedBy", fields: [generatedById], references: [id])
+  status      WeeklyDigestStatus @default(DRAFT)
+  content     Json
+
+  @@unique([weekStart])
+  @@map("weekly_digests")
 }
 
 enum AuditAction {
