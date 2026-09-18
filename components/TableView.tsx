@@ -26,6 +26,20 @@ type TableRow = {
   comment: string | null;
 };
 
+/**
+ * Полные названия уровней потребности для тултипа при наведении (раздел 9 ТЗ,
+ * переименованы в P10/P50/P70/P100 по запросу заказчика). P0/"Отсутствует" —
+ * не хранимое значение, а обозначение отсутствия потребности (attractivenessId
+ * = NULL), см. ANALYSIS.md.
+ */
+const ATTRACTIVENESS_LABEL: Record<string, string> = {
+  P100: "Высокая",
+  P70: "Выше среднего",
+  P50: "Средняя",
+  P10: "Низкая",
+  P0: "Отсутствует",
+};
+
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
 
@@ -263,21 +277,20 @@ export function TableView() {
         );
       case "cost":
         return row.cost ?? "—";
-      case "attractiveness":
-        return row.attractivenessName ? (
+      case "attractiveness": {
+        const code = row.attractivenessName ?? "P0"; // P0 — только отображение для "потребность не указана"
+        const color = row.attractivenessColor ?? "#9CA3AF";
+        return (
           <span
             className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium"
-            style={{
-              background: `${row.attractivenessColor ?? "#9CA3AF"}1a`,
-              color: row.attractivenessColor ?? "#6B7280",
-            }}
+            style={{ background: `${color}1a`, color }}
+            title={ATTRACTIVENESS_LABEL[code] ?? code}
           >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: row.attractivenessColor ?? "#9CA3AF" }} />
-            {row.attractivenessName}
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            {code}
           </span>
-        ) : (
-          "—"
         );
+      }
       case "name":
         return row.name;
       case "deadline":

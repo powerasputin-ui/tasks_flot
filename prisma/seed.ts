@@ -14,17 +14,22 @@ const SEGMENTS = [
 ];
 
 /**
- * Раздел 9. По запросу заказчика значения переименованы в P0/P10/P60/P100
- * с цветовой кодировкой: P100 (была ВЫСОКАЯ) — зелёный, P60 (была ВЫШЕ
- * СРЕДНЕГО) — жёлтый, P10 (была СРЕДНЯЯ) — красный, P0 (была НИЗКАЯ) —
- * серый (потребность отсутствует/не определена). oldName — для
- * миграции уже существующих строк, у которых сохранились старые названия.
+ * Раздел 9. Финальная схема по запросу заказчика: P100 высокая (зелёный),
+ * P70 выше среднего (оранжевый), P50 средняя (жёлтый), P10 низкая (красный).
+ * "P0 / отсутствует" — это НЕ хранимое значение справочника, а обозначение
+ * "потребность не указана" (attractivenessId = NULL), отображается только
+ * в UI (components/TableView.tsx), см. ANALYSIS.md.
+ *
+ * lookupName — под каким именем строка реально сохранена в БД сейчас
+ * (после первого прохода переименования из исходных ВЫСОКАЯ/ВЫШЕ
+ * СРЕДНЕГО/СРЕДНЯЯ/НИЗКАЯ в P100/P60/P10/P0) — нужно, чтобы найти и
+ * переименовать её в финальное имя, не потеряв id/связи.
  */
-const ATTRACTIVENESS: Array<{ name: string; oldName: string; color: string }> = [
-  { name: "P100", oldName: "ВЫСОКАЯ", color: "#16A34A" },
-  { name: "P60", oldName: "ВЫШЕ СРЕДНЕГО", color: "#EAB308" },
-  { name: "P10", oldName: "СРЕДНЯЯ", color: "#DC2626" },
-  { name: "P0", oldName: "НИЗКАЯ", color: "#9CA3AF" },
+const ATTRACTIVENESS: Array<{ name: string; lookupName: string; color: string }> = [
+  { name: "P100", lookupName: "P100", color: "#16A34A" }, // высокая — зелёный
+  { name: "P70", lookupName: "P60", color: "#F97316" }, // выше среднего — оранжевый
+  { name: "P50", lookupName: "P10", color: "#EAB308" }, // средняя — жёлтый
+  { name: "P10", lookupName: "P0", color: "#DC2626" }, // низкая — красный
 ];
 
 // Раздел 10. Цвета — оформление (не бизнес-значение), подобраны в стиле раздела 78.
@@ -46,10 +51,10 @@ async function main() {
   }
 
   for (const [i, a] of ATTRACTIVENESS.entries()) {
-    const existingByOldName = await prisma.attractiveness.findUnique({ where: { name: a.oldName } });
-    if (existingByOldName) {
+    const existingByLookupName = await prisma.attractiveness.findUnique({ where: { name: a.lookupName } });
+    if (existingByLookupName) {
       await prisma.attractiveness.update({
-        where: { id: existingByOldName.id },
+        where: { id: existingByLookupName.id },
         data: { name: a.name, color: a.color, sortOrder: i },
       });
       continue;
@@ -87,7 +92,21 @@ async function main() {
   console.log("Seed завершён: справочники Segment/Attractiveness/Status заполнены.");
 }
 
-main()
+async function withRetry<T>(fn: () => Promise<T>, attempts = 5, delayMs = 2000): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      console.log(`Попытка ${i + 1}/${attempts} не удалась (вероятно, обрыв соединения с Neon), повтор через ${delayMs}мс…`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastError;
+}
+
+withRetry(() => prisma.$connect().then(main))
   .catch((e) => {
     console.error(e);
     process.exit(1);
