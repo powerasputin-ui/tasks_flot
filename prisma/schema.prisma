@@ -38,6 +38,8 @@ model User {
   auditEvents  AuditEvent[]
   weeklyUpdates WeeklyUpdate[] @relation("WeeklyUpdateAuthor")
   weeklyDigests WeeklyDigest[] @relation("WeeklyDigestGeneratedBy")
+  comments      Comment[]
+  notifications Notification[]
 
   @@map("users")
 }
@@ -253,4 +255,48 @@ model AuditEvent {
   @@index([entityType, entityId])
   @@index([timestamp])
   @@map("audit_events")
+}
+
+/**
+ * Раздел 32 ТЗ. Поддерживаются Track/Task/VesselOption/WeeklyUpdate
+ * (entityType — обычная строка, как в AuditEvent, без отдельной таблицы
+ * на каждый тип сущности).
+ */
+model Comment {
+  id         String   @id @default(cuid())
+  entityType String // "Track" | "Task" | "VesselOption" | "WeeklyUpdate"
+  entityId   String
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  text       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([entityType, entityId])
+  @@map("comments")
+}
+
+enum NotificationType {
+  MENTION // "Вас упомянули"
+  WEEKLY_UPDATE_DUE // "WeeklyUpdate требуется заполнить"
+  CHANGE_ATTENTION // "Изменение требует внимания"
+  EDIT_REQUEST // "Запрос на изменение записи"
+}
+
+/**
+ * Раздел 33 ТЗ: только in-app, без email. link — куда вести при клике
+ * (например /tracks/{id}), не строгая FK-связь, т.к. типы событий разные.
+ */
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
 }

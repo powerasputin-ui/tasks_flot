@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { NotificationsBell } from "@/components/NotificationsBell";
 
 type Me = { id: string; name: string; email: string; role: "RESPONSIBLE" | "CURATOR" | "MANAGER" } | null;
 
@@ -80,6 +81,7 @@ export function NavBar() {
               {me.name} <span className="text-neutral-300">·</span> {ROLE_LABEL[me.role]}
             </span>
           )}
+          {me && <NotificationsBell />}
           {me?.role === "CURATOR" && (
             <Link
               href="/settings"

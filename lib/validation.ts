@@ -74,3 +74,14 @@ export const updateWeeklyUpdateSchema = z.object({
   risks: z.string().nullable().optional(),
   needManagerHelp: z.boolean().optional(),
 });
+
+// Раздел 32 ТЗ: комментарии к Track/Task/VesselOption/WeeklyUpdate.
+export const createCommentSchema = z.object({
+  entityType: z.enum(["Track", "Task", "VesselOption", "WeeklyUpdate"]),
+  entityId: z.string().min(1),
+  text: z.string().min(1, "Текст комментария обязателен"),
+});
+
+export const updateCommentSchema = z.object({
+  text: z.string().min(1, "Текст комментария обязателен"),
+});

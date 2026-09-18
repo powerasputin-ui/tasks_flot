@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { startOfISOWeek, endOfISOWeek, getISOWeek } from "date-fns";
+import { CommentsSection } from "@/components/CommentsSection";
 
 type Ref = { id: string; name: string };
 
@@ -392,6 +393,12 @@ export default function TrackDetailPage() {
       <Section title="Еженедельные обновления">
         <WeeklyUpdatesSection trackId={track.id} ownsTrack={ownsTrack} meId={me?.id ?? null} />
       </Section>
+
+      {me && (
+        <Section title="Комментарии">
+          <CommentsSection entityType="Track" entityId={track.id} currentUserId={me.id} />
+        </Section>
+      )}
 
       <Section title="История изменений">
         {history.length === 0 ? (
