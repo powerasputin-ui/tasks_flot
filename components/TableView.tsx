@@ -175,6 +175,7 @@ export function TableView() {
   const [rows, setRows] = useState<TableRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [segments, setSegments] = useState<Ref[]>([]);
+  const [tracks, setTracks] = useState<Ref[]>([]);
   const [statuses, setStatuses] = useState<Ref[]>([]);
   const [attractiveness, setAttractiveness] = useState<Ref[]>([]);
   const [users, setUsers] = useState<Ref[]>([]);
@@ -182,7 +183,7 @@ export function TableView() {
   const [configOpen, setConfigOpen] = useState(false);
 
   const [segmentId, setSegmentId] = useState("");
-  const [type, setType] = useState<"" | TableRow["type"]>("");
+  const [trackId, setTrackId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [attractivenessId, setAttractivenessId] = useState("");
   const [ownerId, setOwnerId] = useState("");
@@ -208,11 +209,13 @@ export function TableView() {
   useEffect(() => {
     Promise.all([
       fetch("/api/segments").then((r) => r.json()),
+      fetch("/api/tracks").then((r) => r.json()),
       fetch("/api/statuses").then((r) => r.json()),
       fetch("/api/attractiveness").then((r) => r.json()),
       fetch("/api/users").then((r) => r.json()),
-    ]).then(([s, st, a, u]) => {
+    ]).then(([s, tr, st, a, u]) => {
       setSegments(s.segments);
+      setTracks(tr.tracks);
       setStatuses(st.statuses);
       setAttractiveness(a.attractiveness);
       setUsers(u.users);
@@ -221,7 +224,7 @@ export function TableView() {
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (type) params.set("type", type);
+    if (trackId) params.set("trackId", trackId);
     if (segmentId) params.set("segmentId", segmentId);
     if (statusId) params.set("statusId", statusId);
     if (attractivenessId) params.set("attractivenessId", attractivenessId);
@@ -238,7 +241,7 @@ export function TableView() {
       .then((r) => r.json())
       .then((d) => setRows(d.rows ?? []))
       .finally(() => setLoading(false));
-  }, [type, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir]);
+  }, [trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir]);
 
   /** Раздел 22/50-стиль сигнал по запросу заказчика: заполненность по неделям в выбранном диапазоне дат. */
   const weekOccupancy = useMemo(() => {
@@ -336,16 +339,8 @@ export function TableView() {
   return (
     <div className="w-full px-6 py-6">
       <div className="surface mb-4 flex flex-wrap items-end gap-3 p-4">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Тип</label>
-          <select value={type} onChange={(e) => setType(e.target.value as typeof type)} className="select">
-            <option value="">Все</option>
-            <option value="TRACK">Трек</option>
-            <option value="TASK">Задача</option>
-            <option value="VESSEL_OPTION">Судно</option>
-          </select>
-        </div>
         <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={segments} />
+        <Select label="Трек" value={trackId} onChange={setTrackId} options={tracks} />
         <Select label="Статус" value={statusId} onChange={setStatusId} options={statuses} />
         <Select label="Потребность" value={attractivenessId} onChange={setAttractivenessId} options={attractiveness} />
         <Select label="Ответственный" value={ownerId} onChange={setOwnerId} options={users} />
