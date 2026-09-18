@@ -13,7 +13,10 @@ const ROLE_LABEL: Record<string, string> = {
   MANAGER: "Руководитель",
 };
 
-const NAV_ITEMS = [{ href: "/tracks", label: "Треки" }];
+const NAV_ITEMS = [
+  { href: "/tracks", label: "Треки" },
+  { href: "/kanban", label: "Kanban" },
+];
 
 export function NavBar() {
   const pathname = usePathname();
