@@ -18,6 +18,7 @@ npm run prisma:generate
 npm run prisma:migrate      # применить миграции к БД из DATABASE_URL
 npm run db:seed             # справочники (Segment/Status/Attractiveness) + стартовый Куратор
 npm run import:excel -- "source-data/Флот-приобретение и коммерция.xlsx"  # первичный импорт (раздел 52)
+npm run add-responsible-users -- "source-data/Флот-приобретение и коммерция.xlsx"  # 14 реальных Ответственных + восстановление ownerId
 npm run dev
 ```
 
@@ -29,6 +30,11 @@ npm run dev
 
 Стартовый пользователь после `db:seed`: `curator@tasksflot.local` / `ChangeMe123!`
 (роль Куратор) — смените пароль или создайте реальные учётные записи через `/settings`.
+
+После `add-responsible-users` 14 реальных людей из Excel (Ответственные) тоже
+получают вход: `<транслит.фамилия>.<инициалы>@tasksflot.local` / `ChangeMe123!`
+(например `sukhov.va@tasksflot.local`) — список email указывается скриптом
+при первом создании, пароль нужно сменить при первом входе.
 
 ## Тесты
 

@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "import:excel": "tsx scripts/import-excel.ts",
+    "add-responsible-users": "tsx scripts/add-responsible-users.ts",
     "test": "vitest run"
   },
   "dependencies": {
