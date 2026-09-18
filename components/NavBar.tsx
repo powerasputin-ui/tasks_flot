@@ -47,7 +47,10 @@ export function NavBar() {
             ГШП ТРЕКЕР
           </Link>
           <nav className="flex gap-1 text-[13px]">
-            {NAV_ITEMS.map((item) => {
+            {(me?.role === "MANAGER" || me?.role === "CURATOR"
+              ? [{ href: "/dashboard", label: "Dashboard" }, ...NAV_ITEMS]
+              : NAV_ITEMS
+            ).map((item) => {
               const active = pathname.startsWith(item.href);
               return (
                 <Link
