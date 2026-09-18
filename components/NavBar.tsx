@@ -38,8 +38,6 @@ export function NavBar() {
     router.refresh();
   }
 
-  const items = me?.role === "CURATOR" ? [...NAV_ITEMS, { href: "/settings", label: "Настройки" }] : NAV_ITEMS;
-
   return (
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-white/80 backdrop-blur-md">
       <div className="flex w-full items-center justify-between px-6 py-3">
@@ -49,7 +47,7 @@ export function NavBar() {
             ГШП ФЛОТ-ТРЕКЕР
           </Link>
           <nav className="flex gap-1 text-[13px]">
-            {items.map((item) => {
+            {NAV_ITEMS.map((item) => {
               const active = pathname.startsWith(item.href);
               return (
                 <Link
@@ -75,6 +73,20 @@ export function NavBar() {
             <span className="hidden sm:inline">
               {me.name} <span className="text-neutral-300">·</span> {ROLE_LABEL[me.role]}
             </span>
+          )}
+          {me?.role === "CURATOR" && (
+            <Link
+              href="/settings"
+              title="Настройки"
+              className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ${
+                pathname.startsWith("/settings") ? "bg-neutral-100 text-neutral-900" : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800"
+              }`}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </Link>
           )}
           <button onClick={logout} disabled={loggingOut} className="btn-ghost">
             {loggingOut ? "Выход…" : "Выйти"}
