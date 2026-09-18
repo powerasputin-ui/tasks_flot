@@ -187,7 +187,7 @@ function KanbanColumn({
         if (!data) return;
         onDrop(JSON.parse(data) as TableRow, statusId);
       }}
-      className={`w-72 shrink-0 rounded-xl border p-2 transition-colors ${
+      className={`min-w-72 flex-1 rounded-xl border p-2 transition-colors ${
         dragOver ? "border-neutral-400 bg-neutral-50" : "border-[var(--border)] bg-neutral-50/50"
       }`}
     >
