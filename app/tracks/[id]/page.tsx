@@ -111,6 +111,34 @@ export default function TrackDetailPage() {
     load();
   }
 
+  async function updateTask(taskId: string, patch: Record<string, unknown>) {
+    setError(null);
+    const res = await fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      setError("Не удалось сохранить изменения. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
+  async function updateVesselOption(id: string, patch: Record<string, unknown>) {
+    setError(null);
+    const res = await fetch(`/api/vessel-options/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      setError("Не удалось сохранить изменения. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
   async function archiveTrack() {
     if (!confirm("Архивировать трек? Он перестанет отображаться в таблице.")) return;
     setError(null);
@@ -210,29 +238,72 @@ export default function TrackDetailPage() {
           <EmptyState text="У этого трека пока нет задач." />
         ) : (
           <ul className="divide-y divide-[var(--border)]">
-            {track.tasks.map((t) => (
-              <li key={t.id} className="row-hover group -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-neutral-800">{t.title}</span>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-neutral-500">{t.status?.name ?? "—"}</span>
-                    {isResponsible && t.owner?.id === me?.id && (
-                      <button
-                        onClick={() => archiveTask(t.id)}
-                        className="text-neutral-300 opacity-0 transition-opacity hover:text-[var(--danger)] group-hover:opacity-100"
-                        title="Архивировать задачу"
+            {track.tasks.map((t) => {
+              const ownsTask = isResponsible && t.owner?.id === me?.id;
+              return (
+                <li key={t.id} className="row-hover group -mx-1 rounded-lg px-1 py-2.5 text-[13px]">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-neutral-800">{t.title}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {ownsTask ? (
+                        <select
+                          value={t.status?.id ?? ""}
+                          onChange={(e) => updateTask(t.id, { statusId: e.target.value || null })}
+                          className="select py-1 text-[12px]"
+                        >
+                          <option value="">—</option>
+                          {statuses.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-neutral-500">{t.status?.name ?? "—"}</span>
+                      )}
+                      {ownsTask && (
+                        <button
+                          onClick={() => archiveTask(t.id)}
+                          className="text-neutral-300 opacity-0 transition-opacity hover:text-[var(--danger)] group-hover:opacity-100"
+                          title="Архивировать задачу"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-neutral-400">
+                    {me?.role === "CURATOR" ? (
+                      <select
+                        value={t.owner?.id ?? ""}
+                        onChange={(e) => updateTask(t.id, { ownerId: e.target.value || null })}
+                        className="select py-1 text-[12px]"
                       >
-                        ✕
-                      </button>
+                        <option value="">Без ответственного</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span>{t.owner?.name ?? "Без ответственного"}</span>
+                    )}
+                    ·
+                    {ownsTask ? (
+                      <input
+                        type="date"
+                        value={t.deadline ? t.deadline.slice(0, 10) : ""}
+                        onChange={(e) => updateTask(t.id, { deadline: e.target.value || null })}
+                        className="input py-1 text-[12px]"
+                      />
+                    ) : (
+                      <span>{t.deadline ? new Date(t.deadline).toLocaleDateString("ru-RU") : "без срока"}</span>
                     )}
                   </div>
-                </div>
-                <div className="mt-0.5 text-[12px] text-neutral-400">
-                  {t.owner?.name ?? "Без ответственного"} ·{" "}
-                  {t.deadline ? new Date(t.deadline).toLocaleDateString("ru-RU") : "без срока"}
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
         {canCreateChildren && (
@@ -250,7 +321,22 @@ export default function TrackDetailPage() {
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-neutral-800">{v.name}</span>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-neutral-500">{v.status?.name ?? "—"}</span>
+                    {ownsTrack ? (
+                      <select
+                        value={v.status?.id ?? ""}
+                        onChange={(e) => updateVesselOption(v.id, { statusId: e.target.value || null })}
+                        className="select py-1 text-[12px]"
+                      >
+                        <option value="">—</option>
+                        {statuses.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-neutral-500">{v.status?.name ?? "—"}</span>
+                    )}
                     {ownsTrack && (
                       <button
                         onClick={() => archiveVesselOption(v.id)}
@@ -262,8 +348,36 @@ export default function TrackDetailPage() {
                     )}
                   </div>
                 </div>
-                <div className="mt-0.5 text-[12px] text-neutral-400">
-                  {v.cost ?? "стоимость не указана"} · {v.attractiveness?.name ?? "—"}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-neutral-400">
+                  {ownsTrack ? (
+                    <>
+                      <input
+                        defaultValue={v.cost ?? ""}
+                        placeholder="стоимость не указана"
+                        onBlur={(e) => {
+                          if (e.target.value !== (v.cost ?? "")) updateVesselOption(v.id, { cost: e.target.value || null });
+                        }}
+                        className="input w-40 py-1 text-[12px]"
+                      />
+                      ·
+                      <select
+                        value={v.attractiveness?.id ?? ""}
+                        onChange={(e) => updateVesselOption(v.id, { attractivenessId: e.target.value || null })}
+                        className="select py-1 text-[12px]"
+                      >
+                        <option value="">Привлекательность —</option>
+                        {attractiveness.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <span>
+                      {v.cost ?? "стоимость не указана"} · {v.attractiveness?.name ?? "—"}
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
