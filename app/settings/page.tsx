@@ -50,7 +50,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-6">
+    <div className="w-full px-6 py-6">
       <div className="animate-fade-in mb-6">
         <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Настройки</h1>
         <p className="mt-0.5 text-[13px] text-neutral-500">

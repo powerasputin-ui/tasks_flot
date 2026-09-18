@@ -99,7 +99,7 @@ export default function KanbanPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] px-6 py-6">
+    <div className="w-full px-6 py-6">
       <div className="animate-fade-in mb-4 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Kanban</h1>

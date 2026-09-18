@@ -175,21 +175,21 @@ export default function TrackDetailPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-6">
+      <div className="w-full px-6 py-6">
         <div className="skeleton mb-3 h-6 w-2/3 rounded" />
         <div className="skeleton mb-6 h-4 w-1/2 rounded" />
         <div className="skeleton h-24 rounded-2xl" />
       </div>
     );
   }
-  if (!track) return <div className="mx-auto max-w-5xl px-6 py-10 text-[13px] text-neutral-500">Трек не найден.</div>;
+  if (!track) return <div className="w-full px-6 py-10 text-[13px] text-neutral-500">Трек не найден.</div>;
 
   const isResponsible = me?.role === "RESPONSIBLE";
   const ownsTrack = isResponsible && track.owner?.id === me?.id;
   const canCreateChildren = isResponsible; // раздел 35: Ответственный создаёт Task/VesselOption
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
+    <div className="w-full px-6 py-6">
       <div className="animate-fade-in flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">{track.name}</h1>

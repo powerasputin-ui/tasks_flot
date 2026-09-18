@@ -111,7 +111,7 @@ export default function WeeklyDigestPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-6">
+      <div className="w-full px-6 py-6">
         <div className="skeleton h-6 w-1/3 rounded" />
       </div>
     );
@@ -119,7 +119,7 @@ export default function WeeklyDigestPage() {
 
   if (forbidden) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-10 text-[13px] text-neutral-500">
+      <div className="w-full px-6 py-10 text-[13px] text-neutral-500">
         Дайджест недели доступен ролям Куратор и Руководитель (раздел 37 ТЗ).
       </div>
     );
@@ -128,7 +128,7 @@ export default function WeeklyDigestPage() {
   const c = digest?.content;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
+    <div className="w-full px-6 py-6">
       <div className="animate-fade-in mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">

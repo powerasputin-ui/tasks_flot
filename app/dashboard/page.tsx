@@ -38,7 +38,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-6">
+      <div className="w-full px-6 py-6">
         <div className="skeleton h-6 w-1/3 rounded" />
       </div>
     );
@@ -46,7 +46,7 @@ export default function DashboardPage() {
 
   if (forbidden) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-10 text-[13px] text-neutral-500">
+      <div className="w-full px-6 py-10 text-[13px] text-neutral-500">
         Dashboard доступен ролям Куратор и Руководитель (раздел 37 ТЗ).
       </div>
     );
@@ -57,7 +57,7 @@ export default function DashboardPage() {
   const noUpdateTotal = data.noUpdateThisWeek.length + data.noUpdate2PlusWeeks.length + data.neverSubmitted.length;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
+    <div className="w-full px-6 py-6">
       <div className="animate-fade-in mb-6">
         <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Dashboard</h1>
         <p className="mt-0.5 text-[13px] text-neutral-500">
