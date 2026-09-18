@@ -44,7 +44,7 @@ export function NavBar() {
         <div className="flex items-center gap-8">
           <Link href="/tracks" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-neutral-900">
             <Image src="/logo.svg" alt="" width={44} height={44} className="shrink-0" />
-            ГШП ФЛОТ-ТРЕКЕР
+            ГШП ТРЕКЕР
           </Link>
           <nav className="flex gap-1 text-[13px]">
             {NAV_ITEMS.map((item) => {

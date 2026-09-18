@@ -472,7 +472,7 @@ function AddVesselOptionForm({
           className="input w-56"
         />
         <select value={attractivenessId} onChange={(e) => setAttractivenessId(e.target.value)} className="select">
-          <option value="">Потребность —</option>
+          <option value="">Привлекательность —</option>
           {attractiveness.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}

@@ -77,7 +77,7 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
   segment: "Сегмент",
   track: "Трек",
   cost: "Оценка $",
-  attractiveness: "Потребность",
+  attractiveness: "Привлекательность",
   name: "Задача",
   deadline: "Срок",
   deadlineWeek: "Неделя",
@@ -133,10 +133,11 @@ const DEFAULT_COLUMNS: ColumnConfig[] = buildColumns([
   "owner",
   "deadline",
   "status",
+  "operFlag",
   "comment",
 ]);
 
-const STORAGE_KEY = "tasksflot.tableColumns.v5";
+const STORAGE_KEY = "tasksflot.tableColumns.v6";
 
 function loadColumns(): ColumnConfig[] {
   try {
@@ -154,7 +155,7 @@ const SORT_OPTIONS = [
   { value: "", label: "Без сортировки" },
   { value: "segment", label: "Сегмент" },
   { value: "track", label: "Трек" },
-  { value: "attractiveness", label: "Потребность" },
+  { value: "attractiveness", label: "Привлекательность" },
   { value: "owner", label: "Ответственный" },
   { value: "status", label: "Статус" },
   { value: "deadline", label: "Срок" },
@@ -192,6 +193,25 @@ export function TableView() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [deadlineFrom, setDeadlineFrom] = useState("");
   const [deadlineTo, setDeadlineTo] = useState("");
+  const [refetchTick, setRefetchTick] = useState(0);
+  const [me, setMe] = useState<{ role: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((d) => setMe(d.user))
+      .catch(() => setMe(null));
+  }, []);
+
+  async function toggleOperFlag(row: TableRow, next: boolean) {
+    const endpoint = row.type === "TRACK" ? `/api/tracks/${row.id}` : `/api/tasks/${row.id}`;
+    const res = await fetch(endpoint, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operFlag: next }),
+    });
+    if (res.ok) setRefetchTick((t) => t + 1);
+  }
 
   useEffect(() => {
     setColumns(loadColumns());
@@ -241,7 +261,7 @@ export function TableView() {
       .then((r) => r.json())
       .then((d) => setRows(d.rows ?? []))
       .finally(() => setLoading(false));
-  }, [trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir]);
+  }, [trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir, refetchTick]);
 
   /** Раздел 22/50-стиль сигнал по запросу заказчика: заполненность по неделям в выбранном диапазоне дат. */
   const weekOccupancy = useMemo(() => {
@@ -330,6 +350,19 @@ export function TableView() {
           "—"
         );
       case "operFlag":
+        if (row.type === "VESSEL_OPTION") return "—"; // у VesselOption нет operFlag (раздел 15)
+        if (me?.role === "CURATOR") {
+          return (
+            <input
+              type="checkbox"
+              checked={row.operFlag}
+              onChange={(e) => toggleOperFlag(row, e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-4 w-4 cursor-pointer accent-neutral-900"
+              title="Передать на внимание руководителя"
+            />
+          );
+        }
         return row.operFlag ? "да" : "—";
       case "comment":
         return row.comment ?? "—";
@@ -342,7 +375,7 @@ export function TableView() {
         <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={segments} />
         <Select label="Трек" value={trackId} onChange={setTrackId} options={tracks} />
         <Select label="Статус" value={statusId} onChange={setStatusId} options={statuses} />
-        <Select label="Потребность" value={attractivenessId} onChange={setAttractivenessId} options={attractiveness} />
+        <Select label="Привлекательность" value={attractivenessId} onChange={setAttractivenessId} options={attractiveness} />
         <Select label="Ответственный" value={ownerId} onChange={setOwnerId} options={users} />
         <div>
           <label className="mb-1 block text-[11px] font-medium text-neutral-500">Опер-флаг</label>
