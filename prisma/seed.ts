@@ -15,21 +15,22 @@ const SEGMENTS = [
 
 /**
  * Раздел 9. Финальная схема по запросу заказчика: P100 высокая (зелёный),
- * P70 выше среднего (оранжевый), P50 средняя (жёлтый), P10 низкая (красный).
- * "P0 / отсутствует" — это НЕ хранимое значение справочника, а обозначение
- * "потребность не указана" (attractivenessId = NULL), отображается только
- * в UI (components/TableView.tsx), см. ANALYSIS.md.
+ * P70 выше среднего (оранжевый), P50 средняя (жёлтый), P10 низкая (красный),
+ * P0 отсутствует (серый) — настоящая запись справочника (управляется в
+ * Настройках, выбирается как обычная потребность), см. ANALYSIS.md.
  *
- * lookupName — под каким именем строка реально сохранена в БД сейчас
- * (после первого прохода переименования из исходных ВЫСОКАЯ/ВЫШЕ
- * СРЕДНЕГО/СРЕДНЯЯ/НИЗКАЯ в P100/P60/P10/P0) — нужно, чтобы найти и
- * переименовать её в финальное имя, не потеряв id/связи.
+ * Разовая миграция имён (ВЫСОКАЯ/ВЫШЕ СРЕДНЕГО/... -> P100/P60/P10/P0 ->
+ * финальные P100/P70/P50/P10/P0) уже выполнена и удалена из этого файла —
+ * держать переименование "по lookupName" здесь опасно: при повторном запуске
+ * lookupName одной записи начинает совпадать с уже финальным именем другой
+ * и ломает данные. Ниже — обычный идемпотентный upsert по финальному имени.
  */
-const ATTRACTIVENESS: Array<{ name: string; lookupName: string; color: string }> = [
-  { name: "P100", lookupName: "P100", color: "#16A34A" }, // высокая — зелёный
-  { name: "P70", lookupName: "P60", color: "#F97316" }, // выше среднего — оранжевый
-  { name: "P50", lookupName: "P10", color: "#EAB308" }, // средняя — жёлтый
-  { name: "P10", lookupName: "P0", color: "#DC2626" }, // низкая — красный
+const ATTRACTIVENESS: Array<{ name: string; color: string }> = [
+  { name: "P100", color: "#16A34A" }, // высокая — зелёный
+  { name: "P70", color: "#F97316" }, // выше среднего — оранжевый
+  { name: "P50", color: "#EAB308" }, // средняя — жёлтый
+  { name: "P10", color: "#DC2626" }, // низкая — красный
+  { name: "P0", color: "#9CA3AF" }, // отсутствует — серый
 ];
 
 // Раздел 10. Цвета — оформление (не бизнес-значение), подобраны в стиле раздела 78.
@@ -51,14 +52,6 @@ async function main() {
   }
 
   for (const [i, a] of ATTRACTIVENESS.entries()) {
-    const existingByLookupName = await prisma.attractiveness.findUnique({ where: { name: a.lookupName } });
-    if (existingByLookupName) {
-      await prisma.attractiveness.update({
-        where: { id: existingByLookupName.id },
-        data: { name: a.name, color: a.color, sortOrder: i },
-      });
-      continue;
-    }
     await prisma.attractiveness.upsert({
       where: { name: a.name },
       update: { color: a.color, sortOrder: i },
