@@ -8,6 +8,8 @@ import {
   canSetOperFlag,
   canManageOwnership,
   canAccessManagerViews,
+  canCreateWeeklyUpdate,
+  canEditWeeklyUpdate,
 } from "@/lib/permissions";
 
 describe("canReadAll (раздел 35/36/37 ТЗ)", () => {
@@ -81,5 +83,29 @@ describe("canAccessManagerViews (раздел 37 ТЗ)", () => {
     expect(canAccessManagerViews("MANAGER")).toBe(true);
     expect(canAccessManagerViews("CURATOR")).toBe(true);
     expect(canAccessManagerViews("RESPONSIBLE")).toBe(false);
+  });
+});
+
+describe("canCreateWeeklyUpdate (раздел 20 ТЗ)", () => {
+  it("только владелец-Ответственный трека создаёт отчёт", () => {
+    expect(canCreateWeeklyUpdate("RESPONSIBLE", "user-1", { ownerId: "user-1" })).toBe(true);
+    expect(canCreateWeeklyUpdate("RESPONSIBLE", "user-1", { ownerId: "user-2" })).toBe(false);
+    expect(canCreateWeeklyUpdate("RESPONSIBLE", "user-1", { ownerId: null })).toBe(false);
+    expect(canCreateWeeklyUpdate("CURATOR", "user-1", { ownerId: "user-1" })).toBe(false);
+  });
+});
+
+describe("canEditWeeklyUpdate (раздел 20 ТЗ — иммутабельность после Submit)", () => {
+  it("автор-владелец может редактировать только DRAFT", () => {
+    expect(canEditWeeklyUpdate("RESPONSIBLE", "user-1", { authorId: "user-1", status: "DRAFT" })).toBe(true);
+    expect(canEditWeeklyUpdate("RESPONSIBLE", "user-1", { authorId: "user-1", status: "SUBMITTED" })).toBe(false);
+  });
+
+  it("не автор не может редактировать", () => {
+    expect(canEditWeeklyUpdate("RESPONSIBLE", "user-1", { authorId: "user-2", status: "DRAFT" })).toBe(false);
+  });
+
+  it("Куратор/Руководитель не редактируют WeeklyUpdate", () => {
+    expect(canEditWeeklyUpdate("CURATOR", "user-1", { authorId: "user-1", status: "DRAFT" })).toBe(false);
   });
 });

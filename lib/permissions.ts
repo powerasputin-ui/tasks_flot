@@ -66,3 +66,25 @@ export function canAccessManagerViews(role: UserRole): boolean {
   // Раздел 37: Dashboard/Digest/Export — доступ Руководителя (и Куратора/Ответственного тоже можно читать).
   return role === "MANAGER" || role === "CURATOR";
 }
+
+/**
+ * Раздел 20 ТЗ: "Ответственный ... заполняет WeeklyUpdate". Кто именно может
+ * писать отчёт по треку не описан явно за пределами этой фразы — трактуем как
+ * владельца трека (та же граница, что и для остальных write-действий
+ * Ответственного, раздел 35/38). Куратор/Руководитель только читают.
+ */
+export function canCreateWeeklyUpdate(role: UserRole, userId: string, track: WorkEntity): boolean {
+  return role === "RESPONSIBLE" && track.ownerId === userId;
+}
+
+/**
+ * Раздел 20: после Submit запись сохраняется и не заменяется — редактировать
+ * можно только пока статус DRAFT, и только автор.
+ */
+export function canEditWeeklyUpdate(
+  role: UserRole,
+  userId: string,
+  weeklyUpdate: { authorId: string; status: "DRAFT" | "SUBMITTED" }
+): boolean {
+  return role === "RESPONSIBLE" && weeklyUpdate.authorId === userId && weeklyUpdate.status === "DRAFT";
+}

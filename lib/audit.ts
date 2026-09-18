@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { AuditAction } from "@prisma/client";
 
-type AuditableEntity = "Track" | "Task" | "VesselOption";
+type AuditableEntity = "Track" | "Task" | "VesselOption" | "WeeklyUpdate";
 
 /**
  * Раздел 27-29 ТЗ: append-only журнал. Никогда не удаляется обычным пользователем.

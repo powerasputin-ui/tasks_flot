@@ -52,3 +52,25 @@ export const referenceItemSchema = z.object({
   color: z.string().nullable().optional(),
   sortOrder: z.number().int().optional(),
 });
+
+// Раздел 18-21 ТЗ: weekStart/weekEnd обязательны при создании (какую неделю
+// репортим), whatDone/currentState/nextSteps/risks можно оставить пустыми в
+// DRAFT — минимум обязателен только при Submit (раздел 21), проверяется отдельно.
+export const createWeeklyUpdateSchema = z.object({
+  trackId: z.string().min(1),
+  weekStart: z.coerce.date(),
+  weekEnd: z.coerce.date(),
+  whatDone: z.string().nullable().optional(),
+  currentState: z.string().nullable().optional(),
+  nextSteps: z.string().nullable().optional(),
+  risks: z.string().nullable().optional(),
+  needManagerHelp: z.boolean().optional(),
+});
+
+export const updateWeeklyUpdateSchema = z.object({
+  whatDone: z.string().nullable().optional(),
+  currentState: z.string().nullable().optional(),
+  nextSteps: z.string().nullable().optional(),
+  risks: z.string().nullable().optional(),
+  needManagerHelp: z.boolean().optional(),
+});

@@ -1,6 +1,8 @@
-// ГШП Флот-Трекер — Prisma schema, Phase 1 (Foundation + Data Core)
-// Модели ограничены разделом 88 ТЗ: сюда сознательно НЕ входят
-// WeeklyUpdate/WeeklyDigest/Comment/Notification/Attachment — это Phase 2/3.
+// ГШП Флот-Трекер — Prisma schema.
+// Phase 1 (Foundation + Data Core, раздел 88): User/Segment/Attractiveness/
+// Status/Track/Task/VesselOption/AuditEvent.
+// Phase 2 (Weekly Management Core, раздел 89): WeeklyUpdate.
+// Comment/Notification/Attachment/WeeklyDigest — ещё не начаты (Phase 2/3).
 
 generator client {
   provider = "prisma-client-js"
@@ -33,7 +35,8 @@ model User {
   operSetOnTracks Track[] @relation("TrackOperSetBy")
   operSetOnTasks  Task[]  @relation("TaskOperSetBy")
 
-  auditEvents AuditEvent[]
+  auditEvents  AuditEvent[]
+  weeklyUpdates WeeklyUpdate[] @relation("WeeklyUpdateAuthor")
 
   @@map("users")
 }
@@ -105,6 +108,7 @@ model Track {
 
   tasks         Task[]
   vesselOptions VesselOption[]
+  weeklyUpdates WeeklyUpdate[]
 
   @@index([segmentId])
   @@index([statusId])
@@ -159,6 +163,39 @@ model VesselOption {
   @@map("vessel_options")
 }
 
+enum WeeklyUpdateStatus {
+  DRAFT
+  SUBMITTED
+}
+
+// Раздел 18-22 ТЗ. Каждая неделя — отдельная запись, SUBMITTED не заменяется
+// следующей неделей (раздел 20). Обязательные поля (раздел 21): whatDone,
+// currentState, nextSteps — проверяются на уровне API при Submit, не в схеме,
+// т.к. DRAFT может быть неполным.
+model WeeklyUpdate {
+  id              String             @id @default(cuid())
+  trackId         String
+  track           Track              @relation(fields: [trackId], references: [id])
+  authorId        String
+  author          User               @relation("WeeklyUpdateAuthor", fields: [authorId], references: [id])
+  weekStart       DateTime
+  weekEnd         DateTime
+  whatDone        String?
+  currentState    String?
+  nextSteps       String?
+  risks           String?
+  needManagerHelp Boolean            @default(false)
+  status          WeeklyUpdateStatus @default(DRAFT)
+  submittedAt     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([trackId])
+  @@index([authorId])
+  @@index([weekStart])
+  @@map("weekly_updates")
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -168,6 +205,8 @@ enum AuditAction {
   ATTRACTIVENESS_CHANGE
   OPER_FLAG_CHANGE
   ARCHIVE
+  WEEKLY_UPDATE_CREATED
+  WEEKLY_UPDATE_SUBMITTED
 }
 
 model AuditEvent {

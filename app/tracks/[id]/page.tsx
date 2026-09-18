@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { startOfISOWeek, endOfISOWeek, getISOWeek } from "date-fns";
 
 type Ref = { id: string; name: string };
 
@@ -388,6 +389,10 @@ export default function TrackDetailPage() {
         )}
       </Section>
 
+      <Section title="Еженедельные обновления">
+        <WeeklyUpdatesSection trackId={track.id} ownsTrack={ownsTrack} meId={me?.id ?? null} />
+      </Section>
+
       <Section title="История изменений">
         {history.length === 0 ? (
           <EmptyState text="Изменений пока нет." />
@@ -611,6 +616,239 @@ function AddVesselOptionForm({
           Отмена
         </button>
       </div>
+    </div>
+  );
+}
+
+type WeeklyUpdate = {
+  id: string;
+  weekStart: string;
+  weekEnd: string;
+  whatDone: string | null;
+  currentState: string | null;
+  nextSteps: string | null;
+  risks: string | null;
+  needManagerHelp: boolean;
+  status: "DRAFT" | "SUBMITTED";
+  submittedAt: string | null;
+  author: { id: string; name: string };
+};
+
+function WeeklyUpdatesSection({
+  trackId,
+  ownsTrack,
+  meId,
+}: {
+  trackId: string;
+  ownsTrack: boolean;
+  meId: string | null;
+}) {
+  const [items, setItems] = useState<WeeklyUpdate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch(`/api/weekly-updates?trackId=${trackId}`);
+    if (res.ok) setItems((await res.json()).weeklyUpdates);
+    setLoading(false);
+  }, [trackId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const now = new Date();
+  const currentWeekStart = startOfISOWeek(now);
+  const currentWeekEnd = endOfISOWeek(now);
+  const currentDraft = items.find(
+    (i) => i.status === "DRAFT" && new Date(i.weekStart).getTime() === currentWeekStart.getTime()
+  );
+  const hasCurrentWeekEntry = items.some(
+    (i) => new Date(i.weekStart).getTime() === currentWeekStart.getTime()
+  );
+
+  async function createDraft() {
+    setError(null);
+    const res = await fetch("/api/weekly-updates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trackId,
+        weekStart: currentWeekStart.toISOString(),
+        weekEnd: currentWeekEnd.toISOString(),
+      }),
+    });
+    if (!res.ok) {
+      setError("Не удалось создать обновление. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
+  async function saveDraft(id: string, patch: Record<string, unknown>) {
+    setError(null);
+    const res = await fetch(`/api/weekly-updates/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      setError("Не удалось сохранить изменения. Данные не потеряны. Попробуйте ещё раз.");
+      return;
+    }
+    load();
+  }
+
+  async function submitDraft(id: string) {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/weekly-updates/${id}/submit`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(
+          body?.error === "MISSING_REQUIRED_FIELDS"
+            ? "Заполните «Что сделано», «Текущее состояние» и «Следующие шаги» перед отправкой (раздел 21 ТЗ)."
+            : "Не удалось отправить обновление. Попробуйте ещё раз."
+        );
+        return;
+      }
+      load();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return <p className="text-[13px] text-neutral-400">Загрузка…</p>;
+
+  return (
+    <div>
+      {error && <p className="mb-3 text-[13px] text-[var(--danger)]">{error}</p>}
+
+      {ownsTrack && !hasCurrentWeekEntry && (
+        <button onClick={createDraft} className="btn-primary mb-3">
+          + Обновление за неделю {getISOWeek(now)}
+        </button>
+      )}
+
+      {items.length === 0 ? (
+        <EmptyState text="Обновлений по этому треку пока нет." />
+      ) : (
+        <ul className="space-y-3">
+          {items.map((wu) => {
+            const editable = ownsTrack && wu.author.id === meId && wu.status === "DRAFT";
+            return (
+              <li key={wu.id} className="rounded-lg border border-[var(--border)] p-3">
+                <div className="mb-2 flex items-center justify-between text-[12px]">
+                  <span className="font-medium text-neutral-700">
+                    Неделя {getISOWeek(new Date(wu.weekStart))} · {wu.author.name}
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      wu.status === "SUBMITTED" ? "bg-green-50 text-green-700" : "bg-neutral-100 text-neutral-600"
+                    }`}
+                  >
+                    {wu.status === "SUBMITTED" ? "Отправлено" : "Черновик"}
+                  </span>
+                </div>
+
+                {editable ? (
+                  <div className="space-y-2">
+                    <LabeledTextarea
+                      label="Что сделано"
+                      value={wu.whatDone ?? ""}
+                      onSave={(v) => saveDraft(wu.id, { whatDone: v })}
+                    />
+                    <LabeledTextarea
+                      label="Текущее состояние"
+                      value={wu.currentState ?? ""}
+                      onSave={(v) => saveDraft(wu.id, { currentState: v })}
+                    />
+                    <LabeledTextarea
+                      label="Следующие шаги"
+                      value={wu.nextSteps ?? ""}
+                      onSave={(v) => saveDraft(wu.id, { nextSteps: v })}
+                    />
+                    <LabeledTextarea
+                      label="Риски (опционально)"
+                      value={wu.risks ?? ""}
+                      onSave={(v) => saveDraft(wu.id, { risks: v })}
+                    />
+                    <label className="flex items-center gap-2 text-[12px] text-neutral-600">
+                      <input
+                        type="checkbox"
+                        checked={wu.needManagerHelp}
+                        onChange={(e) => saveDraft(wu.id, { needManagerHelp: e.target.checked })}
+                        className="h-4 w-4 accent-neutral-900"
+                      />
+                      Нужна помощь руководителя
+                    </label>
+                    <button
+                      onClick={() => submitDraft(wu.id)}
+                      disabled={submitting}
+                      className="btn-primary"
+                    >
+                      {submitting ? "Отправка…" : "Отправить"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-[13px] text-neutral-700">
+                    <p>
+                      <span className="font-medium text-neutral-500">Что сделано: </span>
+                      {wu.whatDone || "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium text-neutral-500">Текущее состояние: </span>
+                      {wu.currentState || "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium text-neutral-500">Следующие шаги: </span>
+                      {wu.nextSteps || "—"}
+                    </p>
+                    {wu.risks && (
+                      <p>
+                        <span className="font-medium text-neutral-500">Риски: </span>
+                        {wu.risks}
+                      </p>
+                    )}
+                    {wu.needManagerHelp && (
+                      <p className="font-medium text-[var(--danger)]">Нужна помощь руководителя</p>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function LabeledTextarea({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  onSave: (v: string) => void;
+}) {
+  const [local, setLocal] = useState(value);
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] font-medium text-neutral-500">{label}</label>
+      <textarea
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={() => {
+          if (local !== value) onSave(local);
+        }}
+        rows={2}
+        className="input w-full"
+      />
     </div>
   );
 }
