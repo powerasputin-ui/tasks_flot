@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ГШП Трекер",
+  title: "ГШП Оперативка",
   description: "Управление рабочими треками, задачами и вариантами судов",
 };
 

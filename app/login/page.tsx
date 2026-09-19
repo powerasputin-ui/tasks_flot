@@ -41,7 +41,7 @@ export default function LoginPage() {
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-900 text-sm font-semibold text-white">
             Ф
           </div>
-          <h1 className="text-[15px] font-semibold text-neutral-900">ГШП Трекер</h1>
+          <h1 className="text-[15px] font-semibold text-neutral-900">ГШП Оперативка</h1>
           <p className="mt-0.5 text-[13px] text-neutral-500">Войдите, чтобы продолжить</p>
         </div>
 
