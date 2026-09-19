@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ExportMenu } from "@/components/ExportMenu";
 
 type TrackRef = { id: string; name: string };
 
@@ -58,11 +59,14 @@ export default function DashboardPage() {
 
   return (
     <div className="w-full px-6 py-6">
-      <div className="animate-fade-in mb-6">
-        <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Dashboard</h1>
-        <p className="mt-0.5 text-[13px] text-neutral-500">
-          Что происходит, что изменилось, что остановилось, где нужно внимание — раздел 45 ТЗ.
-        </p>
+      <div className="animate-fade-in mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[19px] font-semibold tracking-tight text-neutral-900">Dashboard</h1>
+          <p className="mt-0.5 text-[13px] text-neutral-500">
+            Что происходит, что изменилось, что остановилось, где нужно внимание — раздел 45 ТЗ.
+          </p>
+        </div>
+        <ExportMenu endpoint="/api/export/dashboard" />
       </div>
 
       {/* 1. Status — раздел 80 приоритет */}

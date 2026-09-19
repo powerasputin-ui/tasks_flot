@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { startOfISOWeek, endOfISOWeek, getISOWeek } from "date-fns";
+import { ExportMenu } from "@/components/ExportMenu";
 
 type ChangeEntry = {
   entityType: string;
@@ -138,7 +139,8 @@ export default function WeeklyDigestPage() {
             {weekStart.toLocaleDateString("ru-RU")} — {weekEnd.toLocaleDateString("ru-RU")} · без AI, раздел 25 ТЗ.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          {digest && <ExportMenu endpoint="/api/export/weekly-digest" params={new URLSearchParams({ id: digest.id })} />}
           <button onClick={generate} disabled={generating} className="btn-ghost">
             {generating ? "Формирование…" : digest ? "Обновить" : "Сформировать"}
           </button>

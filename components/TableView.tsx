@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { ExportMenu } from "@/components/ExportMenu";
 
 type Ref = { id: string; name: string };
 
@@ -172,6 +173,13 @@ function isoWeekOf(dateStr: string): number {
   return 1 + Math.round(diff / (7 * 24 * 60 * 60 * 1000));
 }
 
+function buildFilterParams(f: Record<string, string>): URLSearchParams {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(f)) if (v && k !== "sortDir") p.set(k, v);
+  if (f.sortBy) p.set("sortDir", f.sortDir);
+  return p;
+}
+
 export function TableView() {
   const [rows, setRows] = useState<TableRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -241,6 +249,8 @@ export function TableView() {
       setUsers(u.users);
     });
   }, []);
+
+  const exportParams = useMemo(() => buildFilterParams({ trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir }), [trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -424,7 +434,8 @@ export function TableView() {
             </button>
           </div>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-end gap-3">
+          <ExportMenu endpoint="/api/export/table" params={exportParams} />
           <button onClick={() => setConfigOpen((v) => !v)} className="btn-ghost">
             ⚙ Колонки
           </button>
