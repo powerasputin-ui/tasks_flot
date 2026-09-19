@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/tracks", label: "Треки" },
   { href: "/kanban", label: "Kanban" },
   { href: "/timeline", label: "Timeline" },
+  { href: "/history", label: "История" },
 ];
 
 export function NavBar() {
