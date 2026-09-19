@@ -2,10 +2,11 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ClipboardList, Columns3, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Plus, RotateCcw } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
+import { canCreateItem } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -87,17 +88,6 @@ function loadColumns(): ColumnConfig[] {
     return DEFAULT_COLUMNS;
   }
 }
-
-const SORT_OPTIONS = [
-  { value: "", label: "Без сортировки" },
-  { value: "track", label: "Трек" },
-  { value: "title", label: "Название" },
-  { value: "attractiveness", label: "Привлекательность" },
-  { value: "owner", label: "Ответственный" },
-  { value: "status", label: "Статус" },
-  { value: "deadline", label: "Срок" },
-  { value: "updatedAt", label: "Дата обновления" },
-];
 
 const ARCHIVE_LABEL = { active: "Активные", archived: "Архив", all: "Все" } as const;
 
@@ -334,7 +324,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
               <Popover
                 align="right"
                 width={420}
@@ -352,10 +341,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Аналитика
               </button>
               {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
+              {me && canCreateItem(me.role) && defaultArchive !== "archived" && (
+                <button onClick={() => setEditor({ row: null })} className="btn-primary">
+                  <Plus size={15} />
+                  Добавить позицию
+                </button>
+              )}
             </div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
             <FilterChip label="Трек" value={trackId} options={refs.tracks} onChange={setTrackId} />
             <FilterChip label="Статус" value={statusId} options={refs.statuses} onChange={setStatusId} />
             <FilterChip label="Привлекательность" value={attractivenessId} options={refs.attractiveness} onChange={setAttractivenessId} />
@@ -510,56 +506,71 @@ function EmptyState({ filtered, onReset, archive }: { filtered: boolean; onReset
   );
 }
 
-const DATE_SORT_FIELDS = ["deadline", "updatedAt"];
+type SortChoice = { label: string; field: string; dir: "asc" | "desc" };
+const SORT_GROUPS: Array<{ title: string; choices: SortChoice[] }> = [
+  { title: "Название", choices: [{ label: "От А до Я", field: "title", dir: "asc" }, { label: "От Я до А", field: "title", dir: "desc" }] },
+  { title: "Срок", choices: [{ label: "Сначала ближайшие", field: "deadline", dir: "asc" }, { label: "Сначала дальние", field: "deadline", dir: "desc" }] },
+  { title: "Привлекательность", choices: [{ label: "От высокой к низкой", field: "attractiveness", dir: "desc" }, { label: "От низкой к высокой", field: "attractiveness", dir: "asc" }] },
+  { title: "Ответственный", choices: [{ label: "От А до Я", field: "owner", dir: "asc" }, { label: "От Я до А", field: "owner", dir: "desc" }] },
+  { title: "Трек", choices: [{ label: "От А до Я", field: "track", dir: "asc" }, { label: "От Я до А", field: "track", dir: "desc" }] },
+  { title: "Статус", choices: [{ label: "От А до Я", field: "status", dir: "asc" }, { label: "От Я до А", field: "status", dir: "desc" }] },
+  { title: "Дата обновления", choices: [{ label: "Сначала новые", field: "updatedAt", dir: "desc" }, { label: "Сначала старые", field: "updatedAt", dir: "asc" }] },
+];
 
-/** Подпись порядка: для дат «раньше → позже», для остального «А → Я». */
-function orderLabel(field: string, dir: "asc" | "desc"): string {
-  if (DATE_SORT_FIELDS.includes(field)) return dir === "asc" ? "раньше → позже" : "позже → раньше";
-  return dir === "asc" ? "А → Я" : "Я → А";
-}
-
+/** Кнопка-иконка сортировки: варианты появляются при наведении (как в образце). */
 function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc" | "desc"; onChange: (field: string, dir: "asc" | "desc") => void }) {
-  const current = SORT_OPTIONS.find((o) => o.value === sortBy);
+  const active = SORT_GROUPS.flatMap((g) => g.choices.map((c) => ({ ...c, group: g.title }))).find((c) => c.field === sortBy && c.dir === sortDir);
   return (
     <Popover
+      hover
       align="right"
-      width={260}
+      width={250}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className={`btn-ghost ${sortBy ? "border-primary bg-primary-soft text-primary" : ""}`} title="Сортировка строк таблицы">
-          <ArrowUpDown size={15} />
-          {sortBy ? current?.label : "Сортировка"}
-          {sortBy && (sortDir === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
+        <button
+          onClick={toggle}
+          className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary-soft hover:text-primary ${sortBy ? "text-primary" : "text-on-surface-variant"}`}
+          title={active ? `Сортировка: ${active.group} — ${active.label.toLowerCase()}` : "Сортировка"}
+          aria-label="Сортировка"
+        >
+          <ArrowDownWideNarrow size={20} strokeWidth={2} />
         </button>
       )}
     >
       {(close) => (
-        <div>
-          <p className="border-b border-outline-variant px-3.5 pb-2 pt-1 text-[11px] leading-snug text-on-surface-variant">
-            Выберите колонку, по которой упорядочить строки. Повторный клик по ней меняет порядок на обратный.
-          </p>
-          {SORT_OPTIONS.map((o) => {
-            const isNone = o.value === "";
-            const active = o.value === sortBy;
-            return (
-              <button
-                key={o.value}
-                onClick={() => {
-                  if (isNone) onChange("", "asc");
-                  else onChange(o.value, active && sortDir === "asc" ? "desc" : "asc");
-                  close();
-                }}
-                className={`flex w-full items-center justify-between gap-3 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${active ? "font-semibold text-primary" : "text-on-surface"}`}
-              >
-                <span>{o.label}</span>
-                {active && !isNone && (
-                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium">
-                    {orderLabel(o.value, sortDir)}
-                    {sortDir === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        <div className="max-h-[70vh] overflow-y-auto">
+          {SORT_GROUPS.map((g) => (
+            <div key={g.title} className="py-1">
+              <p className="label-caps px-3.5 pb-0.5 pt-1.5">{g.title}</p>
+              {g.choices.map((c) => {
+                const on = c.field === sortBy && c.dir === sortDir;
+                return (
+                  <button
+                    key={c.label}
+                    onClick={() => {
+                      onChange(c.field, c.dir);
+                      close();
+                    }}
+                    className={`flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left text-[13px] transition-colors hover:bg-primary-soft ${on ? "bg-primary-soft font-semibold text-primary" : "text-on-surface"}`}
+                  >
+                    {c.dir === "asc" ? <ArrowUp size={14} className="shrink-0 text-outline" /> : <ArrowDown size={14} className="shrink-0 text-outline" />}
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {sortBy && (
+            <button
+              onClick={() => {
+                onChange("", "asc");
+                close();
+              }}
+              className="flex w-full items-center gap-2.5 border-t border-outline-variant px-3.5 py-2.5 text-left text-[13px] font-semibold text-primary hover:bg-primary-soft"
+            >
+              <RotateCcw size={14} />
+              Сбросить сортировку
+            </button>
+          )}
         </div>
       )}
     </Popover>

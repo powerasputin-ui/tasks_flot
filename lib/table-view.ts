@@ -139,16 +139,20 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
   if (!sort.sortBy) return rows;
   const dir = sort.sortDir === "desc" ? -1 : 1;
 
-  const key = (r: TableRow): string | number => {
+  // null — значение не задано: такие строки всегда идут в конец, в любом направлении.
+  const key = (r: TableRow): string | number | null => {
     switch (sort.sortBy) {
       case "deadline":
-        return r.deadline ? r.deadline.getTime() : Number.MAX_SAFE_INTEGER;
+        return r.deadline ? r.deadline.getTime() : null;
       case "deadlineWeek":
-        return r.deadlineWeek ?? Number.MAX_SAFE_INTEGER;
+        return r.deadlineWeek ?? null;
       case "status":
         return r.statusName ?? "";
-      case "attractiveness":
-        return r.attractivenessName ?? "";
+      case "attractiveness": {
+        // Шкала P100 / P70 / P50 / P10 / P0 сортируется по числу, а не как текст.
+        const m = /^P(\d+)$/i.exec(r.attractivenessName ?? "");
+        return m ? Number(m[1]) : r.attractivenessName ? -1 : null;
+      }
       case "owner":
         return r.ownerName ?? "";
       case "segment":
@@ -167,6 +171,7 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
   return [...rows].sort((a, b) => {
     const ka = key(a);
     const kb = key(b);
+    if (ka === null || kb === null) return ka === kb ? 0 : ka === null ? 1 : -1;
     if (ka < kb) return -1 * dir;
     if (ka > kb) return 1 * dir;
     return 0;

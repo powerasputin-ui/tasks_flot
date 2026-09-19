@@ -11,6 +11,7 @@ export function Popover({
   children,
   align = "left",
   direction = "down",
+  hover = false,
   width,
   className = "",
 }: {
@@ -18,11 +19,23 @@ export function Popover({
   children: (close: () => void) => ReactNode;
   align?: "left" | "right";
   direction?: "down" | "up";
+  /** Открывать при наведении курсора (по клику тоже работает — для сенсорных экранов). */
+  hover?: boolean;
   width?: number | string;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enter = () => {
+    if (!hover) return;
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    setOpen(true);
+  };
+  const leave = () => {
+    if (!hover) return;
+    leaveTimer.current = setTimeout(() => setOpen(false), 180);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -39,7 +52,7 @@ export function Popover({
   }, [open]);
 
   return (
-    <div ref={ref} className={`relative ${className}`}>
+    <div ref={ref} className={`relative ${className}`} onMouseEnter={enter} onMouseLeave={leave}>
       {trigger({ open, toggle: () => setOpen((v) => !v) })}
       {open && (
         <div

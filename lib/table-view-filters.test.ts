@@ -83,6 +83,16 @@ describe("applyTableSort", () => {
     expect(applyTableSort(rows, { sortBy: "deadline", sortDir: "asc" }).map((r) => r.id)).toEqual(["3", "1", "2"]);
   });
 
+  it("пустые сроки остаются внизу и при сортировке по убыванию", () => {
+    const rows = [row({ id: "1", deadline: new Date("2026-08-01") }), row({ id: "2", deadline: null }), row({ id: "3", deadline: new Date("2026-01-01") })];
+    expect(applyTableSort(rows, { sortBy: "deadline", sortDir: "desc" }).map((r) => r.id)).toEqual(["1", "3", "2"]);
+  });
+
+  it("привлекательность сортируется как шкала P100 > P70 > P50 > P10 > P0", () => {
+    const rows = ["P10", "P100", "P50", "P0", "P70"].map((n, i) => row({ id: String(i), attractivenessName: n }));
+    expect(applyTableSort(rows, { sortBy: "attractiveness", sortDir: "desc" }).map((r) => r.attractivenessName)).toEqual(["P100", "P70", "P50", "P10", "P0"]);
+  });
+
   it("сортирует по ответственному", () => {
     const rows = [row({ id: "1", ownerName: "Сухов В.А." }), row({ id: "2", ownerName: "Давыдов Д.М." })];
     expect(applyTableSort(rows, { sortBy: "owner", sortDir: "asc" }).map((r) => r.id)).toEqual(["2", "1"]);
