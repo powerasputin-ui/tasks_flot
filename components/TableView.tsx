@@ -10,6 +10,7 @@ import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/c
 import { SegmentList, SegmentSelect, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
 import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
+import { RecentChanges } from "@/components/RecentChanges";
 import { Popover } from "@/components/ui/Popover";
 import { countBySegment, filterBySegment } from "@/lib/segment-counts";
 
@@ -237,6 +238,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     if (row.statusName === "Завершено" || row.statusName === "Не актуально") return false;
     return new Date(row.deadline) < new Date();
   }, []);
+
+  async function openById(id: string) {
+    const known = rows.find((r) => r.id === id);
+    if (known) return setEditor({ row: known });
+    const res = await fetch(`/api/items/${id}`);
+    if (res.ok) setEditor({ row: (await res.json()).row as Row });
+  }
 
   const counts = useMemo(() => countBySegment(rows), [rows]);
   const visibleRows = useMemo(() => filterBySegment(rows, segment), [rows, segment]);
@@ -472,6 +480,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               />
             )}
           </div>
+
+          <RecentChanges segment={segment} refreshKey={refetchTick} onOpen={openById} />
         </div>
       </section>
 

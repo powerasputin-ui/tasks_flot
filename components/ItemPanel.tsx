@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, Archive, MoreHorizontal, RotateCcw, Send } from "lucide-react";
 import { Panel } from "@/components/ui/Panel";
 import { Popover } from "@/components/ui/Popover";
+import { FIELD_LABEL } from "@/lib/audit-format";
 
 export type Ref = { id: string; name: string };
 export type TrackRef = Ref & { segmentId: string | null };
@@ -56,20 +57,6 @@ type Event = {
   before: string | null;
   after: string | null;
   actor: { name: string } | null;
-};
-
-export const FIELD_LABEL: Record<string, string> = {
-  title: "Название",
-  cost: "Оценка $",
-  comment: "Комментарий",
-  departmentId: "Подразделение",
-  segmentId: "Сегмент",
-  trackId: "Трек",
-  attractivenessId: "Привлекательность",
-  responsibleId: "Ответственный",
-  deadline: "Срок",
-  statusId: "Статус",
-  operFlag: "Опер",
 };
 
 const fromRow = (r: ItemRow | null, defaultDepartmentId: string): FormState => ({
