@@ -23,6 +23,7 @@ type Row = ItemRow & {
   attractivenessName: string | null;
   attractivenessColor: string | null;
   ownerName: string | null;
+  ownerRole: string | null;
   deadlineWeek: number | null;
   statusName: string | null;
   statusColor: string | null;
@@ -313,6 +314,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           <span className="inline-flex items-center gap-2">
             <Avatar name={row.ownerName} size={20} />
             <span className="truncate">{row.ownerName}</span>
+            {row.ownerRole === "CURATOR" && <CuratorMark />}
           </span>
         ) : (
           "—"
@@ -551,7 +553,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           key={editor.row?.id ?? "new"}
           row={editor.row}
           refs={refs}
-          defaultResponsibleId={isHead ? me?.id ?? "" : ""}
+          defaultResponsibleId={me?.id ?? ""}
           lockResponsible={isHead}
           canEdit={editor.row ? canEditRow(editor.row) : true}
           canDelete={editor.row ? canDeleteRow(editor.row) : false}
@@ -563,6 +565,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         />
       )}
     </div>
+  );
+}
+
+/** Метка «К» рядом с куратором (капитанская нашивка). */
+function CuratorMark() {
+  return (
+    <span title="Куратор" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-primary text-[10px] font-bold leading-none text-white">
+      К
+    </span>
   );
 }
 

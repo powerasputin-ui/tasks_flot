@@ -20,6 +20,8 @@ export type TableRow = {
   attractivenessColor: string | null;
   ownerId: string | null; // ответственный (человек)
   ownerName: string | null;
+  /** Роль ответственного: у куратора в таблице ставится метка «К». */
+  ownerRole: string | null;
   deadline: Date | null;
   deadlineWeek: number | null;
   statusId: string | null;
@@ -65,7 +67,7 @@ const ITEM_INCLUDE = {
   segment: { select: { name: true } },
   track: { select: { name: true } },
   attractiveness: { select: { name: true, color: true } },
-  responsible: { select: { id: true, name: true } },
+  responsible: { select: { id: true, name: true, role: true } },
   status: { select: { name: true, color: true } },
   createdBy: { select: { name: true } },
 } satisfies Prisma.OperationalItemInclude;
@@ -86,6 +88,7 @@ export function toTableRow(i: ItemWithRelations): TableRow {
     attractivenessColor: i.attractiveness?.color ?? null,
     ownerId: i.responsibleId,
     ownerName: i.responsible?.name ?? null,
+    ownerRole: i.responsible?.role ?? null,
     deadline: i.deadline,
     deadlineWeek: deadlineWeek(i.deadline),
     statusId: i.statusId,

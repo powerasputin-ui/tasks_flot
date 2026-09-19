@@ -15,6 +15,7 @@ function row(overrides: Partial<TableRow>): TableRow {
     attractivenessColor: null,
     ownerId: null,
     ownerName: null,
+    ownerRole: null,
     deadline: null,
     deadlineWeek: null,
     statusId: "status-1",
