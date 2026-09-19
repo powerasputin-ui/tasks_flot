@@ -13,6 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "backup-db": "tsx scripts/backup-db.ts",
     "create-admin": "tsx scripts/create-admin.ts",
+    "import-tracks": "tsx scripts/import-tracks.ts",
     "test": "vitest run"
   },
   "dependencies": {
