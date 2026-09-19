@@ -1,38 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
+import { ItemForm, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemForm";
 
-type Ref = { id: string; name: string };
-
-type TableRow = {
-  id: string;
-  type: "TRACK" | "TASK" | "VESSEL_OPTION";
+type Row = ItemRow & {
+  departmentName: string;
   segmentName: string | null;
-  trackId: string;
-  trackName: string;
-  name: string;
-  cost: string | null;
+  trackName: string | null;
   attractivenessName: string | null;
   attractivenessColor: string | null;
   ownerName: string | null;
-  deadline: string | null;
   deadlineWeek: number | null;
-  updatedAt: string;
-  staleWeeks: number;
   statusName: string | null;
   statusColor: string | null;
-  operFlag: boolean;
-  comment: string | null;
+  updatedAt: string;
+  staleWeeks: number;
 };
 
-/**
- * Полные названия уровней потребности для тултипа при наведении (раздел 9 ТЗ,
- * переименованы в P10/P50/P70/P100 по запросу заказчика). P0/"Отсутствует" —
- * не хранимое значение, а обозначение отсутствия потребности (attractivenessId
- * = NULL), см. ANALYSIS.md.
- */
+type Me = { id: string; role: string; departmentId: string | null } | null;
+
 const ATTRACTIVENESS_LABEL: Record<string, string> = {
   P100: "Высокая",
   P70: "Выше среднего",
@@ -44,21 +31,14 @@ const ATTRACTIVENESS_LABEL: Record<string, string> = {
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
 
-/** Детерминированный цвет по строке (для Ответственного, у которого нет своего поля color в БД). */
 function stringToColor(input: string): string {
   let hash = 0;
   for (let i = 0; i < input.length; i++) hash = input.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 45%)`;
+  return `hsl(${Math.abs(hash) % 360}, 55%, 45%)`;
 }
 
-/**
- * Реестр всех возможных колонок таблицы. По запросу заказчика колонки должны
- * быть настраиваемые: показать/скрыть, переименовать, изменить порядок и ширину.
- * "Тип" (Трек/Задача/Судно) сознательно убран из колонок — различение по типу
- * теперь только через фильтр "Тип" над таблицей, не как отдельный столбец.
- */
 type ColumnKey =
+  | "department"
   | "segment"
   | "track"
   | "cost"
@@ -71,15 +51,16 @@ type ColumnKey =
   | "operFlag"
   | "comment";
 
-/** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально этим весам. */
+/** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально. */
 type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number };
 
 const DEFAULT_LABEL: Record<ColumnKey, string> = {
+  department: "Подразделение",
   segment: "Сегмент",
   track: "Трек",
   cost: "Оценка $",
   attractiveness: "Привлекательность",
-  name: "Задача",
+  name: "Название",
   deadline: "Срок",
   deadlineWeek: "Неделя",
   owner: "Ответственный",
@@ -89,22 +70,24 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
 };
 
 const ALL_KEYS: ColumnKey[] = [
+  "department",
   "segment",
   "track",
+  "name",
   "cost",
   "attractiveness",
-  "name",
-  "deadline",
   "owner",
+  "deadline",
   "status",
+  "operFlag",
   "comment",
   "deadlineWeek",
-  "operFlag",
 ];
 
 const WIDTH: Record<ColumnKey, number> = {
+  department: 130,
   segment: 140,
-  track: 200,
+  track: 180,
   cost: 110,
   attractiveness: 130,
   name: 260,
@@ -113,32 +96,18 @@ const WIDTH: Record<ColumnKey, number> = {
   owner: 150,
   status: 130,
   operFlag: 70,
-  comment: 260,
+  comment: 240,
 };
+
+const DEFAULT_VISIBLE: ColumnKey[] = ["department", "segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
 
 function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
   const ordered = [...visibleKeys, ...ALL_KEYS.filter((k) => !visibleKeys.includes(k))];
   return ordered.map((key) => ({ key, label: DEFAULT_LABEL[key], visible: visibleKeys.includes(key), width: WIDTH[key] }));
 }
 
-/**
- * Единый экран (Треки/Задачи/Варианты судов больше не отдельные страницы —
- * фильтруются через "Тип" в одной таблице, раздел 107-108: одна модель данных).
- */
-const DEFAULT_COLUMNS: ColumnConfig[] = buildColumns([
-  "segment",
-  "track",
-  "name",
-  "cost",
-  "attractiveness",
-  "owner",
-  "deadline",
-  "status",
-  "operFlag",
-  "comment",
-]);
-
-const STORAGE_KEY = "tasksflot.tableColumns.v6";
+const DEFAULT_COLUMNS = buildColumns(DEFAULT_VISIBLE);
+const STORAGE_KEY = "operativka.tableColumns.v1";
 
 function loadColumns(): ColumnConfig[] {
   try {
@@ -154,72 +123,54 @@ function loadColumns(): ColumnConfig[] {
 
 const SORT_OPTIONS = [
   { value: "", label: "Без сортировки" },
+  { value: "department", label: "Подразделение" },
   { value: "segment", label: "Сегмент" },
   { value: "track", label: "Трек" },
+  { value: "title", label: "Название" },
   { value: "attractiveness", label: "Привлекательность" },
   { value: "owner", label: "Ответственный" },
   { value: "status", label: "Статус" },
   { value: "deadline", label: "Срок" },
-  { value: "deadlineWeek", label: "Неделя" },
+  { value: "updatedAt", label: "Дата обновления" },
 ];
 
-function isoWeekOf(dateStr: string): number {
-  const d = new Date(dateStr);
-  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNr = (target.getUTCDay() + 6) % 7;
-  target.setUTCDate(target.getUTCDate() - dayNr + 3);
-  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
-  const diff = target.getTime() - firstThursday.getTime();
-  return 1 + Math.round(diff / (7 * 24 * 60 * 60 * 1000));
-}
-
-function buildFilterParams(f: Record<string, string>): URLSearchParams {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v && k !== "sortDir") p.set(k, v);
-  if (f.sortBy) p.set("sortDir", f.sortDir);
-  return p;
-}
-
-export function TableView() {
-  const [rows, setRows] = useState<TableRow[]>([]);
+export function TableView({ defaultArchive = "active" }: { defaultArchive?: "active" | "archived" }) {
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [segments, setSegments] = useState<Ref[]>([]);
-  const [tracks, setTracks] = useState<Ref[]>([]);
-  const [statuses, setStatuses] = useState<Ref[]>([]);
-  const [attractiveness, setAttractiveness] = useState<Ref[]>([]);
-  const [users, setUsers] = useState<Ref[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [refs, setRefs] = useState<Refs>({ departments: [], segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
+  const [me, setMe] = useState<Me>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [configOpen, setConfigOpen] = useState(false);
+  const [editor, setEditor] = useState<{ row: Row | null } | null>(null);
 
+  const [departmentId, setDepartmentId] = useState("");
   const [segmentId, setSegmentId] = useState("");
   const [trackId, setTrackId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [attractivenessId, setAttractivenessId] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [operFlag, setOperFlag] = useState("");
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [archive, setArchive] = useState<"active" | "archived" | "all">(defaultArchive);
   const [sortBy, setSortBy] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [deadlineFrom, setDeadlineFrom] = useState("");
   const [deadlineTo, setDeadlineTo] = useState("");
   const [refetchTick, setRefetchTick] = useState(0);
-  const [me, setMe] = useState<{ role: string } | null>(null);
+
+  const isHead = me?.role === "DEPARTMENT_HEAD";
+  const canCreate = me?.role === "DEPARTMENT_HEAD" || me?.role === "CURATOR";
+  const canEditRow = useCallback(
+    (r: Row) => me?.role === "CURATOR" || (me?.role === "DEPARTMENT_HEAD" && !!me.departmentId && me.departmentId === r.departmentId),
+    [me]
+  );
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : { user: null }))
-      .then((d) => setMe(d.user))
-      .catch(() => setMe(null));
-  }, []);
-
-  async function toggleOperFlag(row: TableRow, next: boolean) {
-    const endpoint = row.type === "TRACK" ? `/api/tracks/${row.id}` : `/api/tasks/${row.id}`;
-    const res = await fetch(endpoint, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ operFlag: next }),
-    });
-    if (res.ok) setRefetchTick((t) => t + 1);
-  }
+    const t = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
   useEffect(() => {
     setColumns(loadColumns());
@@ -230,88 +181,95 @@ export function TableView() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
-      // per-viewer удобство, не критично если недоступно (приватный режим и т.п.)
+      // per-viewer удобство, не критично
     }
   }
 
   useEffect(() => {
+    const get = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
     Promise.all([
-      fetch("/api/segments").then((r) => r.json()),
-      fetch("/api/tracks").then((r) => r.json()),
-      fetch("/api/statuses").then((r) => r.json()),
-      fetch("/api/attractiveness").then((r) => r.json()),
-      fetch("/api/users").then((r) => r.json()),
-    ]).then(([s, tr, st, a, u]) => {
-      setSegments(s.segments);
-      setTracks(tr.tracks);
-      setStatuses(st.statuses);
-      setAttractiveness(a.attractiveness);
-      setUsers(u.users);
+      get("/api/auth/me"),
+      get("/api/departments"),
+      get("/api/segments"),
+      get("/api/tracks"),
+      get("/api/statuses"),
+      get("/api/attractiveness"),
+      get("/api/users"),
+    ]).then(([m, d, s, t, st, a, u]) => {
+      setMe(m?.user ?? null);
+      setRefs({
+        departments: d?.departments ?? [],
+        segments: s?.segments ?? [],
+        tracks: (t?.tracks ?? []).map((x: TrackRef) => ({ id: x.id, name: x.name, segmentId: x.segmentId })),
+        statuses: st?.statuses ?? [],
+        attractiveness: a?.attractiveness ?? [],
+        users: (u?.users ?? []).map((x: Ref) => ({ id: x.id, name: x.name })),
+      });
     });
   }, []);
 
-  const exportParams = useMemo(() => buildFilterParams({ trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir }), [trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir]);
+  const filterParams = useMemo(() => {
+    const p = new URLSearchParams();
+    const add = (k: string, v: string) => v && p.set(k, v);
+    add("departmentId", departmentId);
+    add("segmentId", segmentId);
+    add("trackId", trackId);
+    add("statusId", statusId);
+    add("attractivenessId", attractivenessId);
+    add("ownerId", ownerId);
+    add("operFlag", operFlag);
+    add("q", debouncedQ);
+    add("deadlineFrom", deadlineFrom);
+    add("deadlineTo", deadlineTo);
+    p.set("archive", archive);
+    if (sortBy) {
+      p.set("sortBy", sortBy);
+      p.set("sortDir", sortDir);
+    }
+    return p;
+  }, [departmentId, segmentId, trackId, statusId, attractivenessId, ownerId, operFlag, debouncedQ, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (trackId) params.set("trackId", trackId);
-    if (segmentId) params.set("segmentId", segmentId);
-    if (statusId) params.set("statusId", statusId);
-    if (attractivenessId) params.set("attractivenessId", attractivenessId);
-    if (ownerId) params.set("ownerId", ownerId);
-    if (operFlag) params.set("operFlag", operFlag);
-    if (deadlineFrom) params.set("deadlineFrom", deadlineFrom);
-    if (deadlineTo) params.set("deadlineTo", deadlineTo);
-    if (sortBy) {
-      params.set("sortBy", sortBy);
-      params.set("sortDir", sortDir);
-    }
     setLoading(true);
-    fetch(`/api/table?${params.toString()}`)
-      .then((r) => r.json())
+    setError(null);
+    fetch(`/api/items?${filterParams.toString()}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRows(d.rows ?? []))
+      .catch(() => setError("Не удалось загрузить данные. Проверьте соединение и повторите."))
       .finally(() => setLoading(false));
-  }, [trackId, segmentId, statusId, attractivenessId, ownerId, operFlag, deadlineFrom, deadlineTo, sortBy, sortDir, refetchTick]);
+  }, [filterParams, refetchTick]);
 
-  /** Раздел 22/50-стиль сигнал по запросу заказчика: заполненность по неделям в выбранном диапазоне дат. */
-  const weekOccupancy = useMemo(() => {
-    if (!deadlineFrom && !deadlineTo) return [];
-    const counts = new Map<number, number>();
-    for (const r of rows) {
-      if (!r.deadline) continue;
-      const week = isoWeekOf(r.deadline);
-      counts.set(week, (counts.get(week) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => a[0] - b[0]);
-  }, [rows, deadlineFrom, deadlineTo]);
-  const maxWeekCount = Math.max(1, ...weekOccupancy.map(([, c]) => c));
+  async function toggleOper(row: Row, next: boolean) {
+    const res = await fetch(`/api/items/${row.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: row.version, operFlag: next }),
+    });
+    if (!res.ok) setError(res.status === 409 ? "Позиция была изменена другим пользователем — список обновлён." : "Не удалось изменить отметку «Опер».");
+    setRefetchTick((t) => t + 1);
+  }
 
-  const isOverdue = useMemo(
-    () => (row: TableRow) => {
-      if (row.type !== "TASK" || !row.deadline) return false;
-      if (row.statusName === "Завершено" || row.statusName === "Не актуально") return false;
-      return new Date(row.deadline) < new Date();
-    },
-    []
-  );
+  const isOverdue = useCallback((row: Row) => {
+    if (!row.deadline || row.archived) return false;
+    if (row.statusName === "Завершено" || row.statusName === "Не актуально") return false;
+    return new Date(row.deadline) < new Date();
+  }, []);
 
-  const visibleColumns = columns.filter((c) => c.visible);
+  const visibleColumns = columns.filter((c) => c.visible && !(c.key === "department" && isHead));
   const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
 
-  function renderCell(row: TableRow, col: ColumnConfig) {
+  function renderCell(row: Row, col: ColumnConfig) {
     switch (col.key) {
+      case "department":
+        return row.departmentName;
       case "segment":
         return row.segmentName ?? "—";
       case "track":
-        return (
-          <Link href={`/tracks/${row.trackId}`} className="link-subtle">
-            {row.trackName}
-          </Link>
-        );
+        return row.trackName ?? "—";
       case "cost":
         return row.cost ?? "—";
       case "attractiveness": {
-        const code = row.attractivenessName ?? "P0"; // P0 — только отображение для "потребность не указана"
+        const code = row.attractivenessName ?? "P0";
         const color = row.attractivenessColor ?? "#9CA3AF";
         return (
           <span
@@ -325,7 +283,7 @@ export function TableView() {
         );
       }
       case "name":
-        return row.name;
+        return <span className={row.archived ? "text-neutral-400" : ""}>{row.name}</span>;
       case "deadline":
         return row.deadline ? new Date(row.deadline).toLocaleDateString("ru-RU") : "—";
       case "deadlineWeek":
@@ -348,10 +306,7 @@ export function TableView() {
         return row.statusName ? (
           <span
             className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium"
-            style={{
-              background: `${row.statusColor ?? "#9CA3AF"}1a`,
-              color: row.statusColor ?? "#6B7280",
-            }}
+            style={{ background: `${row.statusColor ?? "#9CA3AF"}1a`, color: row.statusColor ?? "#6B7280" }}
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: row.statusColor ?? "#9CA3AF" }} />
             {row.statusName}
@@ -360,20 +315,20 @@ export function TableView() {
           "—"
         );
       case "operFlag":
-        if (row.type === "VESSEL_OPTION") return "—"; // у VesselOption нет operFlag (раздел 15)
-        if (me?.role === "CURATOR") {
-          return (
-            <input
-              type="checkbox"
-              checked={row.operFlag}
-              onChange={(e) => toggleOperFlag(row, e.target.checked)}
-              onClick={(e) => e.stopPropagation()}
-              className="h-4 w-4 cursor-pointer accent-neutral-900"
-              title="Передать на внимание руководителя"
-            />
-          );
-        }
-        return row.operFlag ? "да" : "—";
+        return canEditRow(row) && !row.archived ? (
+          <input
+            type="checkbox"
+            checked={row.operFlag}
+            onChange={(e) => toggleOper(row, e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+            className="h-4 w-4 cursor-pointer accent-neutral-900"
+            title="Отправить куратору"
+          />
+        ) : row.operFlag ? (
+          "да"
+        ) : (
+          "—"
+        );
       case "comment":
         return row.comment ?? "—";
     }
@@ -382,17 +337,30 @@ export function TableView() {
   return (
     <div className="w-full px-6 py-6">
       <div className="surface mb-4 flex flex-wrap items-end gap-3 p-4">
-        <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={segments} />
-        <Select label="Трек" value={trackId} onChange={setTrackId} options={tracks} />
-        <Select label="Статус" value={statusId} onChange={setStatusId} options={statuses} />
-        <Select label="Привлекательность" value={attractivenessId} onChange={setAttractivenessId} options={attractiveness} />
-        <Select label="Ответственный" value={ownerId} onChange={setOwnerId} options={users} />
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Опер-флаг</label>
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Поиск</label>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, комментарий…" className="input w-48" />
+        </div>
+        {!isHead && <Select label="Подразделение" value={departmentId} onChange={setDepartmentId} options={refs.departments} />}
+        <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={refs.segments} />
+        <Select label="Трек" value={trackId} onChange={setTrackId} options={refs.tracks} />
+        <Select label="Статус" value={statusId} onChange={setStatusId} options={refs.statuses} />
+        <Select label="Привлекательность" value={attractivenessId} onChange={setAttractivenessId} options={refs.attractiveness} />
+        <Select label="Ответственный" value={ownerId} onChange={setOwnerId} options={refs.users} />
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Опер</label>
           <select value={operFlag} onChange={(e) => setOperFlag(e.target.value)} className="select">
             <option value="">Все</option>
             <option value="true">Да</option>
             <option value="false">Нет</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Показывать</label>
+          <select value={archive} onChange={(e) => setArchive(e.target.value as typeof archive)} className="select">
+            <option value="active">Активные</option>
+            <option value="archived">Архив</option>
+            <option value="all">Все</option>
           </select>
         </div>
         <div>
@@ -402,16 +370,7 @@ export function TableView() {
             <span className="text-neutral-400">по</span>
             <input type="date" value={deadlineTo} onChange={(e) => setDeadlineTo(e.target.value)} className="input" />
             {(deadlineFrom || deadlineTo) && (
-              <button
-                onClick={() => {
-                  setDeadlineFrom("");
-                  setDeadlineTo("");
-                }}
-                className="btn-ghost px-2 py-1.5"
-                title="Сбросить диапазон"
-              >
-                ✕
-              </button>
+              <button onClick={() => { setDeadlineFrom(""); setDeadlineTo(""); }} className="btn-ghost px-2 py-1.5" title="Сбросить диапазон">✕</button>
             )}
           </div>
         </div>
@@ -420,48 +379,29 @@ export function TableView() {
           <div className="flex gap-1">
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="select">
               {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            <button
-              onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
-              className="select w-9 transition-transform duration-150 active:scale-90"
-              title="Направление сортировки"
-            >
+            <button onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")} className="select w-9 transition-transform duration-150 active:scale-90" title="Направление сортировки">
               {sortDir === "asc" ? "↑" : "↓"}
             </button>
           </div>
         </div>
         <div className="ml-auto flex items-end gap-3">
-          <ExportMenu endpoint="/api/export/table" params={exportParams} />
-          <button onClick={() => setConfigOpen((v) => !v)} className="btn-ghost">
-            ⚙ Колонки
-          </button>
+          {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={filterParams} />}
+          <button onClick={() => setConfigOpen((v) => !v)} className="btn-ghost">⚙ Колонки</button>
+          {canCreate && (
+            <button onClick={() => setEditor({ row: null })} className="btn-primary">+ Новая позиция</button>
+          )}
         </div>
       </div>
 
       {configOpen && <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
 
-      {weekOccupancy.length > 0 && (
-        <div className="surface animate-fade-in mb-4 p-4">
-          <p className="mb-2 text-[12px] font-medium text-neutral-600">
-            Заполненность по неделям в выбранном диапазоне срока (задачи с deadline).
-          </p>
-          <div className="flex flex-wrap items-end gap-3">
-            {weekOccupancy.map(([week, count]) => (
-              <div key={week} className="flex flex-col items-center gap-1">
-                <div
-                  className="w-6 rounded-t bg-neutral-900"
-                  style={{ height: `${8 + (count / maxWeekCount) * 48}px` }}
-                  title={`Неделя ${week}: ${count}`}
-                />
-                <span className="text-[10px] text-neutral-500">{week}</span>
-                <span className="text-[10px] font-medium text-neutral-700">{count}</span>
-              </div>
-            ))}
-          </div>
+      {error && (
+        <div className="mb-3 flex items-center gap-3 rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">
+          {error}
+          <button onClick={() => setRefetchTick((t) => t + 1)} className="btn-ghost">Повторить</button>
         </div>
       )}
 
@@ -486,60 +426,65 @@ export function TableView() {
           </thead>
           <tbody>
             {loading &&
-              Array.from({ length: 8 }).map((_, i) => (
+              Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} className="border-b border-[var(--border)]">
                   {visibleColumns.map((c) => (
-                    <td key={c.key} className="px-4 py-3">
-                      <div className="skeleton h-3.5 w-full rounded" />
-                    </td>
+                    <td key={c.key} className="px-4 py-3"><div className="skeleton h-3.5 w-full rounded" /></td>
                   ))}
                 </tr>
               ))}
             {!loading &&
               rows.map((row, i) => (
                 <tr
-                  key={`${row.type}-${row.id}`}
-                  className="row-hover animate-fade-in border-b border-[var(--border)] last:border-0"
+                  key={row.id}
+                  onClick={() => setEditor({ row })}
+                  className="row-hover animate-fade-in cursor-pointer border-b border-[var(--border)] last:border-0"
                   style={{ animationDelay: `${Math.min(i, 20) * 12}ms` }}
                 >
                   {visibleColumns.map((col) => (
                     <td
                       key={col.key}
-                      className={`truncate px-4 py-2.5 text-neutral-700 ${
-                        CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""
-                      } ${col.key === "deadline" && isOverdue(row) ? "font-medium text-[var(--danger)]" : ""}`}
-                      title={
-                        (col.key === "comment" && row.comment) || (col.key === "name" && row.name) || undefined
-                      }
+                      className={`truncate px-4 py-2.5 text-neutral-700 ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
+                        col.key === "deadline" && isOverdue(row) ? "font-medium text-[var(--danger)]" : ""
+                      }`}
+                      title={(col.key === "comment" && row.comment) || (col.key === "name" && row.name) || undefined}
                     >
                       {renderCell(row, col)}
                     </td>
                   ))}
                 </tr>
               ))}
-            {!loading && rows.length === 0 && (
+            {!loading && !error && rows.length === 0 && (
               <tr>
                 <td colSpan={visibleColumns.length} className="px-4 py-14 text-center text-[13px] text-neutral-400">
-                  Нет записей по выбранным фильтрам.
+                  Нет позиций по выбранным фильтрам.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+      {!loading && rows.length > 0 && <p className="mt-2 text-[11px] text-neutral-400">Позиций: {rows.length}</p>}
+
+      {editor && (
+        <ItemForm
+          row={editor.row}
+          refs={refs}
+          defaultDepartmentId={isHead ? me?.departmentId ?? "" : refs.departments[0]?.id ?? ""}
+          lockDepartment={isHead}
+          canEdit={editor.row ? canEditRow(editor.row) : canCreate}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            setEditor(null);
+            setRefetchTick((t) => t + 1);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function ColumnConfigPanel({
-  columns,
-  onChange,
-  onReset,
-}: {
-  columns: ColumnConfig[];
-  onChange: (cols: ColumnConfig[]) => void;
-  onReset: () => void;
-}) {
+function ColumnConfigPanel({ columns, onChange, onReset }: { columns: ColumnConfig[]; onChange: (cols: ColumnConfig[]) => void; onReset: () => void }) {
   const visibleTotal = columns.filter((c) => c.visible).reduce((s, c) => s + c.width, 0) || 1;
 
   function update(key: ColumnKey, patch: Partial<ColumnConfig>) {
@@ -558,41 +503,18 @@ function ColumnConfigPanel({
   return (
     <div className="surface animate-fade-in mb-4 p-4">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-[12px] font-medium text-neutral-600">
-          Настройте видимость, порядок, название и ширину колонок — сохраняется в этом браузере.
-        </p>
-        <button onClick={onReset} className="btn-ghost">
-          Сбросить
-        </button>
+        <p className="text-[12px] font-medium text-neutral-600">Настройте видимость, порядок, название и ширину колонок — сохраняется в этом браузере.</p>
+        <button onClick={onReset} className="btn-ghost">Сбросить</button>
       </div>
       <ul className="divide-y divide-[var(--border)]">
         {columns.map((col, i) => (
           <li key={col.key} className="flex items-center gap-3 py-2">
-            <input
-              type="checkbox"
-              checked={col.visible}
-              onChange={(e) => update(col.key, { visible: e.target.checked })}
-              className="h-4 w-4 accent-neutral-900"
-            />
-            <input
-              value={col.label}
-              onChange={(e) => update(col.key, { label: e.target.value })}
-              className="input w-40 py-1"
-            />
-            <span className="w-10 text-right text-[11px] text-neutral-400">
-              {col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%
-            </span>
+            <input type="checkbox" checked={col.visible} onChange={(e) => update(col.key, { visible: e.target.checked })} className="h-4 w-4 accent-neutral-900" />
+            <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} className="input w-40 py-1" />
+            <span className="w-10 text-right text-[11px] text-neutral-400">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
             <div className="ml-auto flex gap-1">
-              <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-ghost px-2 py-1 disabled:opacity-30">
-                ↑
-              </button>
-              <button
-                onClick={() => move(col.key, 1)}
-                disabled={i === columns.length - 1}
-                className="btn-ghost px-2 py-1 disabled:opacity-30"
-              >
-                ↓
-              </button>
+              <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-ghost px-2 py-1 disabled:opacity-30">↑</button>
+              <button onClick={() => move(col.key, 1)} disabled={i === columns.length - 1} className="btn-ghost px-2 py-1 disabled:opacity-30">↓</button>
             </div>
           </li>
         ))}
@@ -601,15 +523,7 @@ function ColumnConfigPanel({
   );
 }
 
-function ResizableTh({
-  column,
-  totalWeight,
-  onResize,
-}: {
-  column: ColumnConfig;
-  totalWeight: number;
-  onResize: (width: number) => void;
-}) {
+function ResizableTh({ column, totalWeight, onResize }: { column: ColumnConfig; totalWeight: number; onResize: (width: number) => void }) {
   const thRef = useRef<HTMLTableCellElement>(null);
   const startX = useRef(0);
   const startPixelWidth = useRef(0);
@@ -617,16 +531,14 @@ function ResizableTh({
 
   function onMouseDown(e: React.MouseEvent) {
     e.preventDefault();
+    e.stopPropagation();
     startX.current = e.clientX;
     startPixelWidth.current = thRef.current?.getBoundingClientRect().width ?? 100;
     startWeight.current = column.width;
 
-    // Перетаскивание меняет вес колонки пропорционально текущей отрисованной ширине,
-    // так что все колонки продолжают растягиваться на 100% относительно друг друга.
     function onMove(ev: MouseEvent) {
       const nextPixelWidth = Math.max(60, startPixelWidth.current + (ev.clientX - startX.current));
-      const nextWeight = Math.max(20, startWeight.current * (nextPixelWidth / startPixelWidth.current));
-      onResize(Math.round(nextWeight));
+      onResize(Math.round(Math.max(20, startWeight.current * (nextPixelWidth / startPixelWidth.current))));
     }
     function onUp() {
       window.removeEventListener("mousemove", onMove);
@@ -637,40 +549,21 @@ function ResizableTh({
   }
 
   return (
-    <th
-      ref={thRef}
-      className={`relative px-4 py-2.5 ${CENTERED_COLUMNS.includes(column.key) ? "text-center" : ""}`}
-      style={{ width: `${(column.width / totalWeight) * 100}%` }}
-    >
+    <th ref={thRef} className={`relative px-4 py-2.5 ${CENTERED_COLUMNS.includes(column.key) ? "text-center" : ""}`} style={{ width: `${(column.width / totalWeight) * 100}%` }}>
       {column.label}
-      <span
-        onMouseDown={onMouseDown}
-        className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none hover:bg-neutral-200"
-      />
+      <span onMouseDown={onMouseDown} className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none hover:bg-neutral-200" />
     </th>
   );
 }
 
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: Ref[];
-}) {
+function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: Ref[] }) {
   return (
     <div>
       <label className="mb-1 block text-[11px] font-medium text-neutral-500">{label}</label>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="select">
         <option value="">Все</option>
         {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
+          <option key={o.id} value={o.id}>{o.name}</option>
         ))}
       </select>
     </div>

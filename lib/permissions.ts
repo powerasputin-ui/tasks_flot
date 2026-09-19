@@ -1,99 +1,63 @@
 import type { UserRole } from "@prisma/client";
 
 /**
- * Права по ролям — разделы 35-38 ТЗ.
+ * Права по ролям — TZ_v4.md, раздел 6. Чистые функции без обращения к БД.
+ * Сервер проверяет права на КАЖДОМ запросе (интерфейс только отражает их).
  *
- * ВАЖНО: раздел 39 явно запрещает угадывать ряд правил:
- *  - кто может менять чужой Track/Task,
- *  - кто может архивировать Track,
- *  - может ли Руководитель менять Task.
- *
- * Пока эти правила не подтверждены бизнес-заказчиком, здесь применяется
- * консервативный дефолт: Ответственный может UPDATE/ARCHIVE только объекты,
- * где ownerId === его userId (включая случай ownerId = NULL — доступ на
- * запись не выдаётся автоматически, раздел 38). Это UNRESOLVED BUSINESS RULE,
- * см. TZ.md раздел 39 и README.md, не финальное решение.
+ * Куратор ⊇ руководитель подразделения: всё, что может руководитель отдела,
+ * куратор может для любого отдела. Руководство видит только финальные
+ * оперативки (этап 4), рабочих позиций не видит. Админ — только чтение позиций.
  */
+export type Actor = { id: string; role: UserRole; departmentId: string | null };
+export type ItemScope = { departmentId: string };
 
-export type WorkEntity = { ownerId: string | null };
+const isHead = (a: Actor) => a.role === "DEPARTMENT_HEAD";
+const isCurator = (a: Actor) => a.role === "CURATOR";
 
-export function canReadAll(_role: UserRole): boolean {
-  // Раздел 35/36/37: READ доступен всем ролям по всей системе.
-  return true;
+export function canViewAllDepartments(role: UserRole): boolean {
+  return role === "CURATOR" || role === "SYSTEM_ADMIN";
 }
 
-export function canCreateWorkEntity(role: UserRole): boolean {
-  // Раздел 35: Ответственный создаёт Track/Task/VesselOption.
-  // Куратор/Руководитель не создают рабочие сущности в Phase 1 (не описано в ТЗ).
-  return role === "RESPONSIBLE";
+export function canViewItem(actor: Actor, item: ItemScope): boolean {
+  if (canViewAllDepartments(actor.role)) return true;
+  if (isHead(actor)) return !!actor.departmentId && actor.departmentId === item.departmentId;
+  return false; // MANAGEMENT: только финальные снимки
 }
 
-export function canUpdateWorkEntity(role: UserRole, userId: string, entity: WorkEntity): boolean {
-  if (role === "RESPONSIBLE") {
-    return entity.ownerId === userId; // UNRESOLVED BUSINESS RULE default, см. выше
-  }
+export function canEditItem(actor: Actor, item: ItemScope): boolean {
+  if (isCurator(actor)) return true;
+  if (isHead(actor)) return !!actor.departmentId && actor.departmentId === item.departmentId;
   return false;
 }
 
-export function canArchiveWorkEntity(role: UserRole, userId: string, entity: WorkEntity): boolean {
-  // Раздел 39: "кто может архивировать Track" не подтверждено.
-  // Дефолт: та же граница, что и для UPDATE.
-  return canUpdateWorkEntity(role, userId, entity);
+export function canCreateItem(actor: Actor, departmentId: string): boolean {
+  return canEditItem(actor, { departmentId });
 }
 
-export function canManageReferenceData(role: UserRole): boolean {
-  // Раздел 36: Куратор управляет Segment/Attractiveness/Status.
-  return role === "CURATOR";
+/** Архивирование и возврат из архива, галка «Опер» — те же границы, что и правка. */
+export const canArchiveItem = canEditItem;
+export const canSetOperFlag = canEditItem;
+
+/** Пользователи, подразделения, справочники — только SYSTEM_ADMIN (раздел 6). */
+export function canManageDirectory(role: UserRole): boolean {
+  return role === "SYSTEM_ADMIN";
 }
 
-export function canSetOperFlag(role: UserRole): boolean {
-  // Раздел 17/36: изменять operFlag может Куратор.
-  return role === "CURATOR";
+export function canAccessWorkTable(role: UserRole): boolean {
+  return role === "DEPARTMENT_HEAD" || role === "CURATOR" || role === "SYSTEM_ADMIN";
 }
 
-/**
- * Подтверждено бизнес-заказчиком (не угадано): Куратор может назначать,
- * переназначать и снимать владельца (ownerId) Track/Task независимо от того,
- * назначен ли уже владелец — это решает тупик с 25 треками из Excel-импорта,
- * у которых ownerId=NULL и которые иначе не мог бы отредактировать никто.
- * См. ANALYSIS.md, ранее числилось в UNRESOLVED BUSINESS RULE (раздел 39 ТЗ).
- */
-export function canManageOwnership(role: UserRole): boolean {
-  return role === "CURATOR";
+/** Excel/PDF рабочей таблицы: руководитель отдела (свой отдел), куратор. */
+export function canExportWorkTable(role: UserRole): boolean {
+  return role === "DEPARTMENT_HEAD" || role === "CURATOR";
 }
 
 /**
- * Canvas (раздел 93 ТЗ) — это View, а не бизнес-данные. ТЗ не говорит, кто
- * расставляет карточки; консервативный дефолт: только Куратор, остальные читают.
- * UNRESOLVED BUSINESS RULE, см. ANALYSIS.md.
+ * Prisma-условие видимости позиций для актора. null = доступа нет вообще.
+ * Руководитель без подразделения не видит ничего (а не «все»).
  */
-export function canArrangeCanvas(role: UserRole): boolean {
-  return role === "CURATOR";
-}
-
-export function canAccessManagerViews(role: UserRole): boolean {
-  // Раздел 37: Dashboard/Digest/Export — доступ Руководителя (и Куратора/Ответственного тоже можно читать).
-  return role === "MANAGER" || role === "CURATOR";
-}
-
-/**
- * Раздел 20 ТЗ: "Ответственный ... заполняет WeeklyUpdate". Кто именно может
- * писать отчёт по треку не описан явно за пределами этой фразы — трактуем как
- * владельца трека (та же граница, что и для остальных write-действий
- * Ответственного, раздел 35/38). Куратор/Руководитель только читают.
- */
-export function canCreateWeeklyUpdate(role: UserRole, userId: string, track: WorkEntity): boolean {
-  return role === "RESPONSIBLE" && track.ownerId === userId;
-}
-
-/**
- * Раздел 20: после Submit запись сохраняется и не заменяется — редактировать
- * можно только пока статус DRAFT, и только автор.
- */
-export function canEditWeeklyUpdate(
-  role: UserRole,
-  userId: string,
-  weeklyUpdate: { authorId: string; status: "DRAFT" | "SUBMITTED" }
-): boolean {
-  return role === "RESPONSIBLE" && weeklyUpdate.authorId === userId && weeklyUpdate.status === "DRAFT";
+export function itemVisibilityWhere(actor: Actor): { departmentId?: string } | null {
+  if (canViewAllDepartments(actor.role)) return {};
+  if (isHead(actor)) return actor.departmentId ? { departmentId: actor.departmentId } : null;
+  return null;
 }

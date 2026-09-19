@@ -1,120 +1,76 @@
 import { describe, expect, it } from "vitest";
 import {
-  canReadAll,
-  canCreateWorkEntity,
-  canUpdateWorkEntity,
-  canArchiveWorkEntity,
-  canManageReferenceData,
-  canSetOperFlag,
-  canArrangeCanvas,
-  canManageOwnership,
-  canAccessManagerViews,
-  canCreateWeeklyUpdate,
-  canEditWeeklyUpdate,
+  canViewItem,
+  canEditItem,
+  canCreateItem,
+  canManageDirectory,
+  canAccessWorkTable,
+  canExportWorkTable,
+  itemVisibilityWhere,
+  type Actor,
 } from "@/lib/permissions";
 
-describe("canReadAll (раздел 35/36/37 ТЗ)", () => {
-  it("разрешено всем ролям", () => {
-    expect(canReadAll("RESPONSIBLE")).toBe(true);
-    expect(canReadAll("CURATOR")).toBe(true);
-    expect(canReadAll("MANAGER")).toBe(true);
+const head = (departmentId: string | null = "d1"): Actor => ({ id: "u1", role: "DEPARTMENT_HEAD", departmentId });
+const curator: Actor = { id: "u2", role: "CURATOR", departmentId: "d9" };
+const management: Actor = { id: "u3", role: "MANAGEMENT", departmentId: null };
+const admin: Actor = { id: "u4", role: "SYSTEM_ADMIN", departmentId: null };
+
+describe("доступ к позициям (TZ_v4, раздел 6)", () => {
+  it("руководитель отдела видит и правит только свой отдел", () => {
+    expect(canViewItem(head(), { departmentId: "d1" })).toBe(true);
+    expect(canViewItem(head(), { departmentId: "d2" })).toBe(false);
+    expect(canEditItem(head(), { departmentId: "d1" })).toBe(true);
+    expect(canEditItem(head(), { departmentId: "d2" })).toBe(false);
+  });
+
+  it("руководитель без подразделения не видит и не правит ничего", () => {
+    expect(canViewItem(head(null), { departmentId: "d1" })).toBe(false);
+    expect(canEditItem(head(null), { departmentId: "d1" })).toBe(false);
+    expect(itemVisibilityWhere(head(null))).toBeNull();
+  });
+
+  it("куратор видит и правит любые отделы, включая создание", () => {
+    expect(canViewItem(curator, { departmentId: "d1" })).toBe(true);
+    expect(canEditItem(curator, { departmentId: "d2" })).toBe(true);
+    expect(canCreateItem(curator, "d3")).toBe(true);
+    expect(itemVisibilityWhere(curator)).toEqual({});
+  });
+
+  it("руководство не видит рабочие позиции (только финал, этап 4)", () => {
+    expect(canViewItem(management, { departmentId: "d1" })).toBe(false);
+    expect(canEditItem(management, { departmentId: "d1" })).toBe(false);
+    expect(itemVisibilityWhere(management)).toBeNull();
+  });
+
+  it("админ читает все позиции, но не правит", () => {
+    expect(canViewItem(admin, { departmentId: "d1" })).toBe(true);
+    expect(canEditItem(admin, { departmentId: "d1" })).toBe(false);
+    expect(canCreateItem(admin, "d1")).toBe(false);
+  });
+
+  it("руководитель создаёт позиции только в своём отделе", () => {
+    expect(canCreateItem(head(), "d1")).toBe(true);
+    expect(canCreateItem(head(), "d2")).toBe(false);
   });
 });
 
-describe("canCreateWorkEntity (раздел 35 ТЗ)", () => {
-  it("только Ответственный создаёт Track/Task/VesselOption", () => {
-    expect(canCreateWorkEntity("RESPONSIBLE")).toBe(true);
-    expect(canCreateWorkEntity("CURATOR")).toBe(false);
-    expect(canCreateWorkEntity("MANAGER")).toBe(false);
-  });
-});
-
-describe("canUpdateWorkEntity (раздел 35/38/39 ТЗ — консервативный дефолт)", () => {
-  it("Ответственный может обновлять только свой объект", () => {
-    expect(canUpdateWorkEntity("RESPONSIBLE", "user-1", { ownerId: "user-1" })).toBe(true);
+describe("справочники и таблица", () => {
+  it("пользователи/подразделения/справочники — только SYSTEM_ADMIN", () => {
+    expect(canManageDirectory("SYSTEM_ADMIN")).toBe(true);
+    expect(canManageDirectory("CURATOR")).toBe(false);
+    expect(canManageDirectory("DEPARTMENT_HEAD")).toBe(false);
+    expect(canManageDirectory("MANAGEMENT")).toBe(false);
   });
 
-  it("Ответственный не может обновлять чужой объект", () => {
-    expect(canUpdateWorkEntity("RESPONSIBLE", "user-1", { ownerId: "user-2" })).toBe(false);
+  it("рабочая таблица недоступна руководству; экспорт — руководителю отдела и куратору", () => {
+    expect(canAccessWorkTable("MANAGEMENT")).toBe(false);
+    expect(canAccessWorkTable("DEPARTMENT_HEAD")).toBe(true);
+    expect(canExportWorkTable("CURATOR")).toBe(true);
+    expect(canExportWorkTable("SYSTEM_ADMIN")).toBe(false);
   });
 
-  it("ownerId=NULL не даёт автоматический доступ на запись (раздел 38)", () => {
-    expect(canUpdateWorkEntity("RESPONSIBLE", "user-1", { ownerId: null })).toBe(false);
-  });
-
-  it("Куратор и Руководитель не обновляют рабочие объекты через этот путь", () => {
-    expect(canUpdateWorkEntity("CURATOR", "user-1", { ownerId: "user-1" })).toBe(false);
-    expect(canUpdateWorkEntity("MANAGER", "user-1", { ownerId: "user-1" })).toBe(false);
-  });
-});
-
-describe("canArchiveWorkEntity (та же граница, что и update)", () => {
-  it("совпадает с canUpdateWorkEntity", () => {
-    expect(canArchiveWorkEntity("RESPONSIBLE", "user-1", { ownerId: "user-1" })).toBe(true);
-    expect(canArchiveWorkEntity("RESPONSIBLE", "user-1", { ownerId: "user-2" })).toBe(false);
-  });
-});
-
-describe("canManageReferenceData (раздел 36 ТЗ)", () => {
-  it("только Куратор управляет Segment/Attractiveness/Status", () => {
-    expect(canManageReferenceData("CURATOR")).toBe(true);
-    expect(canManageReferenceData("RESPONSIBLE")).toBe(false);
-    expect(canManageReferenceData("MANAGER")).toBe(false);
-  });
-});
-
-describe("canSetOperFlag (раздел 17/36 ТЗ)", () => {
-  it("только Куратор меняет operFlag", () => {
-    expect(canSetOperFlag("CURATOR")).toBe(true);
-    expect(canSetOperFlag("RESPONSIBLE")).toBe(false);
-    expect(canSetOperFlag("MANAGER")).toBe(false);
-  });
-});
-
-describe("canArrangeCanvas (раздел 93 ТЗ, UNRESOLVED — консервативный дефолт)", () => {
-  it("раскладку меняет только Куратор", () => {
-    expect(canArrangeCanvas("CURATOR")).toBe(true);
-    expect(canArrangeCanvas("RESPONSIBLE")).toBe(false);
-    expect(canArrangeCanvas("MANAGER")).toBe(false);
-  });
-});
-
-describe("canManageOwnership (подтверждено бизнес-заказчиком)", () => {
-  it("только Куратор назначает/меняет/снимает владельца", () => {
-    expect(canManageOwnership("CURATOR")).toBe(true);
-    expect(canManageOwnership("RESPONSIBLE")).toBe(false);
-    expect(canManageOwnership("MANAGER")).toBe(false);
-  });
-});
-
-describe("canAccessManagerViews (раздел 37 ТЗ)", () => {
-  it("Руководитель и Куратор — да, Ответственный — нет", () => {
-    expect(canAccessManagerViews("MANAGER")).toBe(true);
-    expect(canAccessManagerViews("CURATOR")).toBe(true);
-    expect(canAccessManagerViews("RESPONSIBLE")).toBe(false);
-  });
-});
-
-describe("canCreateWeeklyUpdate (раздел 20 ТЗ)", () => {
-  it("только владелец-Ответственный трека создаёт отчёт", () => {
-    expect(canCreateWeeklyUpdate("RESPONSIBLE", "user-1", { ownerId: "user-1" })).toBe(true);
-    expect(canCreateWeeklyUpdate("RESPONSIBLE", "user-1", { ownerId: "user-2" })).toBe(false);
-    expect(canCreateWeeklyUpdate("RESPONSIBLE", "user-1", { ownerId: null })).toBe(false);
-    expect(canCreateWeeklyUpdate("CURATOR", "user-1", { ownerId: "user-1" })).toBe(false);
-  });
-});
-
-describe("canEditWeeklyUpdate (раздел 20 ТЗ — иммутабельность после Submit)", () => {
-  it("автор-владелец может редактировать только DRAFT", () => {
-    expect(canEditWeeklyUpdate("RESPONSIBLE", "user-1", { authorId: "user-1", status: "DRAFT" })).toBe(true);
-    expect(canEditWeeklyUpdate("RESPONSIBLE", "user-1", { authorId: "user-1", status: "SUBMITTED" })).toBe(false);
-  });
-
-  it("не автор не может редактировать", () => {
-    expect(canEditWeeklyUpdate("RESPONSIBLE", "user-1", { authorId: "user-2", status: "DRAFT" })).toBe(false);
-  });
-
-  it("Куратор/Руководитель не редактируют WeeklyUpdate", () => {
-    expect(canEditWeeklyUpdate("CURATOR", "user-1", { authorId: "user-1", status: "DRAFT" })).toBe(false);
+  it("видимость: руководитель ограничен своим отделом в запросе к БД", () => {
+    expect(itemVisibilityWhere(head("d5"))).toEqual({ departmentId: "d5" });
+    expect(itemVisibilityWhere(admin)).toEqual({});
   });
 });

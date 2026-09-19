@@ -1,5 +1,5 @@
 /**
- * Резервная копия всех таблиц в JSON — перед очисткой данных и миграциями ТЗ v4.
+ * Резервная копия всех таблиц в JSON — перед миграциями и рискованными операциями.
  * Пишет в backups/<дата-время>/<таблица>.json (папка в .gitignore: внутри
  * хэши паролей и рабочие данные).
  *
@@ -14,18 +14,15 @@ const prisma = new PrismaClient();
 
 const TABLES: Record<string, () => Promise<unknown[]>> = {
   users: () => prisma.user.findMany(),
+  departments: () => prisma.department.findMany(),
   segments: () => prisma.segment.findMany(),
   attractiveness: () => prisma.attractiveness.findMany(),
   statuses: () => prisma.status.findMany(),
   tracks: () => prisma.track.findMany(),
-  tasks: () => prisma.task.findMany(),
-  vessel_options: () => prisma.vesselOption.findMany(),
+  operational_items: () => prisma.operationalItem.findMany(),
+  item_notes: () => prisma.itemNote.findMany(),
   audit_events: () => prisma.auditEvent.findMany(),
-  weekly_updates: () => prisma.weeklyUpdate.findMany(),
-  weekly_digests: () => prisma.weeklyDigest.findMany(),
-  comments: () => prisma.comment.findMany(),
   notifications: () => prisma.notification.findMany(),
-  canvas_items: () => prisma.canvasItem.findMany(),
 };
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 6, delayMs = 3000): Promise<T> {

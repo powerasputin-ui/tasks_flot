@@ -2,30 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { canManageDirectory } from "@/lib/permissions";
-import { trackSchema } from "@/lib/validation";
+import { departmentSchema } from "@/lib/validation";
 
-// Трек — справочник (TZ_v4, раздел 3): читают все, управляет SYSTEM_ADMIN.
 export async function GET(request: NextRequest) {
   const session = await requireSession();
+  // Неактивные отделы (нужны админу в настройках) — только с ?all=1 и правом управления.
   const all = new URL(request.url).searchParams.get("all") === "1" && canManageDirectory(session.role);
-  const tracks = await prisma.track.findMany({
+  const departments = await prisma.department.findMany({
     where: all ? {} : { isActive: true },
-    include: { segment: { select: { id: true, name: true } } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-  return NextResponse.json({ tracks });
+  return NextResponse.json({ departments });
 }
 
 export async function POST(request: NextRequest) {
   const session = await requireSession();
   if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
-  const parsed = trackSchema.safeParse(await request.json().catch(() => null));
+  const parsed = departmentSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
 
-  const duplicate = await prisma.track.findFirst({ where: { name: parsed.data.name, segmentId: parsed.data.segmentId ?? null } });
-  if (duplicate) return NextResponse.json({ error: "NAME_TAKEN" }, { status: 409 });
-
-  const track = await prisma.track.create({ data: parsed.data });
-  return NextResponse.json({ track }, { status: 201 });
+  if (await prisma.department.findUnique({ where: { name: parsed.data.name } })) {
+    return NextResponse.json({ error: "NAME_TAKEN" }, { status: 409 });
+  }
+  const department = await prisma.department.create({ data: parsed.data });
+  return NextResponse.json({ department }, { status: 201 });
 }

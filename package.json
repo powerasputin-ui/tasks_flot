@@ -11,10 +11,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "import:excel": "tsx scripts/import-excel.ts",
-    "add-responsible-users": "tsx scripts/add-responsible-users.ts",
     "backup-db": "tsx scripts/backup-db.ts",
-    "reset-business-data": "tsx scripts/reset-business-data.ts",
+    "create-admin": "tsx scripts/create-admin.ts",
     "test": "vitest run"
   },
   "dependencies": {

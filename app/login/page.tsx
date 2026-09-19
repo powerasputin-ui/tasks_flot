@@ -24,7 +24,7 @@ export default function LoginPage() {
         setError("Неверный email или пароль");
         return;
       }
-      router.push("/tracks");
+      router.push("/");
       router.refresh();
     } finally {
       setLoading(false);

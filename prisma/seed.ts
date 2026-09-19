@@ -1,5 +1,4 @@
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -67,22 +66,7 @@ async function main() {
     });
   }
 
-  const curatorEmail = "curator@tasksflot.local";
-  const existingCurator = await prisma.user.findUnique({ where: { email: curatorEmail } });
-  if (!existingCurator) {
-    const passwordHash = await bcrypt.hash("ChangeMe123!", 10);
-    await prisma.user.create({
-      data: {
-        name: "Куратор (первичный)",
-        email: curatorEmail,
-        passwordHash,
-        role: "CURATOR",
-      },
-    });
-    console.log(`Создан стартовый пользователь-куратор: ${curatorEmail} / ChangeMe123! — смените пароль после первого входа.`);
-  }
-
-  console.log("Seed завершён: справочники Segment/Attractiveness/Status заполнены.");
+  console.log("Seed завершён: справочники Segment/Attractiveness/Status заполнены. Администратора создаёт npm run create-admin.");
 }
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 5, delayMs = 2000): Promise<T> {

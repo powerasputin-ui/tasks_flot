@@ -6,22 +6,33 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 
-type Me = { id: string; name: string; email: string; role: "RESPONSIBLE" | "CURATOR" | "MANAGER" } | null;
+type Me = { id: string; name: string; email: string; role: "DEPARTMENT_HEAD" | "CURATOR" | "MANAGEMENT" | "SYSTEM_ADMIN" } | null;
 
 const ROLE_LABEL: Record<string, string> = {
-  RESPONSIBLE: "Ответственный",
+  DEPARTMENT_HEAD: "Руководитель подразделения",
   CURATOR: "Куратор",
-  MANAGER: "Руководитель",
+  MANAGEMENT: "Руководство",
+  SYSTEM_ADMIN: "Администратор",
 };
 
-const NAV_ITEMS = [
-  { href: "/tracks", label: "Треки" },
-  { href: "/kanban", label: "Kanban" },
-  { href: "/timeline", label: "Timeline" },
-  { href: "/canvas", label: "Canvas" },
-  { href: "/history", label: "История" },
-  { href: "/changes", label: "Изменения" },
-];
+// Меню по ролям (TZ_v4, раздел 8).
+const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>> = {
+  DEPARTMENT_HEAD: [
+    { href: "/table", label: "Моя работа" },
+    { href: "/operativka", label: "Оперативка" },
+    { href: "/archive", label: "Архив" },
+  ],
+  CURATOR: [
+    { href: "/operativka", label: "Оперативка" },
+    { href: "/table", label: "Общая таблица" },
+    { href: "/archive", label: "Архив" },
+  ],
+  MANAGEMENT: [{ href: "/operativka", label: "Оперативка" }],
+  SYSTEM_ADMIN: [
+    { href: "/table", label: "Таблица" },
+    { href: "/archive", label: "Архив" },
+  ],
+};
 
 export function NavBar() {
   const pathname = usePathname();
@@ -50,15 +61,12 @@ export function NavBar() {
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-white/80 backdrop-blur-md">
       <div className="flex w-full items-center justify-between px-6 py-3">
         <div className="flex items-center gap-8">
-          <Link href="/tracks" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-neutral-900">
+          <Link href="/" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-neutral-900">
             <Image src="/logo.svg" alt="" width={44} height={44} className="shrink-0" />
-            ГШП ТРЕКЕР
+            ГШП ОПЕРАТИВКА
           </Link>
           <nav className="flex gap-1 text-[13px]">
-            {(me?.role === "MANAGER" || me?.role === "CURATOR"
-              ? [{ href: "/dashboard", label: "Dashboard" }, ...NAV_ITEMS, { href: "/weekly-digest", label: "Дайджест недели" }]
-              : NAV_ITEMS
-            ).map((item) => {
+            {(me ? NAV_BY_ROLE[me.role] ?? [] : []).map((item) => {
               const active = pathname.startsWith(item.href);
               return (
                 <Link
@@ -86,7 +94,7 @@ export function NavBar() {
             </span>
           )}
           {me && <NotificationsBell />}
-          {me?.role === "CURATOR" && (
+          {me?.role === "SYSTEM_ADMIN" && (
             <Link
               href="/settings"
               title="Настройки"

@@ -1,59 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { canManageReferenceData } from "@/lib/permissions";
+import { canManageDirectory } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
-import { z } from "zod";
+import { ROLES } from "@/lib/validation";
 
-export async function GET() {
-  await requireSession();
+// Читают все (списки ответственных); e-mail и неактивные — только админу.
+export async function GET(request: NextRequest) {
+  const session = await requireSession();
+  const admin = canManageDirectory(session.role);
+  const all = admin && new URL(request.url).searchParams.get("all") === "1";
   const users = await prisma.user.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true, email: true, role: true },
+    where: all ? {} : { isActive: true },
+    select: { id: true, name: true, role: true, departmentId: true, isActive: true, ...(admin ? { email: true } : {}) },
     orderBy: { name: "asc" },
   });
   return NextResponse.json({ users });
 }
 
 const createUserSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   email: z.string().email(),
   password: z.string().min(8, "Минимум 8 символов"),
-  role: z.enum(["RESPONSIBLE", "CURATOR", "MANAGER"]),
+  role: z.enum(ROLES),
+  departmentId: z.string().min(1).nullable().optional(),
 });
 
-/**
- * Раздел 34 ТЗ: self-signup отсутствует, пользователей создаёт администратор.
- * В MVP роль "администратор" не выделена отдельно — используем Куратора
- * (единственная роль с правами на управление справочными данными, раздел 36).
- */
+/** Самостоятельной регистрации нет: пользователей создаёт SYSTEM_ADMIN и назначает роль и подразделение. */
 export async function POST(request: NextRequest) {
   const session = await requireSession();
-  if (!canManageReferenceData(session.role)) {
-    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  }
+  if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
-  const body = await request.json().catch(() => null);
-  const parsed = createUserSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
-  }
+  const parsed = createUserSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
-  if (existing) {
+  if (await prisma.user.findUnique({ where: { email: parsed.data.email } })) {
     return NextResponse.json({ error: "EMAIL_TAKEN" }, { status: 409 });
   }
-
-  const passwordHash = await hashPassword(parsed.data.password);
+  const { password, ...rest } = parsed.data;
   const user = await prisma.user.create({
-    data: {
-      name: parsed.data.name,
-      email: parsed.data.email,
-      passwordHash,
-      role: parsed.data.role,
-    },
-    select: { id: true, name: true, email: true, role: true },
+    data: { ...rest, passwordHash: await hashPassword(password) },
+    select: { id: true, name: true, email: true, role: true, departmentId: true, isActive: true },
   });
-
   return NextResponse.json({ user }, { status: 201 });
 }

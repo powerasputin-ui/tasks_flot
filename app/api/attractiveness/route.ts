@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { canManageReferenceData } from "@/lib/permissions";
+import { canManageDirectory } from "@/lib/permissions";
 import { referenceItemSchema } from "@/lib/validation";
 
 export async function GET() {
@@ -15,7 +15,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const session = await requireSession();
-  if (!canManageReferenceData(session.role)) {
+  if (!canManageDirectory(session.role)) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 

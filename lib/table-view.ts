@@ -1,26 +1,26 @@
 import { prisma } from "@/lib/prisma";
 import { deadlineWeek } from "@/lib/deadline-week";
+import type { Prisma } from "@prisma/client";
 
 /**
- * Единая модель для Table View (раздел 40) — и в будущем для Kanban/Timeline
- * (раздел 107-108): один и тот же набор строк, без отдельного хранения под каждое
- * представление. Строка = Track ИЛИ Task ИЛИ VesselOption, сплющенные в общую форму,
- * как в исходном Excel (раздел 5: "Запись" = Трек/Задача/Судно).
+ * Единая модель строки таблицы (TZ_v4, раздел 3): одна позиция оперативки = одна строка.
+ * Колонки интерфейса не меняются: Сегмент, Трек, Название, Оценка $, Привлекательность,
+ * Ответственный, Срок, Статус, Опер, Комментарии (+ подразделение).
  */
-export type RecordType = "TRACK" | "TASK" | "VESSEL_OPTION";
-
 export type TableRow = {
   id: string;
-  type: RecordType;
+  departmentId: string;
+  departmentName: string;
   segmentId: string | null;
   segmentName: string | null;
-  trackId: string;
-  trackName: string;
-  name: string; // Название (для Track/VesselOption) или title (для Task)
+  trackId: string | null;
+  trackName: string | null;
+  name: string; // title позиции
+  cost: string | null;
   attractivenessId: string | null;
   attractivenessName: string | null;
   attractivenessColor: string | null;
-  ownerId: string | null;
+  ownerId: string | null; // ответственный (человек)
   ownerName: string | null;
   deadline: Date | null;
   deadlineWeek: number | null;
@@ -29,22 +29,20 @@ export type TableRow = {
   statusColor: string | null;
   operFlag: boolean;
   comment: string | null;
-  cost: string | null; // раздел 16, только VesselOption
-  /**
-   * "Дата" по формулировке заказчика — факт последнего заполнения/обновления
-   * записи. Это НЕ бизнес-поле в схеме, а прямое отображение updatedAt
-   * (раздел 74: оно уже есть у каждой сущности). Не путать с deadline/
-   * deadlineWeek — те по-прежнему считаются только от deadline (раздел 14).
-   */
+  version: number;
+  createdByName: string;
   updatedAt: Date;
-  /** Недель прошло с updatedAt — для визуальной подсветки "давно не трогали". */
+  /** Недель с последнего обновления — подсветка «давно не трогали». */
   staleWeeks: number;
+  archived: boolean;
 };
 
+export type ArchiveMode = "active" | "archived" | "all";
+
 export type TableFilters = {
+  departmentId?: string;
   segmentId?: string;
   trackId?: string;
-  type?: RecordType;
   statusId?: string;
   ownerId?: string;
   attractivenessId?: string;
@@ -52,132 +50,96 @@ export type TableFilters = {
   deadlineFrom?: Date;
   deadlineTo?: Date;
   operFlag?: boolean;
+  q?: string;
 };
 
 export type TableSort = {
-  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt" | "track";
+  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt" | "track" | "department" | "title";
   sortDir?: "asc" | "desc";
 };
 
 function weeksSince(date: Date, now: Date = new Date()): number {
-  const ms = now.getTime() - date.getTime();
-  return Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000)));
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / (7 * 24 * 60 * 60 * 1000)));
 }
 
-export async function loadTableRows(): Promise<TableRow[]> {
-  const [tracks, tasks, vesselOptions] = await Promise.all([
-    prisma.track.findMany({
-      where: { archivedAt: null },
-      include: { segment: true, status: true, attractiveness: true, owner: true },
-    }),
-    prisma.task.findMany({
-      where: { archivedAt: null },
-      include: {
-        status: true,
-        owner: true,
-        track: { include: { segment: true } },
-      },
-    }),
-    prisma.vesselOption.findMany({
-      where: { archivedAt: null },
-      include: {
-        status: true,
-        attractiveness: true,
-        track: { include: { segment: true } },
-      },
-    }),
-  ]);
+const ITEM_INCLUDE = {
+  department: { select: { name: true } },
+  segment: { select: { name: true } },
+  track: { select: { name: true } },
+  attractiveness: { select: { name: true, color: true } },
+  responsible: { select: { id: true, name: true } },
+  status: { select: { name: true, color: true } },
+  createdBy: { select: { name: true } },
+} satisfies Prisma.OperationalItemInclude;
 
-  const trackRows: TableRow[] = tracks.map((t) => ({
-    id: t.id,
-    type: "TRACK",
-    segmentId: t.segmentId,
-    segmentName: t.segment?.name ?? null,
-    trackId: t.id,
-    trackName: t.name,
-    name: t.name,
-    attractivenessId: t.attractivenessId,
-    attractivenessName: t.attractiveness?.name ?? null,
-    attractivenessColor: t.attractiveness?.color ?? null,
-    ownerId: t.ownerId,
-    ownerName: t.owner?.name ?? null,
-    deadline: null, // Track не имеет deadline в модели ТЗ (раздел 11) — см. ANALYSIS.md UNRESOLVED #1
-    deadlineWeek: null,
-    statusId: t.statusId,
-    statusName: t.status?.name ?? null,
-    statusColor: t.status?.color ?? null,
-    operFlag: t.operFlag,
-    comment: null,
-    cost: null,
-    updatedAt: t.updatedAt,
-    staleWeeks: weeksSince(t.updatedAt),
-  }));
+type ItemWithRelations = Prisma.OperationalItemGetPayload<{ include: typeof ITEM_INCLUDE }>;
 
-  const taskRows: TableRow[] = tasks.map((t) => ({
-    id: t.id,
-    type: "TASK",
-    segmentId: t.track.segmentId,
-    segmentName: t.track.segment?.name ?? null,
-    trackId: t.trackId,
-    trackName: t.track.name,
-    name: t.title,
-    attractivenessId: null, // Task не имеет привлекательности в модели ТЗ (раздел 12)
-    attractivenessName: null,
-    attractivenessColor: null,
-    ownerId: t.ownerId,
-    ownerName: t.owner?.name ?? null,
-    deadline: t.deadline,
-    deadlineWeek: deadlineWeek(t.deadline),
-    statusId: t.statusId,
-    statusName: t.status?.name ?? null,
-    statusColor: t.status?.color ?? null,
-    operFlag: t.operFlag,
-    comment: t.comment,
-    cost: null,
-    updatedAt: t.updatedAt,
-    staleWeeks: weeksSince(t.updatedAt),
-  }));
-
-  const vesselRows: TableRow[] = vesselOptions.map((v) => ({
-    id: v.id,
-    type: "VESSEL_OPTION",
-    segmentId: v.track.segmentId,
-    segmentName: v.track.segment?.name ?? null,
-    trackId: v.trackId,
-    trackName: v.track.name,
-    name: v.name,
-    attractivenessId: v.attractivenessId,
-    attractivenessName: v.attractiveness?.name ?? null,
-    attractivenessColor: v.attractiveness?.color ?? null,
-    ownerId: null, // VesselOption не имеет ownerId (раздел 15, UNRESOLVED #2)
-    ownerName: null,
-    deadline: null,
-    deadlineWeek: null,
-    statusId: v.statusId,
-    statusName: v.status?.name ?? null,
-    statusColor: v.status?.color ?? null,
-    operFlag: false,
-    comment: v.comment,
-    cost: v.cost,
-    updatedAt: v.updatedAt,
-    staleWeeks: weeksSince(v.updatedAt),
-  }));
-
-  return [...trackRows, ...taskRows, ...vesselRows];
+export function toTableRow(i: ItemWithRelations): TableRow {
+  return {
+    id: i.id,
+    departmentId: i.departmentId,
+    departmentName: i.department.name,
+    segmentId: i.segmentId,
+    segmentName: i.segment?.name ?? null,
+    trackId: i.trackId,
+    trackName: i.track?.name ?? null,
+    name: i.title,
+    cost: i.cost,
+    attractivenessId: i.attractivenessId,
+    attractivenessName: i.attractiveness?.name ?? null,
+    attractivenessColor: i.attractiveness?.color ?? null,
+    ownerId: i.responsibleId,
+    ownerName: i.responsible?.name ?? null,
+    deadline: i.deadline,
+    deadlineWeek: deadlineWeek(i.deadline),
+    statusId: i.statusId,
+    statusName: i.status?.name ?? null,
+    statusColor: i.status?.color ?? null,
+    operFlag: i.operFlag,
+    comment: i.comment,
+    version: i.version,
+    createdByName: i.createdBy.name,
+    updatedAt: i.updatedAt,
+    staleWeeks: weeksSince(i.updatedAt),
+    archived: i.archivedAt !== null,
+  };
 }
 
-export function applyTableFilters(rows: TableRow[], filters: TableFilters): TableRow[] {
+/** scope — условие видимости из itemVisibilityWhere (права), применяется на сервере. */
+export async function loadTableRows(scope: { departmentId?: string }, archive: ArchiveMode = "active"): Promise<TableRow[]> {
+  const items = await prisma.operationalItem.findMany({
+    where: {
+      ...scope,
+      ...(archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {}),
+    },
+    include: ITEM_INCLUDE,
+    orderBy: { createdAt: "desc" },
+  });
+  return items.map(toTableRow);
+}
+
+export async function loadTableRow(id: string): Promise<TableRow | null> {
+  const item = await prisma.operationalItem.findUnique({ where: { id }, include: ITEM_INCLUDE });
+  return item ? toTableRow(item) : null;
+}
+
+export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[] {
+  const q = f.q?.trim().toLowerCase();
   return rows.filter((r) => {
-    if (filters.segmentId && r.segmentId !== filters.segmentId) return false;
-    if (filters.trackId && r.trackId !== filters.trackId) return false;
-    if (filters.type && r.type !== filters.type) return false;
-    if (filters.statusId && r.statusId !== filters.statusId) return false;
-    if (filters.ownerId && r.ownerId !== filters.ownerId) return false;
-    if (filters.attractivenessId && r.attractivenessId !== filters.attractivenessId) return false;
-    if (filters.week && r.deadlineWeek !== filters.week) return false;
-    if (filters.operFlag !== undefined && r.operFlag !== filters.operFlag) return false;
-    if (filters.deadlineFrom && (!r.deadline || r.deadline < filters.deadlineFrom)) return false;
-    if (filters.deadlineTo && (!r.deadline || r.deadline > filters.deadlineTo)) return false;
+    if (f.departmentId && r.departmentId !== f.departmentId) return false;
+    if (f.segmentId && r.segmentId !== f.segmentId) return false;
+    if (f.trackId && r.trackId !== f.trackId) return false;
+    if (f.statusId && r.statusId !== f.statusId) return false;
+    if (f.ownerId && r.ownerId !== f.ownerId) return false;
+    if (f.attractivenessId && r.attractivenessId !== f.attractivenessId) return false;
+    if (f.week && r.deadlineWeek !== f.week) return false;
+    if (f.operFlag !== undefined && r.operFlag !== f.operFlag) return false;
+    if (f.deadlineFrom && (!r.deadline || r.deadline < f.deadlineFrom)) return false;
+    if (f.deadlineTo && (!r.deadline || r.deadline > f.deadlineTo)) return false;
+    if (q) {
+      const hay = [r.name, r.comment, r.cost, r.trackName, r.segmentName, r.ownerName, r.departmentName].filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
     return true;
   });
 }
@@ -201,7 +163,11 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
       case "segment":
         return r.segmentName ?? "";
       case "track":
-        return r.trackName;
+        return r.trackName ?? "";
+      case "department":
+        return r.departmentName;
+      case "title":
+        return r.name;
       case "updatedAt":
         return r.updatedAt.getTime();
       default:

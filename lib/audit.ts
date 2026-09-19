@@ -1,22 +1,28 @@
 import { prisma } from "@/lib/prisma";
-import type { AuditAction } from "@prisma/client";
+import type { AuditAction, Prisma } from "@prisma/client";
 
-type AuditableEntity = "Track" | "Task" | "VesselOption" | "WeeklyUpdate";
+export type AuditableEntity = "OperationalItem";
+
+type Db = Prisma.TransactionClient | typeof prisma;
 
 /**
- * Раздел 27-29 ТЗ: append-only журнал. Никогда не удаляется обычным пользователем.
- * Один вызов = одна запись на одно изменившееся поле (раздел 26, Weekly Diff "Было -> Стало").
+ * Append-only журнал (TZ_v4, раздел 4): один вызов = одна запись на одно
+ * изменившееся поле (кто, что, было → стало). Никогда не удаляется.
  */
-export async function recordAudit(params: {
-  entityType: AuditableEntity;
-  entityId: string;
-  actorId: string | null;
-  action: AuditAction;
-  fieldName?: string;
-  before?: string | null;
-  after?: string | null;
-}) {
-  return prisma.auditEvent.create({
+export async function recordAudit(
+  params: {
+    entityType: AuditableEntity;
+    entityId: string;
+    actorId: string | null;
+    action: AuditAction;
+    fieldName?: string;
+    before?: string | null;
+    after?: string | null;
+    afterSubmission?: boolean;
+  },
+  db: Db = prisma
+) {
+  return db.auditEvent.create({
     data: {
       entityType: params.entityType,
       entityId: params.entityId,
@@ -25,6 +31,7 @@ export async function recordAudit(params: {
       fieldName: params.fieldName,
       before: params.before ?? null,
       after: params.after ?? null,
+      afterSubmission: params.afterSubmission ?? false,
     },
   });
 }
@@ -32,43 +39,69 @@ export async function recordAudit(params: {
 const FIELD_TO_ACTION: Record<string, AuditAction> = {
   statusId: "STATUS_CHANGE",
   deadline: "DEADLINE_CHANGE",
-  ownerId: "OWNER_CHANGE",
+  responsibleId: "OWNER_CHANGE",
   attractivenessId: "ATTRACTIVENESS_CHANGE",
   operFlag: "OPER_FLAG_CHANGE",
 };
 
-/**
- * Сравнивает before/after объекты и создаёт по одному AuditEvent на каждое
- * изменившееся отслеживаемое поле. Используется в UPDATE-обработчиках Track/Task/VesselOption.
- */
-export async function recordFieldChanges(params: {
-  entityType: AuditableEntity;
-  entityId: string;
-  actorId: string | null;
-  before: Record<string, unknown>;
-  after: Record<string, unknown>;
-  trackedFields: string[];
-}) {
-  const events: Promise<unknown>[] = [];
-  for (const field of params.trackedFields) {
-    const beforeVal = params.before[field];
-    const afterVal = params.after[field];
-    if (serialize(beforeVal) === serialize(afterVal)) continue;
+export const TRACKED_ITEM_FIELDS = [
+  "title",
+  "cost",
+  "comment",
+  "departmentId",
+  "segmentId",
+  "trackId",
+  "attractivenessId",
+  "responsibleId",
+  "deadline",
+  "statusId",
+  "operFlag",
+];
 
-    const action = FIELD_TO_ACTION[field] ?? "UPDATE";
-    events.push(
-      recordAudit({
-        entityType: params.entityType,
-        entityId: params.entityId,
-        actorId: params.actorId,
-        action,
-        fieldName: field,
-        before: serialize(beforeVal),
-        after: serialize(afterVal),
-      })
-    );
+export type FieldChange = { field: string; before: string | null; after: string | null };
+
+/** Чистая функция: какие из отслеживаемых полей изменились (без обращения к БД). */
+export function diffFields(before: Record<string, unknown>, after: Record<string, unknown>, fields: string[]): FieldChange[] {
+  const changes: FieldChange[] = [];
+  for (const field of fields) {
+    const b = serialize(before[field]);
+    const a = serialize(after[field]);
+    if (b !== a) changes.push({ field, before: b, after: a });
   }
-  await Promise.all(events);
+  return changes;
+}
+
+export async function recordFieldChanges(
+  params: {
+    entityType: AuditableEntity;
+    entityId: string;
+    actorId: string | null;
+    before: Record<string, unknown>;
+    after: Record<string, unknown>;
+    trackedFields: string[];
+    afterSubmission?: boolean;
+  },
+  db: Db = prisma
+) {
+  const changes = diffFields(params.before, params.after, params.trackedFields);
+  await Promise.all(
+    changes.map((c) =>
+      recordAudit(
+        {
+          entityType: params.entityType,
+          entityId: params.entityId,
+          actorId: params.actorId,
+          action: FIELD_TO_ACTION[c.field] ?? "UPDATE",
+          fieldName: c.field,
+          before: c.before,
+          after: c.after,
+          afterSubmission: params.afterSubmission,
+        },
+        db
+      )
+    )
+  );
+  return changes;
 }
 
 function serialize(value: unknown): string | null {

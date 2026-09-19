@@ -1,8 +1,6 @@
-// ГШП Флот-Трекер — Prisma schema.
-// Phase 1 (Foundation + Data Core, раздел 88): User/Segment/Attractiveness/
-// Status/Track/Task/VesselOption/AuditEvent.
-// Phase 2 (Weekly Management Core, раздел 89): WeeklyUpdate.
-// Comment/Notification/Attachment/WeeklyDigest — ещё не начаты (Phase 2/3).
+// ГШП Оперативка — Prisma schema (ТЗ v4, TZ_v4.md).
+// Этап 1: подразделения, роли, единая позиция оперативки (OperationalItem), журнал.
+// Циклы оперативки, отправка по позициям и финальные снимки — этап 3-4.
 
 generator client {
   provider = "prisma-client-js"
@@ -14,9 +12,24 @@ datasource db {
 }
 
 enum UserRole {
-  RESPONSIBLE // Ответственный
-  CURATOR // Куратор
-  MANAGER // Руководитель
+  DEPARTMENT_HEAD // Руководитель подразделения
+  CURATOR // Куратор (⊇ руководитель подразделения)
+  MANAGEMENT // Руководство (видит финальные оперативки)
+  SYSTEM_ADMIN // Технический администратор
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+  items OperationalItem[]
+
+  @@map("departments")
 }
 
 model User {
@@ -25,22 +38,20 @@ model User {
   email        String   @unique
   passwordHash String
   role         UserRole
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ownedTracks Track[] @relation("TrackOwner")
-  ownedTasks  Task[]  @relation("TaskOwner")
+  responsibleItems OperationalItem[] @relation("ItemResponsible")
+  createdItems     OperationalItem[] @relation("ItemCreatedBy")
+  updatedItems     OperationalItem[] @relation("ItemUpdatedBy")
+  notes            ItemNote[]
+  auditEvents      AuditEvent[]
+  notifications    Notification[]
 
-  operSetOnTracks Track[] @relation("TrackOperSetBy")
-  operSetOnTasks  Task[]  @relation("TaskOperSetBy")
-
-  auditEvents  AuditEvent[]
-  weeklyUpdates WeeklyUpdate[] @relation("WeeklyUpdateAuthor")
-  weeklyDigests WeeklyDigest[] @relation("WeeklyDigestGeneratedBy")
-  comments      Comment[]
-  notifications Notification[]
-
+  @@index([departmentId])
   @@map("users")
 }
 
@@ -54,6 +65,7 @@ model Segment {
   updatedAt DateTime @updatedAt
 
   tracks Track[]
+  items  OperationalItem[]
 
   @@map("segments")
 }
@@ -67,8 +79,7 @@ model Attractiveness {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tracks        Track[]
-  vesselOptions VesselOption[]
+  items OperationalItem[]
 
   @@map("attractiveness")
 }
@@ -82,149 +93,82 @@ model Status {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tracks        Track[]
-  tasks         Task[]
-  vesselOptions VesselOption[]
+  items OperationalItem[]
 
   @@map("statuses")
 }
 
+// Справочник (раньше Track был рабочей сущностью). Не удаляется физически (isActive=false).
 model Track {
-  id                String    @id @default(cuid())
-  segmentId         String?
-  segment           Segment?  @relation(fields: [segmentId], references: [id])
-  name              String
-  description       String?
-  attractivenessId  String?
-  attractiveness    Attractiveness? @relation(fields: [attractivenessId], references: [id])
-  statusId          String?
-  status            Status?   @relation(fields: [statusId], references: [id])
-  ownerId           String?
-  owner             User?     @relation("TrackOwner", fields: [ownerId], references: [id])
-  operFlag          Boolean   @default(false)
-  operSetById       String?
-  operSetBy         User?     @relation("TrackOperSetBy", fields: [operSetById], references: [id])
-  operSetAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  archivedAt        DateTime?
+  id        String   @id @default(cuid())
+  name      String
+  segmentId String?
+  segment   Segment? @relation(fields: [segmentId], references: [id])
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  tasks         Task[]
-  vesselOptions VesselOption[]
-  weeklyUpdates WeeklyUpdate[]
+  items OperationalItem[]
 
-  @@index([segmentId])
-  @@index([statusId])
-  @@index([ownerId])
+  @@unique([segmentId, name])
   @@map("tracks")
 }
 
-model Task {
-  id           String    @id @default(cuid())
-  trackId      String
-  track        Track     @relation(fields: [trackId], references: [id])
-  title        String
-  description  String?
-  deadline     DateTime?
-  statusId     String?
-  status       Status?   @relation(fields: [statusId], references: [id])
-  ownerId      String?
-  owner        User?     @relation("TaskOwner", fields: [ownerId], references: [id])
-  comment      String?
-  operFlag     Boolean   @default(false)
-  operSetById  String?
-  operSetBy    User?     @relation("TaskOperSetBy", fields: [operSetById], references: [id])
-  operSetAt    DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  archivedAt   DateTime?
-
-  @@index([trackId])
-  @@index([statusId])
-  @@index([ownerId])
-  @@index([deadline])
-  @@map("tasks")
-}
-
-model VesselOption {
+/// Единая позиция оперативки (раздел 3 TZ_v4). Живёт постоянно; удаление = архивирование (archivedAt).
+/// version — оптимистическая блокировка (409 при конфликте).
+model OperationalItem {
   id               String          @id @default(cuid())
-  trackId          String
-  track            Track           @relation(fields: [trackId], references: [id])
-  name             String
-  cost             String? // раздел 16: свободный текст, не numeric
+  departmentId     String
+  department       Department      @relation(fields: [departmentId], references: [id])
+  segmentId        String?
+  segment          Segment?        @relation(fields: [segmentId], references: [id])
+  trackId          String?
+  track            Track?          @relation(fields: [trackId], references: [id])
+  title            String
+  cost             String? // свободный текст ("2 млн.$")
   attractivenessId String?
   attractiveness   Attractiveness? @relation(fields: [attractivenessId], references: [id])
+  responsibleId    String?
+  responsible      User?           @relation("ItemResponsible", fields: [responsibleId], references: [id])
+  deadline         DateTime?
   statusId         String?
   status           Status?         @relation(fields: [statusId], references: [id])
   comment          String?
+  operFlag         Boolean         @default(false) // «Опер» = отправлено куратору
+  createdById      String
+  createdBy        User            @relation("ItemCreatedBy", fields: [createdById], references: [id])
+  updatedById      String?
+  updatedBy        User?           @relation("ItemUpdatedBy", fields: [updatedById], references: [id])
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   archivedAt       DateTime?
+  version          Int             @default(1)
 
+  notes ItemNote[]
+
+  @@index([departmentId])
+  @@index([segmentId])
   @@index([trackId])
   @@index([statusId])
-  @@map("vessel_options")
+  @@index([responsibleId])
+  @@index([deadline])
+  @@index([archivedAt])
+  @@map("operational_items")
 }
 
-enum WeeklyUpdateStatus {
-  DRAFT
-  SUBMITTED
-}
+/// Замечание куратора к позиции (необязательно; свой текст с автором).
+model ItemNote {
+  id        String          @id @default(cuid())
+  itemId    String
+  item      OperationalItem @relation(fields: [itemId], references: [id])
+  authorId  String
+  author    User            @relation(fields: [authorId], references: [id])
+  text      String
+  createdAt DateTime        @default(now())
 
-// Раздел 18-22 ТЗ. Каждая неделя — отдельная запись, SUBMITTED не заменяется
-// следующей неделей (раздел 20). Обязательные поля (раздел 21): whatDone,
-// currentState, nextSteps — проверяются на уровне API при Submit, не в схеме,
-// т.к. DRAFT может быть неполным.
-model WeeklyUpdate {
-  id              String             @id @default(cuid())
-  trackId         String
-  track           Track              @relation(fields: [trackId], references: [id])
-  authorId        String
-  author          User               @relation("WeeklyUpdateAuthor", fields: [authorId], references: [id])
-  weekStart       DateTime
-  weekEnd         DateTime
-  whatDone        String?
-  currentState    String?
-  nextSteps       String?
-  risks           String?
-  needManagerHelp Boolean            @default(false)
-  status          WeeklyUpdateStatus @default(DRAFT)
-  submittedAt     DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-
-  @@index([trackId])
-  @@index([authorId])
-  @@index([weekStart])
-  @@map("weekly_updates")
-}
-
-enum WeeklyDigestStatus {
-  DRAFT
-  FINAL
-}
-
-/**
- * Раздел 23-26 ТЗ. Сохранённый результат недельной агрегации — не считается
- * на лету при каждом просмотре, а формируется явным действием (generatedBy)
- * и хранится, чтобы прошлые недели оставались стабильными даже если данные
- * изменятся позже. content — структура раздела 24 (Summary/Changes/By
- * Segment/High Attractiveness/Stopped/Not Relevant/No Update/Manager Help),
- * посчитанная детерминированно из Track/Task/VesselOption/WeeklyUpdate/
- * AuditEvent (раздел 25, без AI).
- */
-model WeeklyDigest {
-  id          String             @id @default(cuid())
-  weekStart   DateTime
-  weekEnd     DateTime
-  generatedAt DateTime           @default(now())
-  generatedById String
-  generatedBy User               @relation("WeeklyDigestGeneratedBy", fields: [generatedById], references: [id])
-  status      WeeklyDigestStatus @default(DRAFT)
-  content     Json
-
-  @@unique([weekStart])
-  @@map("weekly_digests")
+  @@index([itemId])
+  @@map("item_notes")
 }
 
 enum AuditAction {
@@ -236,75 +180,36 @@ enum AuditAction {
   ATTRACTIVENESS_CHANGE
   OPER_FLAG_CHANGE
   ARCHIVE
-  WEEKLY_UPDATE_CREATED
-  WEEKLY_UPDATE_SUBMITTED
+  RESTORE
 }
 
+/// Append-only журнал: одно событие на изменённое поле (кто, что, было → стало).
 model AuditEvent {
-  id         String      @id @default(cuid())
-  entityType String // "Track" | "Task" | "VesselOption"
-  entityId   String
-  actorId    String?
-  actor      User?       @relation(fields: [actorId], references: [id])
-  action     AuditAction
-  timestamp  DateTime    @default(now())
-  fieldName  String?
-  before     String?
-  after      String?
+  id              String      @id @default(cuid())
+  entityType      String // "OperationalItem" (и др. в будущем)
+  entityId        String
+  actorId         String?
+  actor           User?       @relation(fields: [actorId], references: [id])
+  action          AuditAction
+  timestamp       DateTime    @default(now())
+  fieldName       String?
+  before          String?
+  after           String?
+  afterSubmission Boolean     @default(false) // правка сделана после отправки куратору
 
   @@index([entityType, entityId])
   @@index([timestamp])
   @@map("audit_events")
 }
 
-/**
- * Раздел 32 ТЗ. Поддерживаются Track/Task/VesselOption/WeeklyUpdate
- * (entityType — обычная строка, как в AuditEvent, без отдельной таблицы
- * на каждый тип сущности).
- */
-model Comment {
-  id         String   @id @default(cuid())
-  entityType String // "Track" | "Task" | "VesselOption" | "WeeklyUpdate"
-  entityId   String
-  authorId   String
-  author     User     @relation(fields: [authorId], references: [id])
-  text       String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([entityType, entityId])
-  @@map("comments")
-}
-
-/**
- * Раздел 93 ТЗ (Canvas): только View над Track/Task/VesselOption. Здесь хранится
- * лишь позиция карточки на холсте и ссылка на запись (entityType + entityId);
- * статус, привлекательность, ответственный и т.д. всегда читаются из основных
- * таблиц — собственной копии бизнес-данных у Canvas нет.
- */
-model CanvasItem {
-  id         String   @id @default(cuid())
-  entityType String // "Track" | "Task" | "VesselOption"
-  entityId   String
-  x          Float
-  y          Float
-  updatedAt  DateTime @updatedAt
-
-  @@unique([entityType, entityId])
-  @@map("canvas_items")
-}
-
 enum NotificationType {
-  MENTION // "Вас упомянули"
-  WEEKLY_UPDATE_DUE // "WeeklyUpdate требуется заполнить"
-  CHANGE_ATTENTION // "Изменение требует внимания"
-  EDIT_REQUEST // "Запрос на изменение записи"
+  MENTION
+  WEEKLY_UPDATE_DUE
+  CHANGE_ATTENTION
+  EDIT_REQUEST
+  SUBMISSION_MISSING // «ФИО ничего не заполнил и не подал» (этап 3)
 }
 
-/**
- * Раздел 33 ТЗ: только in-app, без email. link — куда вести при клике
- * (например /tracks/{id}), не строгая FK-связь, т.к. типы событий разные.
- */
 model Notification {
   id        String           @id @default(cuid())
   userId    String
