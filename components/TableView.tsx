@@ -510,14 +510,22 @@ function EmptyState({ filtered, onReset, archive }: { filtered: boolean; onReset
   );
 }
 
+const DATE_SORT_FIELDS = ["deadline", "updatedAt"];
+
+/** Подпись порядка: для дат «раньше → позже», для остального «А → Я». */
+function orderLabel(field: string, dir: "asc" | "desc"): string {
+  if (DATE_SORT_FIELDS.includes(field)) return dir === "asc" ? "раньше → позже" : "позже → раньше";
+  return dir === "asc" ? "А → Я" : "Я → А";
+}
+
 function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc" | "desc"; onChange: (field: string, dir: "asc" | "desc") => void }) {
   const current = SORT_OPTIONS.find((o) => o.value === sortBy);
   return (
     <Popover
       align="right"
-      width={230}
+      width={260}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className={`btn-ghost ${sortBy ? "border-primary bg-primary-soft text-primary" : ""}`} title="Сортировка">
+        <button onClick={toggle} className={`btn-ghost ${sortBy ? "border-primary bg-primary-soft text-primary" : ""}`} title="Сортировка строк таблицы">
           <ArrowUpDown size={15} />
           {sortBy ? current?.label : "Сортировка"}
           {sortBy && (sortDir === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
@@ -526,20 +534,29 @@ function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc
     >
       {(close) => (
         <div>
+          <p className="border-b border-outline-variant px-3.5 pb-2 pt-1 text-[11px] leading-snug text-on-surface-variant">
+            Выберите колонку, по которой упорядочить строки. Повторный клик по ней меняет порядок на обратный.
+          </p>
           {SORT_OPTIONS.map((o) => {
+            const isNone = o.value === "";
             const active = o.value === sortBy;
             return (
               <button
                 key={o.value}
                 onClick={() => {
-                  if (!o.value) onChange("", "asc");
+                  if (isNone) onChange("", "asc");
                   else onChange(o.value, active && sortDir === "asc" ? "desc" : "asc");
                   close();
                 }}
-                className={`flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${active ? "font-semibold text-primary" : "text-on-surface"}`}
+                className={`flex w-full items-center justify-between gap-3 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${active ? "font-semibold text-primary" : "text-on-surface"}`}
               >
-                {o.label}
-                {active && (sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+                <span>{o.label}</span>
+                {active && !isNone && (
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium">
+                    {orderLabel(o.value, sortDir)}
+                    {sortDir === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
+                  </span>
+                )}
               </button>
             );
           })}
