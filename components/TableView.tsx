@@ -1,8 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, Columns3, Plus, RotateCcw } from "lucide-react";
 import { ExportMenu } from "@/components/ExportMenu";
+import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import { ItemForm, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemForm";
+import { SegmentList, SegmentSelect, type SegmentRef } from "@/components/SegmentList";
+import { Avatar } from "@/components/ui/Avatar";
+import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
+import { Popover } from "@/components/ui/Popover";
+import { countBySegment, filterBySegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
   departmentName: string;
@@ -20,42 +28,15 @@ type Row = ItemRow & {
 
 type Me = { id: string; role: string; departmentId: string | null } | null;
 
-const ATTRACTIVENESS_LABEL: Record<string, string> = {
-  P100: "Высокая",
-  P70: "Выше среднего",
-  P50: "Средняя",
-  P10: "Низкая",
-  P0: "Отсутствует",
-};
-
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
 
-function stringToColor(input: string): string {
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) hash = input.charCodeAt(i) + ((hash << 5) - hash);
-  return `hsl(${Math.abs(hash) % 360}, 55%, 45%)`;
-}
-
-type ColumnKey =
-  | "department"
-  | "segment"
-  | "track"
-  | "cost"
-  | "attractiveness"
-  | "name"
-  | "deadline"
-  | "deadlineWeek"
-  | "owner"
-  | "status"
-  | "operFlag"
-  | "comment";
+type ColumnKey = "segment" | "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "comment";
 
 /** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально. */
 type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number };
 
 const DEFAULT_LABEL: Record<ColumnKey, string> = {
-  department: "Подразделение",
   segment: "Сегмент",
   track: "Трек",
   cost: "Оценка $",
@@ -69,37 +50,23 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
   comment: "Комментарии",
 };
 
-const ALL_KEYS: ColumnKey[] = [
-  "department",
-  "segment",
-  "track",
-  "name",
-  "cost",
-  "attractiveness",
-  "owner",
-  "deadline",
-  "status",
-  "operFlag",
-  "comment",
-  "deadlineWeek",
-];
+const ALL_KEYS: ColumnKey[] = ["segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment", "deadlineWeek"];
 
 const WIDTH: Record<ColumnKey, number> = {
-  department: 130,
   segment: 140,
-  track: 180,
+  track: 170,
   cost: 110,
   attractiveness: 130,
-  name: 260,
+  name: 280,
   deadline: 110,
   deadlineWeek: 80,
-  owner: 150,
+  owner: 160,
   status: 130,
   operFlag: 70,
   comment: 240,
 };
 
-const DEFAULT_VISIBLE: ColumnKey[] = ["department", "segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
+const DEFAULT_VISIBLE: ColumnKey[] = ["segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
 
 function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
   const ordered = [...visibleKeys, ...ALL_KEYS.filter((k) => !visibleKeys.includes(k))];
@@ -107,13 +74,14 @@ function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
 }
 
 const DEFAULT_COLUMNS = buildColumns(DEFAULT_VISIBLE);
-const STORAGE_KEY = "operativka.tableColumns.v1";
+// v2: колонка «Подразделение» из первой версии убрана по решению заказчика.
+const STORAGE_KEY = "operativka.tableColumns.v2";
 
 function loadColumns(): ColumnConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_COLUMNS;
-    const parsed = JSON.parse(raw) as ColumnConfig[];
+    const parsed = (JSON.parse(raw) as ColumnConfig[]).filter((c) => ALL_KEYS.includes(c.key));
     const known = new Set(parsed.map((c) => c.key));
     return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
   } catch {
@@ -123,8 +91,6 @@ function loadColumns(): ColumnConfig[] {
 
 const SORT_OPTIONS = [
   { value: "", label: "Без сортировки" },
-  { value: "department", label: "Подразделение" },
-  { value: "segment", label: "Сегмент" },
   { value: "track", label: "Трек" },
   { value: "title", label: "Название" },
   { value: "attractiveness", label: "Привлекательность" },
@@ -134,25 +100,28 @@ const SORT_OPTIONS = [
   { value: "updatedAt", label: "Дата обновления" },
 ];
 
+const ARCHIVE_LABEL = { active: "Активные", archived: "Архив", all: "Все" } as const;
+
 export function TableView({ defaultArchive = "active" }: { defaultArchive?: "active" | "archived" }) {
+  const searchParams = useSearchParams();
+  const q = searchParams.get("q") ?? "";
+
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refs, setRefs] = useState<Refs>({ departments: [], segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
+  const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
   const [me, setMe] = useState<Me>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
-  const [configOpen, setConfigOpen] = useState(false);
   const [editor, setEditor] = useState<{ row: Row | null } | null>(null);
+  const [segment, setSegment] = useState("all");
 
   const [departmentId, setDepartmentId] = useState("");
-  const [segmentId, setSegmentId] = useState("");
   const [trackId, setTrackId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [attractivenessId, setAttractivenessId] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [operFlag, setOperFlag] = useState("");
-  const [q, setQ] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
   const [archive, setArchive] = useState<"active" | "archived" | "all">(defaultArchive);
   const [sortBy, setSortBy] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -166,11 +135,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     (r: Row) => me?.role === "CURATOR" || (me?.role === "DEPARTMENT_HEAD" && !!me.departmentId && me.departmentId === r.departmentId),
     [me]
   );
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q), 300);
-    return () => clearTimeout(t);
-  }, [q]);
 
   useEffect(() => {
     setColumns(loadColumns());
@@ -197,6 +161,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       get("/api/users"),
     ]).then(([m, d, s, t, st, a, u]) => {
       setMe(m?.user ?? null);
+      setSegmentRefs((s?.segments ?? []).map((x: SegmentRef) => ({ id: x.id, name: x.name, color: x.color ?? null })));
       setRefs({
         departments: d?.departments ?? [],
         segments: s?.segments ?? [],
@@ -208,17 +173,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     });
   }, []);
 
-  const filterParams = useMemo(() => {
+  // Параметры без сегмента: сегмент фильтруется на клиенте, чтобы счётчики слева были полными.
+  const baseParams = useMemo(() => {
     const p = new URLSearchParams();
     const add = (k: string, v: string) => v && p.set(k, v);
     add("departmentId", departmentId);
-    add("segmentId", segmentId);
     add("trackId", trackId);
     add("statusId", statusId);
     add("attractivenessId", attractivenessId);
     add("ownerId", ownerId);
     add("operFlag", operFlag);
-    add("q", debouncedQ);
+    add("q", q);
     add("deadlineFrom", deadlineFrom);
     add("deadlineTo", deadlineTo);
     p.set("archive", archive);
@@ -227,17 +192,23 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       p.set("sortDir", sortDir);
     }
     return p;
-  }, [departmentId, segmentId, trackId, statusId, attractivenessId, ownerId, operFlag, debouncedQ, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
+  }, [departmentId, trackId, statusId, attractivenessId, ownerId, operFlag, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
+
+  const exportParams = useMemo(() => {
+    const p = new URLSearchParams(baseParams);
+    if (segment !== "all") p.set("segmentId", segment);
+    return p;
+  }, [baseParams, segment]);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`/api/items?${filterParams.toString()}`)
+    fetch(`/api/items?${baseParams.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRows(d.rows ?? []))
       .catch(() => setError("Не удалось загрузить данные. Проверьте соединение и повторите."))
       .finally(() => setLoading(false));
-  }, [filterParams, refetchTick]);
+  }, [baseParams, refetchTick]);
 
   async function toggleOper(row: Row, next: boolean) {
     const res = await fetch(`/api/items/${row.id}`, {
@@ -255,65 +226,57 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     return new Date(row.deadline) < new Date();
   }, []);
 
-  const visibleColumns = columns.filter((c) => c.visible && !(c.key === "department" && isHead));
+  const counts = useMemo(() => countBySegment(rows), [rows]);
+  const visibleRows = useMemo(() => filterBySegment(rows, segment), [rows, segment]);
+  const selectedName = segment === "all" ? "Все сегменты" : segment === "none" ? "Без сегмента" : segmentRefs.find((s) => s.id === segment)?.name ?? "Сегмент";
+  const operCount = visibleRows.filter((r) => r.operFlag).length;
+  const lastUpdated = visibleRows.reduce<string | null>((m, r) => (!m || r.updatedAt > m ? r.updatedAt : m), null);
+
+  const moreActive = [deadlineFrom || deadlineTo, departmentId, archive !== defaultArchive].filter(Boolean).length;
+  const anyFilter = !!(trackId || statusId || attractivenessId || ownerId || operFlag || q || moreActive);
+  function resetFilters() {
+    setTrackId(""); setStatusId(""); setAttractivenessId(""); setOwnerId(""); setOperFlag("");
+    setDeadlineFrom(""); setDeadlineTo(""); setDepartmentId(""); setArchive(defaultArchive);
+  }
+
+  // Сегмент уже выбран слева — колонка «Сегмент» нужна только в режиме «Все сегменты».
+  const visibleColumns = columns.filter((c) => c.visible && !(c.key === "segment" && segment !== "all"));
   const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
 
   function renderCell(row: Row, col: ColumnConfig) {
     switch (col.key) {
-      case "department":
-        return row.departmentName;
       case "segment":
         return row.segmentName ?? "—";
       case "track":
         return row.trackName ?? "—";
       case "cost":
         return row.cost ?? "—";
-      case "attractiveness": {
-        const code = row.attractivenessName ?? "P0";
-        const color = row.attractivenessColor ?? "#9CA3AF";
-        return (
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium"
-            style={{ background: `${color}1a`, color }}
-            title={ATTRACTIVENESS_LABEL[code] ?? code}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-            {code}
-          </span>
-        );
-      }
+      case "attractiveness":
+        return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return <span className={row.archived ? "text-neutral-400" : ""}>{row.name}</span>;
+        return <span className={`text-[13px] font-semibold ${row.archived ? "text-outline" : "text-on-surface"}`}>{row.name}</span>;
       case "deadline":
-        return row.deadline ? new Date(row.deadline).toLocaleDateString("ru-RU") : "—";
+        return row.deadline ? (
+          <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
+            {isOverdue(row) && <AlertCircle size={13} />}
+            {new Date(row.deadline).toLocaleDateString("ru-RU")}
+          </span>
+        ) : (
+          "—"
+        );
       case "deadlineWeek":
         return row.deadlineWeek ?? "—";
       case "owner":
         return row.ownerName ? (
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white"
-              style={{ background: stringToColor(row.ownerName) }}
-            >
-              {row.ownerName.charAt(0).toUpperCase()}
-            </span>
-            {row.ownerName}
+          <span className="inline-flex items-center gap-2">
+            <Avatar name={row.ownerName} size={20} />
+            <span className="truncate">{row.ownerName}</span>
           </span>
         ) : (
           "—"
         );
       case "status":
-        return row.statusName ? (
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium"
-            style={{ background: `${row.statusColor ?? "#9CA3AF"}1a`, color: row.statusColor ?? "#6B7280" }}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: row.statusColor ?? "#9CA3AF" }} />
-            {row.statusName}
-          </span>
-        ) : (
-          "—"
-        );
+        return <StatusPill name={row.statusName} color={row.statusColor} />;
       case "operFlag":
         return canEditRow(row) && !row.archived ? (
           <input
@@ -321,7 +284,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             checked={row.operFlag}
             onChange={(e) => toggleOper(row, e.target.checked)}
             onClick={(e) => e.stopPropagation()}
-            className="h-4 w-4 cursor-pointer accent-neutral-900"
+            className="h-4 w-4 cursor-pointer accent-primary"
             title="Отправить куратору"
           />
         ) : row.operFlag ? (
@@ -330,141 +293,171 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           "—"
         );
       case "comment":
-        return row.comment ?? "—";
+        return <span className="line-clamp-2 text-[12px] leading-tight text-on-surface-variant">{row.comment ?? "—"}</span>;
     }
   }
 
   return (
-    <div className="w-full px-6 py-6">
-      <div className="surface mb-4 flex flex-wrap items-end gap-3 p-4">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Поиск</label>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, комментарий…" className="input w-48" />
-        </div>
-        {!isHead && <Select label="Подразделение" value={departmentId} onChange={setDepartmentId} options={refs.departments} />}
-        <Select label="Сегмент" value={segmentId} onChange={setSegmentId} options={refs.segments} />
-        <Select label="Трек" value={trackId} onChange={setTrackId} options={refs.tracks} />
-        <Select label="Статус" value={statusId} onChange={setStatusId} options={refs.statuses} />
-        <Select label="Привлекательность" value={attractivenessId} onChange={setAttractivenessId} options={refs.attractiveness} />
-        <Select label="Ответственный" value={ownerId} onChange={setOwnerId} options={refs.users} />
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Опер</label>
-          <select value={operFlag} onChange={(e) => setOperFlag(e.target.value)} className="select">
-            <option value="">Все</option>
-            <option value="true">Да</option>
-            <option value="false">Нет</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Показывать</label>
-          <select value={archive} onChange={(e) => setArchive(e.target.value as typeof archive)} className="select">
-            <option value="active">Активные</option>
-            <option value="archived">Архив</option>
-            <option value="all">Все</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Срок: с</label>
-          <div className="flex items-center gap-1">
-            <input type="date" value={deadlineFrom} onChange={(e) => setDeadlineFrom(e.target.value)} className="input" />
-            <span className="text-neutral-400">по</span>
-            <input type="date" value={deadlineTo} onChange={(e) => setDeadlineTo(e.target.value)} className="input" />
-            {(deadlineFrom || deadlineTo) && (
-              <button onClick={() => { setDeadlineFrom(""); setDeadlineTo(""); }} className="btn-ghost px-2 py-1.5" title="Сбросить диапазон">✕</button>
+    <div className="flex h-full min-h-0">
+      <SegmentList segments={segmentRefs} counts={counts} selected={segment} onSelect={setSegment} />
+
+      <section className="flex min-w-0 flex-1 flex-col">
+        <div className="border-b border-outline-variant bg-surface px-6 py-4">
+          <div className="mb-3 lg:hidden">
+            <SegmentSelect segments={segmentRefs} counts={counts} selected={segment} onSelect={setSegment} />
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="label-caps">{defaultArchive === "archived" ? "Архив позиций" : "Рабочая таблица"}</p>
+              <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface">{selectedName}</h2>
+              <p className="mt-0.5 text-[12px] text-on-surface-variant">
+                {loading ? "Загрузка…" : `${visibleRows.length} позиций · ${operCount} отправлено куратору`}
+                {lastUpdated && !loading && ` · обновлено ${new Date(lastUpdated).toLocaleDateString("ru-RU")}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
+              <Popover
+                align="right"
+                width={420}
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="btn-ghost" title="Настроить колонки">
+                    <Columns3 size={15} />
+                    Колонки
+                  </button>
+                )}
+              >
+                {() => <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
+              </Popover>
+              {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
+              {canCreate && (
+                <button onClick={() => setEditor({ row: null })} className="btn-primary">
+                  <Plus size={16} />
+                  Добавить
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <FilterChip label="Трек" value={trackId} options={refs.tracks} onChange={setTrackId} />
+            <FilterChip label="Статус" value={statusId} options={refs.statuses} onChange={setStatusId} />
+            <FilterChip label="Привлекательность" value={attractivenessId} options={refs.attractiveness} onChange={setAttractivenessId} />
+            <FilterChip label="Ответственный" value={ownerId} options={refs.users} onChange={setOwnerId} />
+            <FilterChip
+              label="Опер"
+              value={operFlag}
+              options={[{ id: "true", name: "Отправлено" }, { id: "false", name: "Не отправлено" }]}
+              onChange={setOperFlag}
+            />
+            <MoreFilters activeCount={moreActive}>
+              <FilterField label="Срок">
+                <div className="flex items-center gap-1.5">
+                  <input type="date" value={deadlineFrom} onChange={(e) => setDeadlineFrom(e.target.value)} className="input w-full" />
+                  <span className="text-outline">—</span>
+                  <input type="date" value={deadlineTo} onChange={(e) => setDeadlineTo(e.target.value)} className="input w-full" />
+                </div>
+              </FilterField>
+              {!isHead && (
+                <FilterField label="Подразделение">
+                  <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="select w-full">
+                    <option value="">Все</option>
+                    {refs.departments.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </FilterField>
+              )}
+              <FilterField label="Показывать">
+                <select value={archive} onChange={(e) => setArchive(e.target.value as typeof archive)} className="select w-full">
+                  {(Object.keys(ARCHIVE_LABEL) as Array<keyof typeof ARCHIVE_LABEL>).map((k) => (
+                    <option key={k} value={k}>{ARCHIVE_LABEL[k]}</option>
+                  ))}
+                </select>
+              </FilterField>
+            </MoreFilters>
+            {anyFilter && (
+              <button onClick={resetFilters} className="flex h-9 items-center gap-1.5 px-2 text-[12px] font-semibold text-primary hover:underline">
+                <RotateCcw size={13} />
+                Сбросить
+              </button>
             )}
           </div>
         </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-neutral-500">Сортировка</label>
-          <div className="flex gap-1">
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="select">
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <button onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")} className="select w-9 transition-transform duration-150 active:scale-90" title="Направление сортировки">
-              {sortDir === "asc" ? "↑" : "↓"}
-            </button>
-          </div>
-        </div>
-        <div className="ml-auto flex items-end gap-3">
-          {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={filterParams} />}
-          <button onClick={() => setConfigOpen((v) => !v)} className="btn-ghost">⚙ Колонки</button>
-          {canCreate && (
-            <button onClick={() => setEditor({ row: null })} className="btn-primary">+ Новая позиция</button>
+
+        <div className="min-h-0 flex-1 overflow-auto p-6">
+          {error && (
+            <div className="mb-3 flex items-center gap-3 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
+              <AlertCircle size={15} />
+              <span className="flex-1">{error}</span>
+              <button onClick={() => setRefetchTick((t) => t + 1)} className="btn-ghost h-8">Повторить</button>
+            </div>
           )}
-        </div>
-      </div>
 
-      {configOpen && <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
-
-      {error && (
-        <div className="mb-3 flex items-center gap-3 rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">
-          {error}
-          <button onClick={() => setRefetchTick((t) => t + 1)} className="btn-ghost">Повторить</button>
-        </div>
-      )}
-
-      <div className="surface overflow-hidden">
-        <table className="w-full text-[13px]" style={{ tableLayout: "fixed" }}>
-          <colgroup>
-            {visibleColumns.map((c) => (
-              <col key={c.key} style={{ width: `${(c.width / totalWeight) * 100}%` }} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr className="border-b border-[var(--border)] text-left text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-              {visibleColumns.map((col) => (
-                <ResizableTh
-                  key={col.key}
-                  column={col}
-                  totalWeight={totalWeight}
-                  onResize={(w) => saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: w } : c)))}
-                />
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading &&
-              Array.from({ length: 6 }).map((_, i) => (
-                <tr key={i} className="border-b border-[var(--border)]">
-                  {visibleColumns.map((c) => (
-                    <td key={c.key} className="px-4 py-3"><div className="skeleton h-3.5 w-full rounded" /></td>
-                  ))}
-                </tr>
-              ))}
-            {!loading &&
-              rows.map((row, i) => (
-                <tr
-                  key={row.id}
-                  onClick={() => setEditor({ row })}
-                  className="row-hover animate-fade-in cursor-pointer border-b border-[var(--border)] last:border-0"
-                  style={{ animationDelay: `${Math.min(i, 20) * 12}ms` }}
-                >
+          <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
+            <table className="w-full table-fixed border-collapse text-[13px]">
+              <colgroup>
+                {visibleColumns.map((c) => (
+                  <col key={c.key} style={{ width: `${(c.width / totalWeight) * 100}%` }} />
+                ))}
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-surface-high">
+                <tr>
                   {visibleColumns.map((col) => (
-                    <td
+                    <ResizableTh
                       key={col.key}
-                      className={`truncate px-4 py-2.5 text-neutral-700 ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
-                        col.key === "deadline" && isOverdue(row) ? "font-medium text-[var(--danger)]" : ""
-                      }`}
-                      title={(col.key === "comment" && row.comment) || (col.key === "name" && row.name) || undefined}
-                    >
-                      {renderCell(row, col)}
-                    </td>
+                      column={col}
+                      totalWeight={totalWeight}
+                      onResize={(w) => saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: w } : c)))}
+                    />
                   ))}
                 </tr>
-              ))}
-            {!loading && !error && rows.length === 0 && (
-              <tr>
-                <td colSpan={visibleColumns.length} className="px-4 py-14 text-center text-[13px] text-neutral-400">
-                  Нет позиций по выбранным фильтрам.
-                </td>
-              </tr>
+              </thead>
+              <tbody>
+                {loading &&
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-t border-outline-variant/50">
+                      {visibleColumns.map((c) => (
+                        <td key={c.key} className="px-4 py-4"><div className="skeleton h-3.5 w-full rounded" /></td>
+                      ))}
+                    </tr>
+                  ))}
+                {!loading &&
+                  visibleRows.map((row, i) => (
+                    <tr
+                      key={row.id}
+                      onClick={() => setEditor({ row })}
+                      className={`row-hover animate-fade-in cursor-pointer border-t border-outline-variant/50 ${editor?.row?.id === row.id ? "bg-primary-soft" : ""}`}
+                      style={{ animationDelay: `${Math.min(i, 16) * 10}ms` }}
+                    >
+                      {visibleColumns.map((col) => (
+                        <td
+                          key={col.key}
+                          className={`px-4 py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
+                            col.key === "name" || col.key === "comment" ? "" : "truncate"
+                          }`}
+                          title={col.key === "name" ? row.name : undefined}
+                        >
+                          {renderCell(row, col)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+
+            {!loading && !error && visibleRows.length === 0 && (
+              <EmptyState
+                filtered={anyFilter || segment !== "all"}
+                canCreate={canCreate}
+                onCreate={() => setEditor({ row: null })}
+                onReset={() => { resetFilters(); setSegment("all"); }}
+                archive={defaultArchive === "archived"}
+              />
             )}
-          </tbody>
-        </table>
-      </div>
-      {!loading && rows.length > 0 && <p className="mt-2 text-[11px] text-neutral-400">Позиций: {rows.length}</p>}
+          </div>
+        </div>
+      </section>
 
       {editor && (
         <ItemForm
@@ -481,6 +474,68 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         />
       )}
     </div>
+  );
+}
+
+function EmptyState({ filtered, canCreate, onCreate, onReset, archive }: { filtered: boolean; canCreate: boolean; onCreate: () => void; onReset: () => void; archive: boolean }) {
+  return (
+    <div className="flex flex-col items-center px-6 py-16 text-center">
+      <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-high text-outline">
+        <ClipboardList size={22} />
+      </span>
+      <p className="text-[14px] font-semibold text-on-surface">{filtered ? "Ничего не найдено" : archive ? "В архиве пока пусто" : "Пока нет позиций"}</p>
+      <p className="mt-1 max-w-sm text-[13px] text-on-surface-variant">
+        {filtered ? "Измените условия поиска или сбросьте фильтры." : archive ? "Сюда попадают закрытые и старые позиции." : "Создайте первую позицию — она появится в таблице."}
+      </p>
+      <div className="mt-4 flex gap-2">
+        {filtered && <button onClick={onReset} className="btn-ghost">Сбросить фильтры</button>}
+        {!filtered && !archive && canCreate && (
+          <button onClick={onCreate} className="btn-primary">
+            <Plus size={16} />
+            Добавить позицию
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc" | "desc"; onChange: (field: string, dir: "asc" | "desc") => void }) {
+  const current = SORT_OPTIONS.find((o) => o.value === sortBy);
+  return (
+    <Popover
+      align="right"
+      width={230}
+      trigger={({ toggle }) => (
+        <button onClick={toggle} className={`btn-ghost ${sortBy ? "border-primary bg-primary-soft text-primary" : ""}`} title="Сортировка">
+          <ArrowUpDown size={15} />
+          {sortBy ? current?.label : "Сортировка"}
+          {sortBy && (sortDir === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
+        </button>
+      )}
+    >
+      {(close) => (
+        <div>
+          {SORT_OPTIONS.map((o) => {
+            const active = o.value === sortBy;
+            return (
+              <button
+                key={o.value}
+                onClick={() => {
+                  if (!o.value) onChange("", "asc");
+                  else onChange(o.value, active && sortDir === "asc" ? "desc" : "asc");
+                  close();
+                }}
+                className={`flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${active ? "font-semibold text-primary" : "text-on-surface"}`}
+              >
+                {o.label}
+                {active && (sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Popover>
   );
 }
 
@@ -501,24 +556,25 @@ function ColumnConfigPanel({ columns, onChange, onReset }: { columns: ColumnConf
   }
 
   return (
-    <div className="surface animate-fade-in mb-4 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[12px] font-medium text-neutral-600">Настройте видимость, порядок, название и ширину колонок — сохраняется в этом браузере.</p>
-        <button onClick={onReset} className="btn-ghost">Сбросить</button>
+    <div className="p-3.5">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="label-caps">Колонки таблицы</p>
+        <button onClick={onReset} className="text-[12px] font-semibold text-primary hover:underline">Сбросить</button>
       </div>
-      <ul className="divide-y divide-[var(--border)]">
+      <ul className="max-h-80 divide-y divide-outline-variant/60 overflow-y-auto">
         {columns.map((col, i) => (
-          <li key={col.key} className="flex items-center gap-3 py-2">
-            <input type="checkbox" checked={col.visible} onChange={(e) => update(col.key, { visible: e.target.checked })} className="h-4 w-4 accent-neutral-900" />
-            <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} className="input w-40 py-1" />
-            <span className="w-10 text-right text-[11px] text-neutral-400">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
-            <div className="ml-auto flex gap-1">
-              <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-ghost px-2 py-1 disabled:opacity-30">↑</button>
-              <button onClick={() => move(col.key, 1)} disabled={i === columns.length - 1} className="btn-ghost px-2 py-1 disabled:opacity-30">↓</button>
+          <li key={col.key} className="flex items-center gap-2 py-1.5">
+            <input type="checkbox" checked={col.visible} onChange={(e) => update(col.key, { visible: e.target.checked })} className="h-4 w-4 accent-primary" />
+            <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} className="input h-8 w-36" />
+            <span className="w-9 text-right text-[11px] text-outline">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
+            <div className="ml-auto flex">
+              <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" title="Выше"><ArrowUp size={14} /></button>
+              <button onClick={() => move(col.key, 1)} disabled={i === columns.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" title="Ниже"><ArrowDown size={14} /></button>
             </div>
           </li>
         ))}
       </ul>
+      <p className="mt-2 text-[11px] text-outline">Настройки хранятся в этом браузере. Ширину можно менять перетаскиванием границы в шапке.</p>
     </div>
   );
 }
@@ -549,23 +605,13 @@ function ResizableTh({ column, totalWeight, onResize }: { column: ColumnConfig; 
   }
 
   return (
-    <th ref={thRef} className={`relative px-4 py-2.5 ${CENTERED_COLUMNS.includes(column.key) ? "text-center" : ""}`} style={{ width: `${(column.width / totalWeight) * 100}%` }}>
-      {column.label}
-      <span onMouseDown={onMouseDown} className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none hover:bg-neutral-200" />
+    <th
+      ref={thRef}
+      className={`label-caps relative border-b border-outline-variant px-4 py-3 ${CENTERED_COLUMNS.includes(column.key) ? "text-center" : "text-left"}`}
+      style={{ width: `${(column.width / totalWeight) * 100}%`, color: "var(--on-surface-variant)" }}
+    >
+      <span className="block truncate">{column.label}</span>
+      <span onMouseDown={onMouseDown} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize select-none transition-colors hover:bg-sky" />
     </th>
-  );
-}
-
-function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: Ref[] }) {
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-medium text-neutral-500">{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="select">
-        <option value="">Все</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>{o.name}</option>
-        ))}
-      </select>
-    </div>
   );
 }

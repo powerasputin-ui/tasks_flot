@@ -1,34 +1,42 @@
 "use client";
 
+import { Download, FileSpreadsheet, FileText, Presentation } from "lucide-react";
+import { MenuItem, Popover } from "@/components/ui/Popover";
+
 const FORMATS = [
-  { key: "csv", label: "CSV" },
-  { key: "xlsx", label: "XLSX" },
-  { key: "pdf", label: "PDF" },
+  { key: "csv", label: "CSV", icon: <FileText size={15} /> },
+  { key: "xlsx", label: "Excel (XLSX)", icon: <FileSpreadsheet size={15} /> },
+  { key: "pdf", label: "PDF", icon: <FileText size={15} /> },
+  { key: "pptx", label: "PowerPoint (PPTX)", icon: <Presentation size={15} /> },
 ] as const;
 
-/** Обычные ссылки на GET-эндпоинты экспорта: браузер сам скачивает файл (Content-Disposition). */
-export function ExportMenu({
-  endpoint,
-  params,
-  withPptx = false,
-}: {
-  endpoint: string;
-  params?: URLSearchParams;
-  withPptx?: boolean;
-}) {
-  const formats = withPptx ? [...FORMATS, { key: "pptx", label: "PPTX" } as const] : FORMATS;
+/** Кнопка «Экспорт ▾»: ссылки на GET-эндпоинты, браузер сам скачивает файл (Content-Disposition). */
+export function ExportMenu({ endpoint, params, withPptx = false }: { endpoint: string; params?: URLSearchParams; withPptx?: boolean }) {
+  const formats = withPptx ? FORMATS : FORMATS.filter((f) => f.key !== "pptx");
   return (
-    <div className="flex items-center gap-1">
-      <span className="mr-1 text-[11px] font-medium text-neutral-500">Экспорт</span>
-      {formats.map((f) => {
-        const q = new URLSearchParams(params);
-        q.set("format", f.key);
-        return (
-          <a key={f.key} href={`${endpoint}?${q.toString()}`} download className="btn-ghost px-2.5 py-1.5 text-[12px]">
-            {f.label}
-          </a>
-        );
-      })}
-    </div>
+    <Popover
+      align="right"
+      width={220}
+      trigger={({ toggle }) => (
+        <button onClick={toggle} className="btn-ghost">
+          <Download size={15} />
+          Экспорт
+        </button>
+      )}
+    >
+      {(close) => (
+        <div>
+          {formats.map((f) => {
+            const q = new URLSearchParams(params);
+            q.set("format", f.key);
+            return (
+              <a key={f.key} href={`${endpoint}?${q.toString()}`} download onClick={close} className="block">
+                <MenuItem icon={f.icon}>{f.label}</MenuItem>
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </Popover>
   );
 }

@@ -49,6 +49,12 @@ describe("applyTableFilters", () => {
     expect(applyTableFilters(rows, { departmentId: "d2" }).map((r) => r.id)).toEqual(["2"]);
   });
 
+  it("фильтр сегмента: id, а none — позиции без сегмента", () => {
+    const rows = [row({ id: "1", segmentId: "s1" }), row({ id: "2", segmentId: null })];
+    expect(applyTableFilters(rows, { segmentId: "s1" }).map((r) => r.id)).toEqual(["1"]);
+    expect(applyTableFilters(rows, { segmentId: "none" }).map((r) => r.id)).toEqual(["2"]);
+  });
+
   it("поиск q ищет по названию, комментарию, треку и ответственному без учёта регистра", () => {
     const rows = [
       row({ id: "1", name: "Переговоры с судовладельцем" }),

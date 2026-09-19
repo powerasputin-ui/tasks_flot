@@ -127,7 +127,8 @@ export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[]
   const q = f.q?.trim().toLowerCase();
   return rows.filter((r) => {
     if (f.departmentId && r.departmentId !== f.departmentId) return false;
-    if (f.segmentId && r.segmentId !== f.segmentId) return false;
+    // "none" — позиции без сегмента (пункт «Без сегмента» в левом списке).
+    if (f.segmentId && (f.segmentId === "none" ? r.segmentId !== null : r.segmentId !== f.segmentId)) return false;
     if (f.trackId && r.trackId !== f.trackId) return false;
     if (f.statusId && r.statusId !== f.statusId) return false;
     if (f.ownerId && r.ownerId !== f.ownerId) return false;
