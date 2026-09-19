@@ -342,12 +342,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Аналитика
               </button>
               {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
-              {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
-                <button onClick={() => setEditor({ row: null })} className="btn-primary">
-                  <Plus size={15} />
-                  Добавить позицию
-                </button>
-              )}
             </div>
           </div>
 
@@ -461,7 +455,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             </table>
 
             {!loading && !error && visibleRows.length === 0 && (
-              <EmptyState filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} />
+              <EmptyState filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
             )}
           </div>
 
@@ -490,7 +484,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   );
 }
 
-function EmptyState({ filtered, onReset, archive }: { filtered: boolean; onReset: () => void; archive: boolean }) {
+function EmptyState({ filtered, onReset, archive, canCreate, onCreate }: { filtered: boolean; onReset: () => void; archive: boolean; canCreate: boolean; onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center px-6 py-16 text-center">
       <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-high text-outline">
@@ -502,6 +496,12 @@ function EmptyState({ filtered, onReset, archive }: { filtered: boolean; onReset
       </p>
       <div className="mt-4 flex gap-2">
         {filtered && <button onClick={onReset} className="btn-ghost">Сбросить фильтры</button>}
+        {!filtered && !archive && canCreate && (
+          <button onClick={onCreate} className="btn-primary">
+            <Plus size={16} />
+            Добавить позицию
+          </button>
+        )}
       </div>
     </div>
   );
