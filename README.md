@@ -73,4 +73,4 @@ Comments, Notifications, AI, Canvas, Realtime, PPTX, SSO — см. TZ.md раз�
 * Дайджест недели — дополнительно PPTX: `WeeklyDigest → ReportData (lib/report-data.ts) → renderer`.
 * Права: таблицу выгружают все роли; Dashboard и дайджест — Куратор и Руководитель.
 * PDF использует шрифт DejaVu Sans из `assets/fonts/` (кириллица; лицензия рядом).
-* Не реализовано: Timeline (в работе).
+* Timeline (`/timeline`) — сроки задач по неделям на тех же данных, что таблица.

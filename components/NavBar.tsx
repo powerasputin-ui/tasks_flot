@@ -17,6 +17,7 @@ const ROLE_LABEL: Record<string, string> = {
 const NAV_ITEMS = [
   { href: "/tracks", label: "Треки" },
   { href: "/kanban", label: "Kanban" },
+  { href: "/timeline", label: "Timeline" },
 ];
 
 export function NavBar() {
