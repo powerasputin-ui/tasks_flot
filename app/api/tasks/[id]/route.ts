@@ -5,6 +5,7 @@ import { canUpdateWorkEntity, canArchiveWorkEntity, canManageOwnership } from "@
 import { updateTaskSchema, operFlagSchema, ownerIdSchema } from "@/lib/validation";
 import { recordFieldChanges, recordAudit } from "@/lib/audit";
 import { deadlineWeek } from "@/lib/deadline-week";
+import { notifyOperFlagSet, notifyStatusChangedToStop } from "@/lib/notifications";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await requireSession();
@@ -46,6 +47,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       before: String(existing.operFlag),
       after: String(updated.operFlag),
     });
+    if (updated.operFlag && !existing.operFlag) {
+      await notifyOperFlagSet({ name: updated.title, ownerId: updated.ownerId, actorId: session.userId, link: `/tracks/${updated.trackId}` });
+    }
     return NextResponse.json({ task: { ...updated, deadlineWeek: deadlineWeek(updated.deadline) } });
   }
 
@@ -88,6 +92,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     after: updated,
     trackedFields: ["statusId", "ownerId", "deadline", "title", "description", "comment"],
   });
+  if (updated.statusId !== existing.statusId) {
+    await notifyStatusChangedToStop({ statusId: updated.statusId, name: updated.title, actorId: session.userId, link: `/tracks/${updated.trackId}` });
+  }
 
   return NextResponse.json({ task: { ...updated, deadlineWeek: deadlineWeek(updated.deadline) } });
 }

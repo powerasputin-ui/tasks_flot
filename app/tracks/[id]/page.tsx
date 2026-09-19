@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { startOfISOWeek, endOfISOWeek, getISOWeek } from "date-fns";
 import { CommentsSection } from "@/components/CommentsSection";
+import { RequestEditButton } from "@/components/RequestEditButton";
 
 type Ref = { id: string; name: string };
 
@@ -201,6 +202,7 @@ export default function TrackDetailPage() {
             Архивировать трек
           </button>
         )}
+        {me && !ownsTrack && <RequestEditButton entityType="Track" entityId={track.id} />}
       </div>
 
       <div className="surface animate-fade-in mt-4 grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">

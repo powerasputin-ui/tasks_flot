@@ -24,6 +24,23 @@ export default function DashboardPage() {
   const [forbidden, setForbidden] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const [isCurator, setIsCurator] = useState(false);
+  const [reminding, setReminding] = useState(false);
+  const [reminded, setReminded] = useState<number | null>(null);
+
+  async function remind() {
+    setReminding(true);
+    const res = await fetch("/api/notifications/remind-weekly", { method: "POST" });
+    if (res.ok) setReminded((await res.json()).sent);
+    setReminding(false);
+  }
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((d) => setIsCurator(d.user?.role === "CURATOR"));
+  }, []);
+
   useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => {
@@ -66,7 +83,19 @@ export default function DashboardPage() {
             Что происходит, что изменилось, что остановилось, где нужно внимание — раздел 45 ТЗ.
           </p>
         </div>
-        <ExportMenu endpoint="/api/export/dashboard" />
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <ExportMenu endpoint="/api/export/dashboard" />
+          {isCurator && (
+            <button onClick={remind} disabled={reminding} className="btn-ghost text-[12px]">
+              {reminding ? "Отправка…" : "Напомнить об отчётах"}
+            </button>
+          )}
+          {reminded !== null && (
+            <span className="text-[12px] text-neutral-500">
+              {reminded === 0 ? "Все владельцы уже уведомлены на этой неделе." : `Отправлено напоминаний: ${reminded}`}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 1. Status — раздел 80 приоритет */}
