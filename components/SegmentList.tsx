@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Layers } from "lucide-react";
+import { ChevronDown, Layers } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { NO_SEGMENT, type SegmentCount } from "@/lib/segment-counts";
 
@@ -57,18 +57,21 @@ export function SegmentList({
           </button>
         )}
       </div>
-      <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">Отметьте несколько сегментов, чтобы сравнить их в одной таблице.</p>
+      <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">Выберите несколько сегментов, чтобы сравнить их в одной таблице.</p>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         <button
           onClick={onClear}
-          className={`w-full rounded-md border border-l-4 p-3 text-left transition-colors ${
-            allActive ? "border-outline-variant bg-primary-soft" : "border-outline-variant/60 bg-surface hover:bg-surface-high"
+          className={`w-full rounded-md border border-l-4 p-3 text-left transition-all ${
+            allActive ? "border-transparent" : "border-outline-variant/60 bg-surface hover:bg-surface-high"
           }`}
-          style={{ borderLeftColor: "#64748b" }}
+          style={{
+            borderLeftColor: "#64748b",
+            ...(allActive ? { background: "#64748b18", boxShadow: "0 0 0 2px #64748b" } : {}),
+          }}
         >
           <div className="flex items-start justify-between gap-2">
-            <h3 className={`text-[13px] font-bold ${allActive ? "text-primary" : "text-on-surface"}`}>Все сегменты</h3>
+            <h3 className="text-[13px] font-bold text-on-surface">Все сегменты</h3>
             <CountBadge color="#64748b" value={total} />
           </div>
           <p className="mt-1 text-[11px] text-on-surface-variant">{totalOper > 0 ? `${totalOper} отправлено куратору` : "нет отправленных"}</p>
@@ -82,25 +85,20 @@ export function SegmentList({
               key={it.id}
               onClick={() => onToggle(it.id)}
               aria-pressed={active}
-              className={`w-full rounded-md border border-l-4 p-3 text-left transition-colors ${
-                active ? "border-outline-variant bg-primary-soft" : "border-outline-variant/60 bg-surface hover:bg-surface-high"
+              className={`w-full rounded-md border border-l-4 p-3 text-left transition-all ${
+                active ? "border-transparent" : "border-outline-variant/60 bg-surface hover:bg-surface-high"
               }`}
-              style={{ borderLeftColor: color }}
+              // Выбранный сегмент — цветной контур и заливка в цвет сегмента (без галочек).
+              style={{
+                borderLeftColor: color,
+                ...(active ? { background: `${color}18`, boxShadow: `0 0 0 2px ${color}` } : {}),
+              }}
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ${
-                      active ? "border-primary bg-primary text-white" : "border-outline bg-surface"
-                    }`}
-                  >
-                    {active && <Check size={12} strokeWidth={3} />}
-                  </span>
-                  <h3 className={`truncate text-[13px] font-bold ${active ? "text-primary" : "text-on-surface"}`}>{it.name}</h3>
-                </div>
+                <h3 className="truncate text-[13px] font-bold text-on-surface">{it.name}</h3>
                 <CountBadge color={color} value={it.count.total} />
               </div>
-              <p className="mt-1 pl-6 text-[11px] text-on-surface-variant">{it.count.oper > 0 ? `${it.count.oper} отправлено куратору` : "нет отправленных"}</p>
+              <p className="mt-1 text-[11px] text-on-surface-variant">{it.count.oper > 0 ? `${it.count.oper} отправлено куратору` : "нет отправленных"}</p>
             </button>
           );
         })}
@@ -148,16 +146,14 @@ export function SegmentSelect({
       >
         {() => (
           <div>
-            <button onClick={onClear} className={`flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] hover:bg-primary-soft ${selected.length === 0 ? "font-semibold text-primary" : ""}`}>
+            <button onClick={onClear} className={`flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] hover:bg-primary-soft ${selected.length === 0 ? "bg-primary-soft font-semibold text-primary" : ""}`}>
               Все сегменты
-              {selected.length === 0 && <Check size={14} />}
             </button>
             {options.map((o) => {
               const active = selected.includes(o.id);
               return (
-                <button key={o.id} onClick={() => onToggle(o.id)} className={`flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left text-[13px] hover:bg-primary-soft ${active ? "font-semibold text-primary" : ""}`}>
+                <button key={o.id} onClick={() => onToggle(o.id)} className={`flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left text-[13px] hover:bg-primary-soft ${active ? "bg-primary-soft font-semibold text-primary" : ""}`}>
                   <span className="truncate">{o.name} ({counts.get(o.id)?.total ?? 0})</span>
-                  {active && <Check size={14} className="shrink-0" />}
                 </button>
               );
             })}
