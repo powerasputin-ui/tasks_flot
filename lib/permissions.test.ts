@@ -6,6 +6,7 @@ import {
   canArchiveWorkEntity,
   canManageReferenceData,
   canSetOperFlag,
+  canArrangeCanvas,
   canManageOwnership,
   canAccessManagerViews,
   canCreateWeeklyUpdate,
@@ -67,6 +68,14 @@ describe("canSetOperFlag (раздел 17/36 ТЗ)", () => {
     expect(canSetOperFlag("CURATOR")).toBe(true);
     expect(canSetOperFlag("RESPONSIBLE")).toBe(false);
     expect(canSetOperFlag("MANAGER")).toBe(false);
+  });
+});
+
+describe("canArrangeCanvas (раздел 93 ТЗ, UNRESOLVED — консервативный дефолт)", () => {
+  it("раскладку меняет только Куратор", () => {
+    expect(canArrangeCanvas("CURATOR")).toBe(true);
+    expect(canArrangeCanvas("RESPONSIBLE")).toBe(false);
+    expect(canArrangeCanvas("MANAGER")).toBe(false);
   });
 });
 

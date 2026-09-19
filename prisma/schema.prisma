@@ -276,6 +276,24 @@ model Comment {
   @@map("comments")
 }
 
+/**
+ * Раздел 93 ТЗ (Canvas): только View над Track/Task/VesselOption. Здесь хранится
+ * лишь позиция карточки на холсте и ссылка на запись (entityType + entityId);
+ * статус, привлекательность, ответственный и т.д. всегда читаются из основных
+ * таблиц — собственной копии бизнес-данных у Canvas нет.
+ */
+model CanvasItem {
+  id         String   @id @default(cuid())
+  entityType String // "Track" | "Task" | "VesselOption"
+  entityId   String
+  x          Float
+  y          Float
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@map("canvas_items")
+}
+
 enum NotificationType {
   MENTION // "Вас упомянули"
   WEEKLY_UPDATE_DUE // "WeeklyUpdate требуется заполнить"

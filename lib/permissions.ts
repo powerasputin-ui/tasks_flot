@@ -62,6 +62,15 @@ export function canManageOwnership(role: UserRole): boolean {
   return role === "CURATOR";
 }
 
+/**
+ * Canvas (раздел 93 ТЗ) — это View, а не бизнес-данные. ТЗ не говорит, кто
+ * расставляет карточки; консервативный дефолт: только Куратор, остальные читают.
+ * UNRESOLVED BUSINESS RULE, см. ANALYSIS.md.
+ */
+export function canArrangeCanvas(role: UserRole): boolean {
+  return role === "CURATOR";
+}
+
 export function canAccessManagerViews(role: UserRole): boolean {
   // Раздел 37: Dashboard/Digest/Export — доступ Руководителя (и Куратора/Ответственного тоже можно читать).
   return role === "MANAGER" || role === "CURATOR";
