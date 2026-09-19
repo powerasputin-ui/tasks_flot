@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, Columns3, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ClipboardList, Columns3, Plus, RotateCcw } from "lucide-react";
+import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
-import { ItemForm, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemForm";
+import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
 import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
@@ -113,8 +114,19 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
   const [me, setMe] = useState<Me>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
-  const [editor, setEditor] = useState<{ row: Row | null } | null>(null);
+  const [editor, setEditorState] = useState<{ row: Row | null } | null>(null);
+  const [analytics, setAnalytics] = useState(false);
   const [segment, setSegment] = useState("all");
+
+  // Справа открыта одна панель за раз: карточка позиции или аналитика.
+  const setEditor = (v: { row: Row | null } | null) => {
+    setEditorState(v);
+    if (v) setAnalytics(false);
+  };
+  const toggleAnalytics = () => {
+    setAnalytics((a) => !a);
+    setEditorState(null);
+  };
 
   const [departmentId, setDepartmentId] = useState("");
   const [trackId, setTrackId] = useState("");
@@ -329,6 +341,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               >
                 {() => <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
               </Popover>
+              <button onClick={toggleAnalytics} className={`btn-ghost ${analytics ? "border-primary bg-primary-soft text-primary" : ""}`} title="Аналитика выборки">
+                <BarChart3 size={15} />
+                Аналитика
+              </button>
               {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
               {canCreate && (
                 <button onClick={() => setEditor({ row: null })} className="btn-primary">
@@ -459,8 +475,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         </div>
       </section>
 
+      {analytics && <AnalyticsPanel rows={visibleRows} title={selectedName} onClose={() => setAnalytics(false)} />}
+
       {editor && (
-        <ItemForm
+        <ItemPanel
+          key={editor.row?.id ?? "new"}
           row={editor.row}
           refs={refs}
           defaultDepartmentId={isHead ? me?.departmentId ?? "" : refs.departments[0]?.id ?? ""}

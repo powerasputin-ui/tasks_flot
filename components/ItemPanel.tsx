@@ -1,0 +1,468 @@
+"use client";
+
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AlertTriangle, Archive, MoreHorizontal, RotateCcw, Send } from "lucide-react";
+import { Panel } from "@/components/ui/Panel";
+import { Popover } from "@/components/ui/Popover";
+
+export type Ref = { id: string; name: string };
+export type TrackRef = Ref & { segmentId: string | null };
+export type Refs = {
+  departments: Ref[];
+  segments: Ref[];
+  tracks: TrackRef[];
+  statuses: Ref[];
+  attractiveness: Ref[];
+  users: Ref[];
+};
+
+export type ItemRow = {
+  id: string;
+  departmentId: string;
+  segmentId: string | null;
+  trackId: string | null;
+  name: string;
+  cost: string | null;
+  attractivenessId: string | null;
+  ownerId: string | null;
+  deadline: string | null;
+  statusId: string | null;
+  operFlag: boolean;
+  comment: string | null;
+  version: number;
+  archived: boolean;
+  createdByName: string;
+};
+
+type FormState = {
+  departmentId: string;
+  segmentId: string;
+  trackId: string;
+  title: string;
+  cost: string;
+  attractivenessId: string;
+  responsibleId: string;
+  deadline: string;
+  statusId: string;
+  comment: string;
+  operFlag: boolean;
+};
+
+type Event = {
+  id: string;
+  timestamp: string;
+  fieldName: string | null;
+  action: string;
+  before: string | null;
+  after: string | null;
+  actor: { name: string } | null;
+};
+
+export const FIELD_LABEL: Record<string, string> = {
+  title: "Название",
+  cost: "Оценка $",
+  comment: "Комментарий",
+  departmentId: "Подразделение",
+  segmentId: "Сегмент",
+  trackId: "Трек",
+  attractivenessId: "Привлекательность",
+  responsibleId: "Ответственный",
+  deadline: "Срок",
+  statusId: "Статус",
+  operFlag: "Опер",
+};
+
+const fromRow = (r: ItemRow | null, defaultDepartmentId: string): FormState => ({
+  departmentId: r?.departmentId ?? defaultDepartmentId,
+  segmentId: r?.segmentId ?? "",
+  trackId: r?.trackId ?? "",
+  title: r?.name ?? "",
+  cost: r?.cost ?? "",
+  attractivenessId: r?.attractivenessId ?? "",
+  responsibleId: r?.ownerId ?? "",
+  deadline: r?.deadline ? r.deadline.slice(0, 10) : "",
+  statusId: r?.statusId ?? "",
+  comment: r?.comment ?? "",
+  operFlag: r?.operFlag ?? false,
+});
+
+export function ItemPanel({
+  row,
+  refs,
+  defaultDepartmentId,
+  lockDepartment,
+  canEdit,
+  onClose,
+  onSaved,
+}: {
+  row: ItemRow | null;
+  refs: Refs;
+  defaultDepartmentId: string;
+  lockDepartment: boolean;
+  canEdit: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [base, setBase] = useState<ItemRow | null>(row);
+  const [form, setForm] = useState<FormState>(fromRow(row, defaultDepartmentId));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [tab, setTab] = useState<"details" | "history">("details");
+  const [history, setHistory] = useState<Event[] | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const isNew = row === null;
+
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const tracksForSegment = useMemo(
+    () => refs.tracks.filter((t) => !form.segmentId || t.segmentId === form.segmentId || t.segmentId === null),
+    [refs.tracks, form.segmentId]
+  );
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(fromRow(base, defaultDepartmentId)), [form, base, defaultDepartmentId]);
+
+  useEffect(() => {
+    if (tab !== "history" || !base) return;
+    setHistory(null);
+    fetch(`/api/items/${base.id}/history`)
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((d) => setHistory(d.events));
+  }, [tab, base]);
+
+  const nul = (v: string) => (v === "" ? null : v);
+  const payload = () => ({
+    departmentId: form.departmentId,
+    segmentId: nul(form.segmentId),
+    trackId: nul(form.trackId),
+    title: form.title,
+    cost: nul(form.cost),
+    attractivenessId: nul(form.attractivenessId),
+    responsibleId: nul(form.responsibleId),
+    deadline: form.deadline ? form.deadline : null,
+    statusId: nul(form.statusId),
+    comment: nul(form.comment),
+    operFlag: form.operFlag,
+  });
+
+  async function save() {
+    if (!form.title.trim()) {
+      setError("Название обязательно");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setConflict(false);
+    try {
+      const res = await fetch(isNew ? "/api/items" : `/api/items/${base!.id}`, {
+        method: isNew ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isNew ? payload() : { ...payload(), version: base!.version }),
+      });
+      if (res.ok) {
+        onSaved();
+        return;
+      }
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null);
+        if (body?.error === "ARCHIVED") setError("Позиция в архиве: сначала верните её в работу.");
+        else setConflict(true);
+      } else if (res.status === 403) setError("Нет прав на это действие.");
+      else if (res.status === 400) setError("Проверьте заполненные поля.");
+      else setError("Не удалось сохранить. Данные не потеряны, попробуйте ещё раз.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reloadLatest() {
+    if (!base) return;
+    const res = await fetch(`/api/items/${base.id}`);
+    if (!res.ok) return;
+    const fresh = (await res.json()).row as ItemRow;
+    setBase(fresh);
+    setForm(fromRow(fresh, defaultDepartmentId));
+    setConflict(false);
+  }
+
+  async function toggleArchive() {
+    if (!base) return;
+    const res = await fetch(base.archived ? `/api/items/${base.id}/restore` : `/api/items/${base.id}`, {
+      method: base.archived ? "POST" : "DELETE",
+    });
+    if (res.ok) onSaved();
+    else setError("Не удалось изменить архивное состояние.");
+  }
+
+  const name = (list: Ref[], id: string | null) => (id ? list.find((x) => x.id === id)?.name ?? "—" : "—");
+  const showValue = (field: string | null, v: string | null) => {
+    if (v === null) return "—";
+    switch (field) {
+      case "departmentId": return name(refs.departments, v);
+      case "segmentId": return name(refs.segments, v);
+      case "trackId": return name(refs.tracks, v);
+      case "attractivenessId": return name(refs.attractiveness, v);
+      case "statusId": return name(refs.statuses, v);
+      case "responsibleId": return name(refs.users, v);
+      case "deadline": return new Date(v).toLocaleDateString("ru-RU");
+      case "operFlag": return v === "true" ? "да" : "нет";
+      default: return v;
+    }
+  };
+
+  const disabled = !canEdit || (base?.archived ?? false);
+  const editable = canEdit && !(base?.archived ?? false);
+
+  const footer = (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        {editable && (
+          <button onClick={save} disabled={saving || (!isNew && !dirty)} className="btn-primary">
+            {saving ? "Сохранение…" : isNew ? "Создать" : "Сохранить"}
+          </button>
+        )}
+        <button onClick={onClose} className="btn-ghost">{editable ? "Отмена" : "Закрыть"}</button>
+        {dirty && !isNew && <span className="text-[11px] text-status-amber">● есть изменения</span>}
+      </div>
+      {!isNew && canEdit && (
+        <Popover
+          align="right"
+          width={220}
+          direction="up"
+          trigger={({ toggle }) => (
+            <button onClick={() => { setConfirmArchive(false); toggle(); }} className="btn-icon" title="Ещё">
+              <MoreHorizontal size={18} />
+            </button>
+          )}
+        >
+          {() =>
+            base!.archived ? (
+              <button onClick={toggleArchive} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
+                <RotateCcw size={15} className="text-outline" /> Вернуть в работу
+              </button>
+            ) : confirmArchive ? (
+              <div className="px-3.5 py-2">
+                <p className="mb-2 text-[12px] text-on-surface-variant">Отправить позицию в архив? Её можно вернуть.</p>
+                <div className="flex gap-2">
+                  <button onClick={toggleArchive} className="btn-primary h-8 flex-1">Да, в архив</button>
+                  <button onClick={() => setConfirmArchive(false)} className="btn-ghost h-8">Нет</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmArchive(true)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
+                <Archive size={15} /> В архив
+              </button>
+            )
+          }
+        </Popover>
+      )}
+    </div>
+  );
+
+  return (
+    <Panel
+      title={isNew ? "Новая позиция" : base!.name}
+      subtitle={
+        isNew ? (
+          "Заполните поля и нажмите «Создать»"
+        ) : (
+          <span>
+            Создал: {base!.createdByName}
+            {base!.archived && <span className="ml-2 rounded-full bg-surface-highest px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">в архиве</span>}
+          </span>
+        )
+      }
+      onClose={onClose}
+      footer={footer}
+    >
+      {!isNew && (
+        <div className="flex border-b border-outline-variant px-5">
+          {(["details", "history"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`-mb-px border-b-2 px-3 py-2.5 text-[13px] font-semibold transition-colors ${
+                tab === t ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              {t === "details" ? "Детали" : "История"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === "details" ? (
+        <div className="space-y-5 px-5 py-5">
+          {error && <Banner tone="error">{error}</Banner>}
+          {conflict && (
+            <Banner tone="warn">
+              <span className="flex-1">Позиция была изменена другим пользователем. Обновите данные, чтобы не затереть чужие правки.</span>
+              <button onClick={reloadLatest} className="btn-ghost h-8 shrink-0">Обновить</button>
+            </Banner>
+          )}
+
+          <Section title="Основное">
+            <Field label="Название *">
+              <textarea value={form.title} onChange={(e) => set("title", e.target.value)} disabled={disabled} rows={3} className="input w-full" />
+            </Field>
+            <Field label="Оценка $">
+              <input value={form.cost} onChange={(e) => set("cost", e.target.value)} disabled={disabled} className="input w-full" placeholder="например, 2 млн.$" />
+            </Field>
+          </Section>
+
+          <Section title="Классификация">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Подразделение">
+                <Sel value={form.departmentId} onChange={(v) => set("departmentId", v)} options={refs.departments} disabled={disabled || lockDepartment} allowEmpty={false} />
+              </Field>
+              <Field label="Привлекательность">
+                <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness} disabled={disabled} emptyLabel="P0 (не указана)" />
+              </Field>
+              <Field label="Сегмент">
+                <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
+              </Field>
+              <Field label="Трек">
+                <Sel value={form.trackId} onChange={(v) => set("trackId", v)} options={tracksForSegment} disabled={disabled} />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Ответственность и срок">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Field label="Ответственный">
+                  <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled} />
+                </Field>
+              </div>
+              <Field label="Срок">
+                <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled} className="input w-full" />
+              </Field>
+              <Field label="Статус">
+                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={refs.statuses} disabled={disabled} />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Комментарий">
+            <textarea value={form.comment} onChange={(e) => set("comment", e.target.value)} disabled={disabled} rows={4} className="input w-full" />
+          </Section>
+
+          <div className={`rounded-lg border p-3.5 ${form.operFlag ? "border-status-emerald/40 bg-status-emerald/10" : "border-outline-variant bg-surface-low"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Send size={16} className={form.operFlag ? "text-status-emerald" : "text-outline"} />
+                <div>
+                  <p className="text-[13px] font-semibold text-on-surface">Отправить куратору</p>
+                  <p className="text-[12px] text-on-surface-variant">{form.operFlag ? "Отправлено — позиция попадёт в оперативку" : "Черновик — видна только вашему подразделению и куратору"}</p>
+                </div>
+              </div>
+              <Switch checked={form.operFlag} onChange={(v) => set("operFlag", v)} disabled={disabled} />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="px-5 py-5">
+          {history === null ? (
+            <div className="space-y-3">
+              <div className="skeleton h-4 w-3/4 rounded" />
+              <div className="skeleton h-4 w-2/3 rounded" />
+            </div>
+          ) : history.length === 0 ? (
+            <p className="text-[13px] text-outline">Изменений пока нет.</p>
+          ) : (
+            <ul className="relative space-y-4 border-l border-outline-variant pl-5">
+              {history.map((e) => (
+                <li key={e.id} className="relative">
+                  <span className={`absolute -left-[25px] top-1.5 h-2 w-2 rounded-full ${e.action === "ARCHIVE" ? "bg-status-red" : e.action === "CREATE" ? "bg-status-emerald" : "bg-status-amber"}`} />
+                  <p className="text-[12px] text-on-surface">
+                    <span className="font-semibold">{e.actor?.name ?? "Система"}</span>{" "}
+                    {e.fieldName ? (
+                      <>
+                        изменил(а) «{FIELD_LABEL[e.fieldName] ?? e.fieldName}»: <span className="text-outline">{showValue(e.fieldName, e.before)}</span> →{" "}
+                        <span className="font-semibold">{showValue(e.fieldName, e.after)}</span>
+                      </>
+                    ) : e.action === "CREATE" ? (
+                      "создал(а) позицию"
+                    ) : e.action === "ARCHIVE" ? (
+                      "отправил(а) в архив"
+                    ) : e.action === "RESTORE" ? (
+                      "вернул(а) из архива"
+                    ) : (
+                      e.action
+                    )}
+                  </p>
+                  <p className="text-[10px] text-outline">{new Date(e.timestamp).toLocaleString("ru-RU")}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function Banner({ tone, children }: { tone: "error" | "warn"; children: ReactNode }) {
+  return (
+    <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-[13px] ${tone === "error" ? "border-status-red/30 bg-status-red/10 text-status-red" : "border-status-amber/40 bg-status-amber/10 text-amber-800"}`}>
+      <AlertTriangle size={15} className="shrink-0" />
+      {children}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="label-caps">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1 block text-[12px] font-medium text-on-surface-variant">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${checked ? "bg-status-emerald" : "bg-outline/60"}`}
+    >
+      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${checked ? "left-[22px]" : "left-0.5"}`} />
+    </button>
+  );
+}
+
+function Sel({
+  value,
+  onChange,
+  options,
+  disabled,
+  allowEmpty = true,
+  emptyLabel = "—",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Ref[];
+  disabled?: boolean;
+  allowEmpty?: boolean;
+  emptyLabel?: string;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="select w-full">
+      {allowEmpty && <option value="">{emptyLabel}</option>}
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>{o.name}</option>
+      ))}
+    </select>
+  );
+}

@@ -10,12 +10,14 @@ export function Popover({
   trigger,
   children,
   align = "left",
+  direction = "down",
   width,
   className = "",
 }: {
   trigger: (state: { open: boolean; toggle: () => void }) => ReactNode;
   children: (close: () => void) => ReactNode;
   align?: "left" | "right";
+  direction?: "down" | "up";
   width?: number | string;
   className?: string;
 }) {
@@ -41,9 +43,9 @@ export function Popover({
       {trigger({ open, toggle: () => setOpen((v) => !v) })}
       {open && (
         <div
-          className={`animate-fade-in absolute top-full z-50 mt-1 rounded-lg border border-outline-variant bg-surface py-1 shadow-xl ${
+          className={`animate-fade-in absolute z-50 rounded-lg border border-outline-variant bg-surface py-1 shadow-xl ${
             align === "right" ? "right-0" : "left-0"
-          }`}
+          } ${direction === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}
           style={{ minWidth: width ?? 200 }}
         >
           {children(() => setOpen(false))}
