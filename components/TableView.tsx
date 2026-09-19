@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
@@ -137,6 +137,33 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     (r: Row) => me?.role === "CURATOR" || (me?.role === "HEAD" && r.ownerId === me.id),
     [me]
   );
+
+  // Контекстное меню строки (правая кнопка мыши).
+  const [ctx, setCtx] = useState<{ x: number; y: number; row: Row; confirm: boolean } | null>(null);
+  useEffect(() => {
+    if (!ctx) return;
+    const close = () => setCtx(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [ctx]);
+
+  async function ctxAction(row: Row, action: "delete" | "restore") {
+    setCtx(null);
+    const res = await fetch(action === "restore" ? `/api/items/${row.id}/restore` : `/api/items/${row.id}`, {
+      method: action === "restore" ? "POST" : "DELETE",
+    });
+    if (res.ok) setRefetchTick((t) => t + 1);
+    else setError(action === "restore" ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
+  }
 
   const canDeleteRow = useCallback(
     (r: Row) => !!me && canDeleteItem({ id: me.id, role: me.role as UserRole }, { responsibleId: r.ownerId, createdById: r.createdById }),
@@ -446,6 +473,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                         <tr
                           key={row.id}
                           onClick={() => setEditor({ row })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setCtx({ x: e.clientX, y: e.clientY, row, confirm: false });
+                          }}
                           className={`row-hover cursor-pointer border-t border-outline-variant/50 ${editor?.row?.id === row.id ? "bg-primary-soft" : ""}`}
                         >
                           {visibleColumns.map((col) => (
@@ -474,6 +505,44 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           <RecentChanges segments={segments} refreshKey={refetchTick} onOpen={openById} />
         </div>
       </section>
+
+      {ctx && (
+        <div
+          className="fixed z-50 w-60 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
+          style={{ left: Math.min(ctx.x, window.innerWidth - 250), top: Math.min(ctx.y, window.innerHeight - 140) }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {ctx.confirm ? (
+            <div className="px-3.5 py-2">
+              <p className="mb-2 text-[12px] text-on-surface-variant">Удалить позицию «{ctx.row.name.length > 40 ? `${ctx.row.name.slice(0, 40)}…` : ctx.row.name}»?</p>
+              <div className="flex gap-2">
+                <button onClick={() => ctxAction(ctx.row, "delete")} className="btn-primary h-8 flex-1 bg-status-red hover:bg-status-red">Удалить</button>
+                <button onClick={() => setCtx(null)} className="btn-ghost h-8">Нет</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button onClick={() => { setEditor({ row: ctx.row }); setCtx(null); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
+                <Pencil size={14} className="text-outline" /> Открыть
+              </button>
+              {ctx.row.archived && canEditRow(ctx.row) && (
+                <button onClick={() => ctxAction(ctx.row, "restore")} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
+                  <RotateCcw size={14} className="text-outline" /> Вернуть в работу
+                </button>
+              )}
+              {!ctx.row.archived && canDeleteRow(ctx.row) && (
+                <button onClick={() => setCtx({ ...ctx, confirm: true })} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
+                  <Trash2 size={14} /> Удалить
+                </button>
+              )}
+              {!ctx.row.archived && !canDeleteRow(ctx.row) && (
+                <p className="px-3.5 py-2 text-[11px] text-outline">Удалять может только тот, кто заполняет позицию.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {analytics && <AnalyticsPanel rows={visibleRows} title={selectedName} onClose={() => setAnalytics(false)} />}
 
