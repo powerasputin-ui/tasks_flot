@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canAssignResponsible,
   canCreateItem,
+  canDeleteItem,
   canEditItem,
   canExportWorkTable,
   canManageDirectory,
@@ -67,5 +68,27 @@ describe("справочники и экспорт", () => {
     expect(canExportWorkTable("CURATOR")).toBe(true);
     expect(canExportWorkTable("SYSTEM_ADMIN")).toBe(false);
     expect(canExportWorkTable("MANAGEMENT")).toBe(false);
+  });
+});
+
+describe("canDeleteItem", () => {
+  const head: Actor = { id: "u1", role: "HEAD" };
+  const curator: Actor = { id: "c1", role: "CURATOR" };
+
+  it("руководитель удаляет только свои позиции", () => {
+    expect(canDeleteItem(head, { responsibleId: "u1", createdById: "u1" })).toBe(true);
+    expect(canDeleteItem(head, { responsibleId: "u2", createdById: "u1" })).toBe(false);
+  });
+
+  it("куратор не удаляет чужие позиции, но удаляет свои", () => {
+    expect(canDeleteItem(curator, { responsibleId: "u1", createdById: "u1" })).toBe(false);
+    expect(canDeleteItem(curator, { responsibleId: "c1", createdById: "c1" })).toBe(true);
+    expect(canDeleteItem(curator, { responsibleId: null, createdById: "c1" })).toBe(true);
+    expect(canDeleteItem(curator, { responsibleId: null, createdById: "u1" })).toBe(false);
+  });
+
+  it("остальным ролям удалять нельзя", () => {
+    expect(canDeleteItem({ id: "a", role: "SYSTEM_ADMIN" }, { responsibleId: "a", createdById: "a" })).toBe(false);
+    expect(canDeleteItem({ id: "m", role: "MANAGEMENT" }, { responsibleId: "m", createdById: "m" })).toBe(false);
   });
 });

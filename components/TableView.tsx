@@ -7,7 +7,7 @@ import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
-import { canCreateItem } from "@/lib/permissions";
+import { canCreateItem, canDeleteItem } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -17,6 +17,7 @@ import { Popover } from "@/components/ui/Popover";
 import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
+  createdById: string;
   segmentName: string | null;
   trackName: string | null;
   attractivenessName: string | null;
@@ -134,6 +135,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const isHead = me?.role === "HEAD";
   const canEditRow = useCallback(
     (r: Row) => me?.role === "CURATOR" || (me?.role === "HEAD" && r.ownerId === me.id),
+    [me]
+  );
+
+  const canDeleteRow = useCallback(
+    (r: Row) => !!me && canDeleteItem({ id: me.id, role: me.role as UserRole }, { responsibleId: r.ownerId, createdById: r.createdById }),
     [me]
   );
 
@@ -342,6 +348,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Аналитика
               </button>
               {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
+              {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
+                <button onClick={() => setEditor({ row: null })} className="btn-primary">
+                  <Plus size={16} />
+                  Добавить
+                </button>
+              )}
             </div>
           </div>
 
@@ -473,6 +485,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           defaultResponsibleId={isHead ? me?.id ?? "" : ""}
           lockResponsible={isHead}
           canEdit={editor.row ? canEditRow(editor.row) : true}
+          canDelete={editor.row ? canDeleteRow(editor.row) : false}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null);

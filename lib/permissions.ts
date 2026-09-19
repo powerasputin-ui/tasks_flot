@@ -37,9 +37,18 @@ export function canAssignResponsible(actor: Actor, responsibleId: string | null 
   return false;
 }
 
-/** Архивирование и возврат из архива, галка «Опер» — те же границы, что и правка. */
-export const canArchiveItem = canEditItem;
+/** Возврат из архива и галка «Опер» — те же границы, что и правка. */
+export const canRestoreItem = canEditItem;
 export const canSetOperFlag = canEditItem;
+
+/**
+ * Удалять (в архив) может только тот, кто заполняет позицию — её ответственный
+ * (или автор, пока ответственный не назначен). Куратор правит чужие позиции, но не удаляет их.
+ */
+export function canDeleteItem(actor: Actor, item: { responsibleId: string | null; createdById: string }): boolean {
+  if (actor.role !== "HEAD" && actor.role !== "CURATOR") return false;
+  return item.responsibleId === actor.id || (item.responsibleId === null && item.createdById === actor.id);
+}
 
 /** Пользователи и справочники — только SYSTEM_ADMIN. */
 export function canManageDirectory(role: UserRole): boolean {

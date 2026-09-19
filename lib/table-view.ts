@@ -28,6 +28,7 @@ export type TableRow = {
   operFlag: boolean;
   comment: string | null;
   version: number;
+  createdById: string;
   createdByName: string;
   updatedAt: Date;
   /** Недель с последнего обновления — подсветка «давно не трогали». */
@@ -93,6 +94,7 @@ export function toTableRow(i: ItemWithRelations): TableRow {
     operFlag: i.operFlag,
     comment: i.comment,
     version: i.version,
+    createdById: i.createdById,
     createdByName: i.createdBy.name,
     updatedAt: i.updatedAt,
     staleWeeks: weeksSince(i.updatedAt),

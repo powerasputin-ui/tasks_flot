@@ -23,6 +23,7 @@ function row(overrides: Partial<TableRow>): TableRow {
     operFlag: false,
     comment: null,
     version: 1,
+    createdById: "u-creator",
     createdByName: "Иванов",
     updatedAt: new Date("2026-01-01"),
     staleWeeks: 0,

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canArchiveItem, canAssignResponsible, canCreateItem, canEditItem, canViewItems, type Actor } from "@/lib/permissions";
+import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canRestoreItem, canViewItems, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 
 /**
@@ -93,7 +93,7 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
   if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
   if (!existing) return { ok: false, error: "NOT_FOUND" };
-  if (!canArchiveItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
+  if (!(archived ? canDeleteItem(actor, existing) : canRestoreItem(actor, existing))) return { ok: false, error: "FORBIDDEN" };
   if (archived === (existing.archivedAt !== null)) return { ok: true, id }; // уже в нужном состоянии
 
   await prisma.$transaction(async (tx) => {

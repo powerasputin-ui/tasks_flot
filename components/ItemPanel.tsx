@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Archive, MoreHorizontal, RotateCcw, Send } from "lucide-react";
+import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
 import { Panel } from "@/components/ui/Panel";
 import { Popover } from "@/components/ui/Popover";
 import { FIELD_LABEL } from "@/lib/audit-format";
@@ -30,6 +30,7 @@ export type ItemRow = {
   comment: string | null;
   version: number;
   archived: boolean;
+  createdById: string;
   createdByName: string;
 };
 
@@ -75,6 +76,7 @@ export function ItemPanel({
   defaultResponsibleId,
   lockResponsible,
   canEdit,
+  canDelete,
   onClose,
   onSaved,
 }: {
@@ -83,6 +85,7 @@ export function ItemPanel({
   defaultResponsibleId: string;
   lockResponsible: boolean;
   canEdit: boolean;
+  canDelete: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -171,7 +174,7 @@ export function ItemPanel({
       method: base.archived ? "POST" : "DELETE",
     });
     if (res.ok) onSaved();
-    else setError("Не удалось изменить архивное состояние.");
+    else setError(base.archived ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
   }
 
   const name = (list: Ref[], id: string | null) => (id ? list.find((x) => x.id === id)?.name ?? "—" : "—");
@@ -203,38 +206,23 @@ export function ItemPanel({
         <button onClick={onClose} className="btn-ghost">{editable ? "Отмена" : "Закрыть"}</button>
         {dirty && !isNew && <span className="text-[11px] text-status-amber">● есть изменения</span>}
       </div>
-      {!isNew && canEdit && (
-        <Popover
-          align="right"
-          width={220}
-          direction="up"
-          trigger={({ toggle }) => (
-            <button onClick={() => { setConfirmArchive(false); toggle(); }} className="btn-icon" title="Ещё">
-              <MoreHorizontal size={18} />
-            </button>
-          )}
-        >
-          {() =>
-            base!.archived ? (
-              <button onClick={toggleArchive} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
-                <RotateCcw size={15} className="text-outline" /> Вернуть в работу
-              </button>
-            ) : confirmArchive ? (
-              <div className="px-3.5 py-2">
-                <p className="mb-2 text-[12px] text-on-surface-variant">Отправить позицию в архив? Её можно вернуть.</p>
-                <div className="flex gap-2">
-                  <button onClick={toggleArchive} className="btn-primary h-8 flex-1">Да, в архив</button>
-                  <button onClick={() => setConfirmArchive(false)} className="btn-ghost h-8">Нет</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmArchive(true)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
-                <Archive size={15} /> В архив
-              </button>
-            )
-          }
-        </Popover>
+      {!isNew && base!.archived && canEdit && (
+        <button onClick={toggleArchive} className="btn-ghost">
+          <RotateCcw size={15} /> Вернуть в работу
+        </button>
       )}
+      {!isNew && !base!.archived && canDelete &&
+        (confirmArchive ? (
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-on-surface-variant">Удалить позицию?</span>
+            <button onClick={toggleArchive} className="btn-primary h-8 bg-status-red hover:bg-status-red">Да, удалить</button>
+            <button onClick={() => setConfirmArchive(false)} className="btn-ghost h-8">Нет</button>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmArchive(true)} className="btn-ghost text-status-red hover:bg-status-red/10" title="Удалить позицию">
+            <Trash2 size={15} /> Удалить
+          </button>
+        ))}
     </div>
   );
 
