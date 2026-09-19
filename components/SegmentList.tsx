@@ -67,7 +67,7 @@ export function SegmentList({
           }`}
           style={{
             borderLeftColor: "#64748b",
-            ...(allActive ? { background: "#64748b18", boxShadow: "0 0 0 2px #64748b" } : {}),
+            ...(allActive ? { background: "#64748b10", boxShadow: "0 0 0 2px #64748bb8" } : {}),
           }}
         >
           <div className="flex items-start justify-between gap-2">
@@ -91,7 +91,7 @@ export function SegmentList({
               // Выбранный сегмент — цветной контур и заливка в цвет сегмента (без галочек).
               style={{
                 borderLeftColor: color,
-                ...(active ? { background: `${color}18`, boxShadow: `0 0 0 2px ${color}` } : {}),
+                ...(active ? { background: `${color}10`, boxShadow: `0 0 0 2px ${color}b8` } : {}),
               }}
             >
               <div className="flex items-start justify-between gap-2">
