@@ -70,7 +70,7 @@ function Row({ children, active, onClick }: { children: ReactNode; active: boole
   );
 }
 
-/** Пунктирная «+ Фильтры»: остальные условия (срок, подразделение, архив). */
+/** Пунктирная «+ Фильтры»: остальные условия (срок, архив). */
 export function MoreFilters({ activeCount, children }: { activeCount: number; children: ReactNode }) {
   return (
     <Popover

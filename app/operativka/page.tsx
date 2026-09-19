@@ -2,7 +2,7 @@ import { ArrowRight, CheckCircle2, ClipboardCheck, Send } from "lucide-react";
 
 // Заглушка под этапы 3-4 ТЗ v4: раскладка экрана готова, данные цикла подключатся позже.
 const STAGES = [
-  { icon: <Send size={18} />, title: "Сбор", text: "Подразделения отмечают позиции «Опер» — они уходят куратору." },
+  { icon: <Send size={18} />, title: "Сбор", text: "Руководители отмечают позиции «Опер» — они уходят куратору." },
   { icon: <ClipboardCheck size={18} />, title: "Проверка куратором", text: "Куратор просматривает, правит и формирует итоговый набор." },
   { icon: <CheckCircle2 size={18} />, title: "Финал", text: "Итоговый снимок фиксируется и доступен руководству." },
 ];
@@ -13,7 +13,7 @@ export default function OperativkaPage() {
       <p className="label-caps">Оперативка</p>
       <h1 className="text-2xl font-semibold leading-8 text-on-surface">Цикл оперативки</h1>
       <p className="mt-1 text-[13px] text-on-surface-variant">
-        Экран цикла (статусы подразделений, счётчики, финальная версия для руководства) появится на следующих этапах разработки.
+        Экран цикла (кто отправил позиции, счётчики, финальная версия для руководства) появится на следующих этапах разработки.
       </p>
 
       <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-stretch">

@@ -14,8 +14,6 @@ export async function GET() {
       email: true,
       role: true,
       isActive: true,
-      departmentId: true,
-      department: { select: { id: true, name: true } },
     },
   });
   return NextResponse.json({ user });

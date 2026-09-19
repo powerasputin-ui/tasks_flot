@@ -16,7 +16,6 @@ const textOrNull = z.string().nullable().optional();
 
 // Позиция оперативки (TZ_v4, раздел 3). Название обязательно; остальное — по мере заполнения.
 export const createItemSchema = z.object({
-  departmentId: z.string().min(1, "Укажите подразделение"),
   title: z.string().trim().min(1, "Название обязательно"),
   segmentId: idOrNull,
   trackId: idOrNull,
@@ -35,12 +34,6 @@ export const updateItemSchema = createItemSchema
   .extend({ version: z.number().int().min(1) })
   .refine((v) => v.title === undefined || v.title.length > 0, { message: "Название обязательно", path: ["title"] });
 
-export const departmentSchema = z.object({
-  name: z.string().trim().min(1),
-  sortOrder: z.number().int().optional(),
-  isActive: z.boolean().optional(),
-});
-
 export const trackSchema = z.object({
   name: z.string().trim().min(1),
   segmentId: idOrNull,
@@ -48,4 +41,4 @@ export const trackSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-export const ROLES = ["DEPARTMENT_HEAD", "CURATOR", "MANAGEMENT", "SYSTEM_ADMIN"] as const;
+export const ROLES = ["HEAD", "CURATOR", "MANAGEMENT", "SYSTEM_ADMIN"] as const;

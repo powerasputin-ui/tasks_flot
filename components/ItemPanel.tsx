@@ -9,7 +9,6 @@ import { FIELD_LABEL } from "@/lib/audit-format";
 export type Ref = { id: string; name: string };
 export type TrackRef = Ref & { segmentId: string | null };
 export type Refs = {
-  departments: Ref[];
   segments: Ref[];
   tracks: TrackRef[];
   statuses: Ref[];
@@ -19,7 +18,6 @@ export type Refs = {
 
 export type ItemRow = {
   id: string;
-  departmentId: string;
   segmentId: string | null;
   trackId: string | null;
   name: string;
@@ -36,7 +34,6 @@ export type ItemRow = {
 };
 
 type FormState = {
-  departmentId: string;
   segmentId: string;
   trackId: string;
   title: string;
@@ -59,14 +56,13 @@ type Event = {
   actor: { name: string } | null;
 };
 
-const fromRow = (r: ItemRow | null, defaultDepartmentId: string): FormState => ({
-  departmentId: r?.departmentId ?? defaultDepartmentId,
+const fromRow = (r: ItemRow | null, defaultResponsibleId: string): FormState => ({
   segmentId: r?.segmentId ?? "",
   trackId: r?.trackId ?? "",
   title: r?.name ?? "",
   cost: r?.cost ?? "",
   attractivenessId: r?.attractivenessId ?? "",
-  responsibleId: r?.ownerId ?? "",
+  responsibleId: r ? r.ownerId ?? "" : defaultResponsibleId,
   deadline: r?.deadline ? r.deadline.slice(0, 10) : "",
   statusId: r?.statusId ?? "",
   comment: r?.comment ?? "",
@@ -76,22 +72,22 @@ const fromRow = (r: ItemRow | null, defaultDepartmentId: string): FormState => (
 export function ItemPanel({
   row,
   refs,
-  defaultDepartmentId,
-  lockDepartment,
+  defaultResponsibleId,
+  lockResponsible,
   canEdit,
   onClose,
   onSaved,
 }: {
   row: ItemRow | null;
   refs: Refs;
-  defaultDepartmentId: string;
-  lockDepartment: boolean;
+  defaultResponsibleId: string;
+  lockResponsible: boolean;
   canEdit: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [base, setBase] = useState<ItemRow | null>(row);
-  const [form, setForm] = useState<FormState>(fromRow(row, defaultDepartmentId));
+  const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -105,7 +101,7 @@ export function ItemPanel({
     () => refs.tracks.filter((t) => !form.segmentId || t.segmentId === form.segmentId || t.segmentId === null),
     [refs.tracks, form.segmentId]
   );
-  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(fromRow(base, defaultDepartmentId)), [form, base, defaultDepartmentId]);
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(fromRow(base, defaultResponsibleId)), [form, base, defaultResponsibleId]);
 
   useEffect(() => {
     if (tab !== "history" || !base) return;
@@ -117,7 +113,6 @@ export function ItemPanel({
 
   const nul = (v: string) => (v === "" ? null : v);
   const payload = () => ({
-    departmentId: form.departmentId,
     segmentId: nul(form.segmentId),
     trackId: nul(form.trackId),
     title: form.title,
@@ -166,7 +161,7 @@ export function ItemPanel({
     if (!res.ok) return;
     const fresh = (await res.json()).row as ItemRow;
     setBase(fresh);
-    setForm(fromRow(fresh, defaultDepartmentId));
+    setForm(fromRow(fresh, defaultResponsibleId));
     setConflict(false);
   }
 
@@ -183,7 +178,6 @@ export function ItemPanel({
   const showValue = (field: string | null, v: string | null) => {
     if (v === null) return "—";
     switch (field) {
-      case "departmentId": return name(refs.departments, v);
       case "segmentId": return name(refs.segments, v);
       case "trackId": return name(refs.tracks, v);
       case "attractivenessId": return name(refs.attractiveness, v);
@@ -297,18 +291,17 @@ export function ItemPanel({
 
           <Section title="Классификация">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Подразделение">
-                <Sel value={form.departmentId} onChange={(v) => set("departmentId", v)} options={refs.departments} disabled={disabled || lockDepartment} allowEmpty={false} />
-              </Field>
-              <Field label="Привлекательность">
-                <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness} disabled={disabled} emptyLabel="P0 (не указана)" />
-              </Field>
               <Field label="Сегмент">
                 <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
               </Field>
               <Field label="Трек">
                 <Sel value={form.trackId} onChange={(v) => set("trackId", v)} options={tracksForSegment} disabled={disabled} />
               </Field>
+              <div className="col-span-2">
+                <Field label="Привлекательность">
+                  <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness} disabled={disabled} emptyLabel="P0 (не указана)" />
+                </Field>
+              </div>
             </div>
           </Section>
 
@@ -316,7 +309,7 @@ export function ItemPanel({
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <Field label="Ответственный">
-                  <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled} />
+                  <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled || lockResponsible} allowEmpty={!lockResponsible} />
                 </Field>
               </div>
               <Field label="Срок">
@@ -338,7 +331,7 @@ export function ItemPanel({
                 <Send size={16} className={form.operFlag ? "text-status-emerald" : "text-outline"} />
                 <div>
                   <p className="text-[13px] font-semibold text-on-surface">Отправить куратору</p>
-                  <p className="text-[12px] text-on-surface-variant">{form.operFlag ? "Отправлено — позиция попадёт в оперативку" : "Черновик — видна только вашему подразделению и куратору"}</p>
+                  <p className="text-[12px] text-on-surface-variant">{form.operFlag ? "Отправлено — позиция попадёт в оперативку" : "Черновик — в оперативку пока не попадёт"}</p>
                 </div>
               </div>
               <Switch checked={form.operFlag} onChange={(v) => set("operFlag", v)} disabled={disabled} />

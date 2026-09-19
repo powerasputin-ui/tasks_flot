@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
-import { canViewItem } from "@/lib/permissions";
-import { prisma } from "@/lib/prisma";
+import { canViewItems } from "@/lib/permissions";
 import { loadTableRow } from "@/lib/table-view";
 import { ITEM_ERROR_STATUS, setItemArchived, updateItem } from "@/lib/items";
 import { updateItemSchema } from "@/lib/validation";
@@ -9,9 +8,10 @@ import { updateItemSchema } from "@/lib/validation";
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
-  const item = await prisma.operationalItem.findUnique({ where: { id }, select: { departmentId: true } });
-  if (!item || !canViewItem(actor, item)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  return NextResponse.json({ row: await loadTableRow(id) });
+  if (!canViewItems(actor.role)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  const row = await loadTableRow(id);
+  if (!row) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  return NextResponse.json({ row });
 }
 
 // version обязателен: при расхождении — 409 CONFLICT с актуальной версией.

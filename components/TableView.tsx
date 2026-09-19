@@ -15,7 +15,6 @@ import { Popover } from "@/components/ui/Popover";
 import { countBySegment, filterBySegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
-  departmentName: string;
   segmentName: string | null;
   trackName: string | null;
   attractivenessName: string | null;
@@ -28,7 +27,7 @@ type Row = ItemRow & {
   staleWeeks: number;
 };
 
-type Me = { id: string; role: string; departmentId: string | null } | null;
+type Me = { id: string; role: string } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
@@ -76,7 +75,7 @@ function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
 }
 
 const DEFAULT_COLUMNS = buildColumns(DEFAULT_VISIBLE);
-// v2: колонка «Подразделение» из первой версии убрана по решению заказчика.
+// v2: сброшен набор колонок первой версии.
 const STORAGE_KEY = "operativka.tableColumns.v2";
 
 function loadColumns(): ColumnConfig[] {
@@ -111,7 +110,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refs, setRefs] = useState<Refs>({ departments: [], segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
+  const [refs, setRefs] = useState<Refs>({ segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
   const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
   const [me, setMe] = useState<Me>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
@@ -129,7 +128,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setEditorState(null);
   };
 
-  const [departmentId, setDepartmentId] = useState("");
   const [trackId, setTrackId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [attractivenessId, setAttractivenessId] = useState("");
@@ -142,10 +140,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [deadlineTo, setDeadlineTo] = useState("");
   const [refetchTick, setRefetchTick] = useState(0);
 
-  const isHead = me?.role === "DEPARTMENT_HEAD";
-  const canCreate = me?.role === "DEPARTMENT_HEAD" || me?.role === "CURATOR";
+  // Руководитель видит все позиции, правит только те, где он «Ответственный»; куратор правит всё.
+  const isHead = me?.role === "HEAD";
+  const canCreate = me?.role === "HEAD" || me?.role === "CURATOR";
   const canEditRow = useCallback(
-    (r: Row) => me?.role === "CURATOR" || (me?.role === "DEPARTMENT_HEAD" && !!me.departmentId && me.departmentId === r.departmentId),
+    (r: Row) => me?.role === "CURATOR" || (me?.role === "HEAD" && r.ownerId === me.id),
     [me]
   );
 
@@ -166,17 +165,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     const get = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
     Promise.all([
       get("/api/auth/me"),
-      get("/api/departments"),
       get("/api/segments"),
       get("/api/tracks"),
       get("/api/statuses"),
       get("/api/attractiveness"),
       get("/api/users"),
-    ]).then(([m, d, s, t, st, a, u]) => {
+    ]).then(([m, s, t, st, a, u]) => {
       setMe(m?.user ?? null);
       setSegmentRefs((s?.segments ?? []).map((x: SegmentRef) => ({ id: x.id, name: x.name, color: x.color ?? null })));
       setRefs({
-        departments: d?.departments ?? [],
         segments: s?.segments ?? [],
         tracks: (t?.tracks ?? []).map((x: TrackRef) => ({ id: x.id, name: x.name, segmentId: x.segmentId })),
         statuses: st?.statuses ?? [],
@@ -190,7 +187,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const baseParams = useMemo(() => {
     const p = new URLSearchParams();
     const add = (k: string, v: string) => v && p.set(k, v);
-    add("departmentId", departmentId);
     add("trackId", trackId);
     add("statusId", statusId);
     add("attractivenessId", attractivenessId);
@@ -205,7 +201,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       p.set("sortDir", sortDir);
     }
     return p;
-  }, [departmentId, trackId, statusId, attractivenessId, ownerId, operFlag, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
+  }, [trackId, statusId, attractivenessId, ownerId, operFlag, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
 
   const exportParams = useMemo(() => {
     const p = new URLSearchParams(baseParams);
@@ -252,11 +248,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const operCount = visibleRows.filter((r) => r.operFlag).length;
   const lastUpdated = visibleRows.reduce<string | null>((m, r) => (!m || r.updatedAt > m ? r.updatedAt : m), null);
 
-  const moreActive = [deadlineFrom || deadlineTo, departmentId, archive !== defaultArchive].filter(Boolean).length;
+  const moreActive = [deadlineFrom || deadlineTo, archive !== defaultArchive].filter(Boolean).length;
   const anyFilter = !!(trackId || statusId || attractivenessId || ownerId || operFlag || q || moreActive);
   function resetFilters() {
     setTrackId(""); setStatusId(""); setAttractivenessId(""); setOwnerId(""); setOperFlag("");
-    setDeadlineFrom(""); setDeadlineTo(""); setDepartmentId(""); setArchive(defaultArchive);
+    setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
 
   // Сегмент уже выбран слева — колонка «Сегмент» нужна только в режиме «Все сегменты».
@@ -382,16 +378,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                   <input type="date" value={deadlineTo} onChange={(e) => setDeadlineTo(e.target.value)} className="input w-full" />
                 </div>
               </FilterField>
-              {!isHead && (
-                <FilterField label="Подразделение">
-                  <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="select w-full">
-                    <option value="">Все</option>
-                    {refs.departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                </FilterField>
-              )}
               <FilterField label="Показывать">
                 <select value={archive} onChange={(e) => setArchive(e.target.value as typeof archive)} className="select w-full">
                   {(Object.keys(ARCHIVE_LABEL) as Array<keyof typeof ARCHIVE_LABEL>).map((k) => (
@@ -492,8 +478,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           key={editor.row?.id ?? "new"}
           row={editor.row}
           refs={refs}
-          defaultDepartmentId={isHead ? me?.departmentId ?? "" : refs.departments[0]?.id ?? ""}
-          lockDepartment={isHead}
+          defaultResponsibleId={isHead ? me?.id ?? "" : ""}
+          lockResponsible={isHead}
           canEdit={editor.row ? canEditRow(editor.row) : canCreate}
           onClose={() => setEditor(null)}
           onSaved={() => {

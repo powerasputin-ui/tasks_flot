@@ -4,8 +4,6 @@ import { applyTableFilters, applyTableSort, type TableRow } from "@/lib/table-vi
 function row(overrides: Partial<TableRow>): TableRow {
   return {
     id: "1",
-    departmentId: "d1",
-    departmentName: "Флот",
     segmentId: "seg-1",
     segmentName: "Танкерный флот",
     trackId: "track-1",
@@ -42,11 +40,6 @@ describe("applyTableFilters", () => {
   it("фильтрует по неделе deadline, не по updatedAt (раздел 14/105 п.7 ТЗ v3)", () => {
     const rows = [row({ id: "1", deadlineWeek: 32 }), row({ id: "2", deadlineWeek: 26 })];
     expect(applyTableFilters(rows, { week: 32 })).toHaveLength(1);
-  });
-
-  it("фильтрует по подразделению", () => {
-    const rows = [row({ id: "1", departmentId: "d1" }), row({ id: "2", departmentId: "d2" })];
-    expect(applyTableFilters(rows, { departmentId: "d2" }).map((r) => r.id)).toEqual(["2"]);
   });
 
   it("фильтр сегмента: id, а none — позиции без сегмента", () => {
@@ -88,8 +81,8 @@ describe("applyTableSort", () => {
     expect(applyTableSort(rows, { sortBy: "deadline", sortDir: "asc" }).map((r) => r.id)).toEqual(["3", "1", "2"]);
   });
 
-  it("сортирует по подразделению", () => {
-    const rows = [row({ id: "1", departmentName: "Снабжение" }), row({ id: "2", departmentName: "Геология" })];
-    expect(applyTableSort(rows, { sortBy: "department", sortDir: "asc" }).map((r) => r.id)).toEqual(["2", "1"]);
+  it("сортирует по ответственному", () => {
+    const rows = [row({ id: "1", ownerName: "Сухов В.А." }), row({ id: "2", ownerName: "Давыдов Д.М." })];
+    expect(applyTableSort(rows, { sortBy: "owner", sortDir: "asc" }).map((r) => r.id)).toEqual(["2", "1"]);
   });
 });

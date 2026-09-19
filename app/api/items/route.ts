@@ -1,23 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
-import { itemVisibilityWhere } from "@/lib/permissions";
+import { canViewItems } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRow, loadTableRows, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { createItem, ITEM_ERROR_STATUS } from "@/lib/items";
 import { createItemSchema } from "@/lib/validation";
 
-// Сервер сам ограничивает выборку по роли и подразделению (интерфейс ничего не решает).
+// Руководитель и куратор видят все позиции; руководству (только финал) и прочим рабочие позиции недоступны.
 export async function GET(request: NextRequest) {
   const actor = await requireActor();
-  const scope = itemVisibilityWhere(actor);
-  if (!scope) return NextResponse.json({ rows: [], total: 0 });
+  if (!canViewItems(actor.role)) return NextResponse.json({ rows: [], total: 0 });
 
   const sp = new URL(request.url).searchParams;
   const archive = (["active", "archived", "all"].includes(sp.get("archive") ?? "") ? sp.get("archive") : "active") as ArchiveMode;
   const date = (k: string) => (sp.get(k) ? new Date(sp.get(k)!) : undefined);
 
   const rows = applyTableSort(
-    applyTableFilters(await loadTableRows(scope, archive), {
-      departmentId: sp.get("departmentId") ?? undefined,
+    applyTableFilters(await loadTableRows(archive), {
       segmentId: sp.get("segmentId") ?? undefined,
       trackId: sp.get("trackId") ?? undefined,
       statusId: sp.get("statusId") ?? undefined,

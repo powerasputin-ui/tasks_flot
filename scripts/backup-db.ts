@@ -14,7 +14,6 @@ const prisma = new PrismaClient();
 
 const TABLES: Record<string, () => Promise<unknown[]>> = {
   users: () => prisma.user.findMany(),
-  departments: () => prisma.department.findMany(),
   segments: () => prisma.segment.findMany(),
   attractiveness: () => prisma.attractiveness.findMany(),
   statuses: () => prisma.status.findMany(),

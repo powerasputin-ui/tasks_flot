@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
-import { canExportWorkTable, itemVisibilityWhere } from "@/lib/permissions";
+import { canExportWorkTable } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRows, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { parseExportFormat, renderExport, exportResponse } from "@/lib/export";
 
 // Экспорт «текущей таблицы» с теми же фильтрами и сортировкой, что у /api/items.
-// Руководитель отдела выгружает только свой отдел (границы задаёт сервер).
+// Руководитель и куратор выгружают все позиции (руководитель их видит, править может только свои).
 export async function GET(request: NextRequest) {
   const actor = await requireActor();
   if (!canExportWorkTable(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  const scope = itemVisibilityWhere(actor);
-  if (!scope) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const sp = new URL(request.url).searchParams;
   const format = parseExportFormat(sp.get("format"));
@@ -19,8 +17,7 @@ export async function GET(request: NextRequest) {
   const date = (k: string) => (sp.get(k) ? new Date(sp.get(k)!) : undefined);
 
   const rows = applyTableSort(
-    applyTableFilters(await loadTableRows(scope, archive), {
-      departmentId: sp.get("departmentId") ?? undefined,
+    applyTableFilters(await loadTableRows(archive), {
       segmentId: sp.get("segmentId") ?? undefined,
       trackId: sp.get("trackId") ?? undefined,
       statusId: sp.get("statusId") ?? undefined,
@@ -35,9 +32,8 @@ export async function GET(request: NextRequest) {
     { sortBy: (sp.get("sortBy") as TableSort["sortBy"]) ?? undefined, sortDir: (sp.get("sortDir") as "asc" | "desc") ?? undefined }
   );
 
-  const headers = ["Подразделение", "Сегмент", "Трек", "Название", "Оценка $", "Привлекательность", "Ответственный", "Срок", "Неделя", "Статус", "Опер", "Комментарий"];
+  const headers = ["Сегмент", "Трек", "Название", "Оценка $", "Привлекательность", "Ответственный", "Срок", "Неделя", "Статус", "Опер", "Комментарий"];
   const data = rows.map((r) => [
-    r.departmentName,
     r.segmentName,
     r.trackName,
     r.name,

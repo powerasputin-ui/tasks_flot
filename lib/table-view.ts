@@ -5,12 +5,10 @@ import type { Prisma } from "@prisma/client";
 /**
  * Единая модель строки таблицы (TZ_v4, раздел 3): одна позиция оперативки = одна строка.
  * Колонки интерфейса не меняются: Сегмент, Трек, Название, Оценка $, Привлекательность,
- * Ответственный, Срок, Статус, Опер, Комментарии (+ подразделение).
+ * Ответственный, Срок, Статус, Опер, Комментарии.
  */
 export type TableRow = {
   id: string;
-  departmentId: string;
-  departmentName: string;
   segmentId: string | null;
   segmentName: string | null;
   trackId: string | null;
@@ -40,7 +38,6 @@ export type TableRow = {
 export type ArchiveMode = "active" | "archived" | "all";
 
 export type TableFilters = {
-  departmentId?: string;
   segmentId?: string;
   trackId?: string;
   statusId?: string;
@@ -54,7 +51,7 @@ export type TableFilters = {
 };
 
 export type TableSort = {
-  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt" | "track" | "department" | "title";
+  sortBy?: "deadline" | "deadlineWeek" | "status" | "attractiveness" | "owner" | "segment" | "updatedAt" | "track" | "title";
   sortDir?: "asc" | "desc";
 };
 
@@ -63,7 +60,6 @@ function weeksSince(date: Date, now: Date = new Date()): number {
 }
 
 const ITEM_INCLUDE = {
-  department: { select: { name: true } },
   segment: { select: { name: true } },
   track: { select: { name: true } },
   attractiveness: { select: { name: true, color: true } },
@@ -77,8 +73,6 @@ type ItemWithRelations = Prisma.OperationalItemGetPayload<{ include: typeof ITEM
 export function toTableRow(i: ItemWithRelations): TableRow {
   return {
     id: i.id,
-    departmentId: i.departmentId,
-    departmentName: i.department.name,
     segmentId: i.segmentId,
     segmentName: i.segment?.name ?? null,
     trackId: i.trackId,
@@ -105,13 +99,10 @@ export function toTableRow(i: ItemWithRelations): TableRow {
   };
 }
 
-/** scope — условие видимости из itemVisibilityWhere (права), применяется на сервере. */
-export async function loadTableRows(scope: { departmentId?: string }, archive: ArchiveMode = "active"): Promise<TableRow[]> {
+/** Права на просмотр проверяет вызывающий маршрут (canViewItems); фильтра по отделам нет. */
+export async function loadTableRows(archive: ArchiveMode = "active"): Promise<TableRow[]> {
   const items = await prisma.operationalItem.findMany({
-    where: {
-      ...scope,
-      ...(archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {}),
-    },
+    where: archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {},
     include: ITEM_INCLUDE,
     orderBy: { createdAt: "desc" },
   });
@@ -126,7 +117,6 @@ export async function loadTableRow(id: string): Promise<TableRow | null> {
 export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[] {
   const q = f.q?.trim().toLowerCase();
   return rows.filter((r) => {
-    if (f.departmentId && r.departmentId !== f.departmentId) return false;
     // "none" — позиции без сегмента (пункт «Без сегмента» в левом списке).
     if (f.segmentId && (f.segmentId === "none" ? r.segmentId !== null : r.segmentId !== f.segmentId)) return false;
     if (f.trackId && r.trackId !== f.trackId) return false;
@@ -138,7 +128,7 @@ export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[]
     if (f.deadlineFrom && (!r.deadline || r.deadline < f.deadlineFrom)) return false;
     if (f.deadlineTo && (!r.deadline || r.deadline > f.deadlineTo)) return false;
     if (q) {
-      const hay = [r.name, r.comment, r.cost, r.trackName, r.segmentName, r.ownerName, r.departmentName].filter(Boolean).join(" ").toLowerCase();
+      const hay = [r.name, r.comment, r.cost, r.trackName, r.segmentName, r.ownerName].filter(Boolean).join(" ").toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -165,8 +155,6 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
         return r.segmentName ?? "";
       case "track":
         return r.trackName ?? "";
-      case "department":
-        return r.departmentName;
       case "title":
         return r.name;
       case "updatedAt":

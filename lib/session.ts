@@ -17,18 +17,18 @@ export async function requireSession(): Promise<SessionPayload> {
 }
 
 /**
- * Актор для проверок прав: роль и подразделение берутся из БД на каждом запросе
- * (а не из токена), чтобы смена роли/отдела админом действовала сразу, а
+ * Актор для проверок прав: роль берётся из БД на каждом запросе
+ * (а не из токена), чтобы смена роли админом действовала сразу, а
  * деактивированный пользователь терял доступ немедленно.
  */
 export async function requireActor(): Promise<Actor & { name: string }> {
   const session = await requireSession();
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, role: true, departmentId: true, isActive: true },
+    select: { id: true, name: true, role: true, isActive: true },
   });
   if (!user || !user.isActive) throw new AuthError("UNAUTHENTICATED");
-  return { id: user.id, name: user.name, role: user.role, departmentId: user.departmentId };
+  return { id: user.id, name: user.name, role: user.role };
 }
 
 export class AuthError extends Error {

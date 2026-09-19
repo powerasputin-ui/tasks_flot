@@ -1,14 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canArchiveItem, canCreateItem, canEditItem, canViewItem, type Actor } from "@/lib/permissions";
+import { canArchiveItem, canAssignResponsible, canCreateItem, canEditItem, canViewItems, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 
 /**
- * Сервис позиций оперативки (TZ_v4, разделы 4-5). Вся логика прав и версий здесь,
- * API-маршруты только разбирают запрос и переводят результат в HTTP-статус.
+ * Сервис позиций оперативки. Вся логика прав и версий здесь, API-маршруты только
+ * разбирают запрос и переводят результат в HTTP-статус.
  */
 export type ItemFields = {
-  departmentId?: string;
   title?: string;
   segmentId?: string | null;
   trackId?: string | null;
@@ -29,11 +28,15 @@ function isForeignKeyError(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003";
 }
 
-export async function createItem(actor: Actor, input: ItemFields & { departmentId: string; title: string }): Promise<ItemResult> {
-  if (!canCreateItem(actor, input.departmentId)) return { ok: false, error: "FORBIDDEN" };
+export async function createItem(actor: Actor, input: ItemFields & { title: string }): Promise<ItemResult> {
+  if (!canCreateItem(actor.role)) return { ok: false, error: "FORBIDDEN" };
+  // Руководитель создаёт позиции только на себя: ответственным по умолчанию становится он сам.
+  const responsibleId = actor.role === "HEAD" ? input.responsibleId ?? actor.id : input.responsibleId;
+  if (!canAssignResponsible(actor, responsibleId)) return { ok: false, error: "FORBIDDEN" };
+
   try {
     const item = await prisma.operationalItem.create({
-      data: { ...input, createdById: actor.id, updatedById: actor.id },
+      data: { ...input, responsibleId, createdById: actor.id, updatedById: actor.id },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
     return { ok: true, id: item.id };
@@ -45,13 +48,13 @@ export async function createItem(actor: Actor, input: ItemFields & { departmentI
 
 export async function updateItem(actor: Actor, id: string, input: ItemFields & { version: number }): Promise<ItemResult> {
   const { version, ...fields } = input;
+  if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
-  // Не раскрываем существование чужих позиций.
-  if (!existing || !canViewItem(actor, existing)) return { ok: false, error: "NOT_FOUND" };
+  if (!existing) return { ok: false, error: "NOT_FOUND" };
   if (!canEditItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   if (existing.archivedAt) return { ok: false, error: "ARCHIVED" };
-  // Перенос в другое подразделение — только туда, где актор вправе править.
-  if (fields.departmentId && fields.departmentId !== existing.departmentId && !canCreateItem(actor, fields.departmentId)) {
+  // Сменить ответственного на другого может только куратор.
+  if (fields.responsibleId !== undefined && !canAssignResponsible(actor, fields.responsibleId)) {
     return { ok: false, error: "FORBIDDEN" };
   }
 
@@ -85,10 +88,11 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   }
 }
 
-/** Удаление = архивирование (физического удаления позиций нет). restore=true возвращает из архива. */
+/** Удаление = архивирование (физического удаления позиций нет). archived=false возвращает из архива. */
 export async function setItemArchived(actor: Actor, id: string, archived: boolean): Promise<ItemResult> {
+  if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
-  if (!existing || !canViewItem(actor, existing)) return { ok: false, error: "NOT_FOUND" };
+  if (!existing) return { ok: false, error: "NOT_FOUND" };
   if (!canArchiveItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   if (archived === (existing.archivedAt !== null)) return { ok: true, id }; // уже в нужном состоянии
 

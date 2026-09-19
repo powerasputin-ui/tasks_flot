@@ -1,5 +1,5 @@
 // ГШП Оперативка — Prisma schema (ТЗ v4, TZ_v4.md).
-// Этап 1: подразделения, роли, единая позиция оперативки (OperationalItem), журнал.
+// Этап 1: роли, единая позиция оперативки (OperationalItem), журнал. Подразделений в системе нет.
 // Циклы оперативки, отправка по позициям и финальные снимки — этап 3-4.
 
 generator client {
@@ -12,24 +12,10 @@ datasource db {
 }
 
 enum UserRole {
-  DEPARTMENT_HEAD // Руководитель подразделения
-  CURATOR // Куратор (⊇ руководитель подразделения)
+  HEAD // Руководитель: видит всё, правит только позиции, где он «Ответственный»
+  CURATOR // Куратор (⊇ руководитель): видит и правит всё
   MANAGEMENT // Руководство (видит финальные оперативки)
   SYSTEM_ADMIN // Технический администратор
-}
-
-model Department {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users User[]
-  items OperationalItem[]
-
-  @@map("departments")
 }
 
 model User {
@@ -38,8 +24,6 @@ model User {
   email        String   @unique
   passwordHash String
   role         UserRole
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id])
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -51,7 +35,6 @@ model User {
   auditEvents      AuditEvent[]
   notifications    Notification[]
 
-  @@index([departmentId])
   @@map("users")
 }
 
@@ -119,8 +102,6 @@ model Track {
 /// version — оптимистическая блокировка (409 при конфликте).
 model OperationalItem {
   id               String          @id @default(cuid())
-  departmentId     String
-  department       Department      @relation(fields: [departmentId], references: [id])
   segmentId        String?
   segment          Segment?        @relation(fields: [segmentId], references: [id])
   trackId          String?
@@ -147,7 +128,6 @@ model OperationalItem {
 
   notes ItemNote[]
 
-  @@index([departmentId])
   @@index([segmentId])
   @@index([trackId])
   @@index([statusId])

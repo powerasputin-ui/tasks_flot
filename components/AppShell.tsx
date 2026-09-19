@@ -13,12 +13,11 @@ type Me = {
   id: string;
   name: string;
   email: string;
-  role: "DEPARTMENT_HEAD" | "CURATOR" | "MANAGEMENT" | "SYSTEM_ADMIN";
-  department?: { id: string; name: string } | null;
+  role: "HEAD" | "CURATOR" | "MANAGEMENT" | "SYSTEM_ADMIN";
 } | null;
 
 export const ROLE_LABEL: Record<string, string> = {
-  DEPARTMENT_HEAD: "Руководитель подразделения",
+  HEAD: "Руководитель",
   CURATOR: "Куратор",
   MANAGEMENT: "Руководство",
   SYSTEM_ADMIN: "Администратор",
@@ -26,8 +25,8 @@ export const ROLE_LABEL: Record<string, string> = {
 
 // Меню по ролям (TZ_v4, раздел 8).
 export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>> = {
-  DEPARTMENT_HEAD: [
-    { href: "/table", label: "Моя работа" },
+  HEAD: [
+    { href: "/table", label: "Таблица" },
     { href: "/operativka", label: "Оперативка" },
     { href: "/archive", label: "Архив" },
   ],
@@ -172,7 +171,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <div className="border-b border-outline-variant px-3.5 pb-2.5 pt-1.5">
                     <p className="text-[13px] font-semibold text-on-surface">{me.name}</p>
                     <p className="text-[12px] text-on-surface-variant">{ROLE_LABEL[me.role]}</p>
-                    {me.department?.name && <p className="text-[12px] text-outline">{me.department.name}</p>}
                   </div>
                   <MenuItem onClick={logout} icon={<LogOut size={15} />}>
                     Выйти

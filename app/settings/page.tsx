@@ -1,19 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Building2, KeyRound, Layers, ListChecks, Plus, Route, Search, Star, Users } from "lucide-react";
+import { KeyRound, Layers, ListChecks, Plus, Route, Search, Star, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
 
 type Ref = { id: string; name: string; color?: string | null };
-type Department = Ref & { isActive: boolean };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
-type UserRow = { id: string; name: string; email: string; role: string; departmentId: string | null; isActive: boolean };
+type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
-type SectionKey = "users" | "departments" | "segments" | "tracks" | "statuses" | "attractiveness";
+type SectionKey = "users" | "segments" | "tracks" | "statuses" | "attractiveness";
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -26,19 +25,17 @@ export default function SettingsPage() {
   const [segments, setSegments] = useState<Ref[]>([]);
   const [statuses, setStatuses] = useState<Ref[]>([]);
   const [attractiveness, setAttractiveness] = useState<Ref[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const reload = useCallback(async () => {
     const get = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
-    const [m, s, st, a, d, t, u] = await Promise.all([
+    const [m, s, st, a, t, u] = await Promise.all([
       get("/api/auth/me"),
       get("/api/segments"),
       get("/api/statuses"),
       get("/api/attractiveness"),
-      get("/api/departments?all=1"),
       get("/api/tracks?all=1"),
       get("/api/users?all=1"),
     ]);
@@ -46,7 +43,6 @@ export default function SettingsPage() {
     setSegments(s?.segments ?? []);
     setStatuses(st?.statuses ?? []);
     setAttractiveness(a?.attractiveness ?? []);
-    setDepartments(d?.departments ?? []);
     setTracks(t?.tracks ?? []);
     setUsers(u?.users ?? []);
   }, []);
@@ -87,7 +83,6 @@ export default function SettingsPage() {
 
   const sections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number }> = [
     { key: "users", label: "Пользователи", icon: <Users size={16} />, count: users.length },
-    { key: "departments", label: "Подразделения", icon: <Building2 size={16} />, count: departments.length },
     { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length },
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length },
@@ -130,8 +125,7 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} departments={departments} act={act} />}
-        {section === "departments" && <DepartmentsSection departments={departments} act={act} />}
+        {section === "users" && <UsersSection users={users} act={act} />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
           <RefSection title="Сегменты" hint="Левая колонка таблицы. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
@@ -165,7 +159,7 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function UsersSection({ users, departments, act }: { users: UserRow[]; departments: Department[]; act: Act }) {
+function UsersSection({ users, act }: { users: UserRow[]; act: Act }) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
@@ -181,7 +175,7 @@ function UsersSection({ users, departments, act }: { users: UserRow[]; departmen
     <>
       <SectionHeader
         title="Пользователи"
-        hint="Роль и подразделение назначаются здесь. Куратор — руководитель с расширенными правами."
+        hint="Роли назначаются здесь. Руководитель правит только свои позиции, куратор — все."
         action={
           <button onClick={() => setCreating(true)} className="btn-primary">
             <Plus size={16} />
@@ -198,7 +192,7 @@ function UsersSection({ users, departments, act }: { users: UserRow[]; departmen
         <table className="w-full table-fixed border-collapse text-[13px]">
           <thead className="bg-surface-high">
             <tr>
-              {["Пользователь", "Роль", "Подразделение", "Статус", ""].map((h, i) => (
+              {["Пользователь", "Роль", "Статус", ""].map((h, i) => (
                 <th key={i} className="label-caps border-b border-outline-variant px-4 py-3 text-left" style={{ color: "var(--on-surface-variant)" }}>{h}</th>
               ))}
             </tr>
@@ -219,14 +213,6 @@ function UsersSection({ users, departments, act }: { users: UserRow[]; departmen
                   <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
                     {Object.entries(ROLE_LABEL).map(([k, v]) => (
                       <option key={k} value={k}>{v}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-4 py-3">
-                  <select value={u.departmentId ?? ""} onChange={(e) => patch(u.id, { departmentId: e.target.value || null }, "Подразделение изменено.")} className="select w-full">
-                    <option value="">Без подразделения</option>
-                    {departments.filter((d) => d.isActive || d.id === u.departmentId).map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
                   </select>
                 </td>
@@ -255,23 +241,22 @@ function UsersSection({ users, departments, act }: { users: UserRow[]; departmen
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-[13px] text-outline">Пользователи не найдены.</td></tr>
+              <tr><td colSpan={4} className="px-4 py-10 text-center text-[13px] text-outline">Пользователи не найдены.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      {creating && <CreateUserPanel departments={departments} act={act} onClose={() => setCreating(false)} />}
+      {creating && <CreateUserPanel act={act} onClose={() => setCreating(false)} />}
     </>
   );
 }
 
-function CreateUserPanel({ departments, act, onClose }: { departments: Department[]; act: Act; onClose: () => void }) {
+function CreateUserPanel({ act, onClose }: { act: Act; onClose: () => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("DEPARTMENT_HEAD");
-  const [departmentId, setDepartmentId] = useState("");
+  const [role, setRole] = useState("HEAD");
   const valid = name.trim() && /^\S+@\S+\.\S+$/.test(email) && password.length >= 8;
 
   return (
@@ -283,7 +268,7 @@ function CreateUserPanel({ departments, act, onClose }: { departments: Departmen
         <div className="flex gap-2">
           <button
             disabled={!valid}
-            onClick={async () => { await act(send("/api/users", "POST", { name: name.trim(), email, password, role, departmentId: departmentId || null }), "Пользователь создан."); onClose(); }}
+            onClick={async () => { await act(send("/api/users", "POST", { name: name.trim(), email, password, role }), "Пользователь создан."); onClose(); }}
             className="btn-primary"
           >
             Создать
@@ -300,14 +285,6 @@ function CreateUserPanel({ departments, act, onClose }: { departments: Departmen
           <select value={role} onChange={(e) => setRole(e.target.value)} className="select w-full">
             {Object.entries(ROLE_LABEL).map(([k, v]) => (
               <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-        </FormField>
-        <FormField label="Подразделение">
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="select w-full">
-            <option value="">Без подразделения</option>
-            {departments.filter((d) => d.isActive).map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
         </FormField>
@@ -345,26 +322,6 @@ function ListCard({ children, empty }: { children: ReactNode; empty?: string }) 
       {children}
       {empty && <li className="px-4 py-8 text-center text-[13px] text-outline">{empty}</li>}
     </ul>
-  );
-}
-
-function DepartmentsSection({ departments, act }: { departments: Department[]; act: Act }) {
-  return (
-    <>
-      <SectionHeader title="Подразделения" hint="Не удаляются: отключённое подразделение остаётся в данных. Руководителей отделов назначают в «Пользователях»." />
-      <AddRow placeholder="Новое подразделение" onAdd={(name) => act(send("/api/departments", "POST", { name }), "Подразделение добавлено.")} />
-      <ListCard empty={departments.length === 0 ? "Подразделений пока нет — добавьте первое." : undefined}>
-        {departments.map((d) => (
-          <li key={d.id} className={`flex items-center justify-between gap-3 px-4 py-2.5 ${d.isActive ? "" : "opacity-60"}`}>
-            <span className="text-[13px] font-semibold text-on-surface">{d.name}</span>
-            <div className="flex items-center gap-2">
-              <ActiveBadge active={d.isActive} />
-              <button onClick={() => act(send(`/api/departments/${d.id}`, "PATCH", { isActive: !d.isActive }))} className="btn-ghost h-8">{d.isActive ? "Отключить" : "Включить"}</button>
-            </div>
-          </li>
-        ))}
-      </ListCard>
-    </>
   );
 }
 

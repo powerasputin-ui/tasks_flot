@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const all = admin && new URL(request.url).searchParams.get("all") === "1";
   const users = await prisma.user.findMany({
     where: all ? {} : { isActive: true },
-    select: { id: true, name: true, role: true, departmentId: true, isActive: true, ...(admin ? { email: true } : {}) },
+    select: { id: true, name: true, role: true, isActive: true, ...(admin ? { email: true } : {}) },
     orderBy: { name: "asc" },
   });
   return NextResponse.json({ users });
@@ -24,10 +24,9 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, "Минимум 8 символов"),
   role: z.enum(ROLES),
-  departmentId: z.string().min(1).nullable().optional(),
 });
 
-/** Самостоятельной регистрации нет: пользователей создаёт SYSTEM_ADMIN и назначает роль и подразделение. */
+/** Самостоятельной регистрации нет: пользователей создаёт SYSTEM_ADMIN и назначает роль. */
 export async function POST(request: NextRequest) {
   const session = await requireSession();
   if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -41,7 +40,7 @@ export async function POST(request: NextRequest) {
   const { password, ...rest } = parsed.data;
   const user = await prisma.user.create({
     data: { ...rest, passwordHash: await hashPassword(password) },
-    select: { id: true, name: true, email: true, role: true, departmentId: true, isActive: true },
+    select: { id: true, name: true, email: true, role: true, isActive: true },
   });
   return NextResponse.json({ user }, { status: 201 });
 }

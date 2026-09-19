@@ -3,7 +3,6 @@ export const FIELD_LABEL: Record<string, string> = {
   title: "Название",
   cost: "Оценка $",
   comment: "Комментарий",
-  departmentId: "Подразделение",
   segmentId: "Сегмент",
   trackId: "Трек",
   attractivenessId: "Привлекательность",
@@ -14,13 +13,12 @@ export const FIELD_LABEL: Record<string, string> = {
 };
 
 /** Справочники «id → имя» для подстановки в значения журнала (в журнале хранятся id). */
-export type NameMaps = Partial<Record<"departmentId" | "segmentId" | "trackId" | "attractivenessId" | "statusId" | "responsibleId", Map<string, string>>>;
+export type NameMaps = Partial<Record<"segmentId" | "trackId" | "attractivenessId" | "statusId" | "responsibleId", Map<string, string>>>;
 
 /** Человекочитаемое значение поля из журнала; null/пусто → «—». */
 export function formatAuditValue(field: string | null, value: string | null, maps: NameMaps = {}): string {
   if (value === null || value === "") return "—";
   switch (field) {
-    case "departmentId":
     case "segmentId":
     case "trackId":
     case "attractivenessId":

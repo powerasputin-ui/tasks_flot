@@ -9,12 +9,11 @@ import { ROLES } from "@/lib/validation";
 const patchSchema = z.object({
   name: z.string().trim().min(1).optional(),
   role: z.enum(ROLES).optional(),
-  departmentId: z.string().min(1).nullable().optional(),
   isActive: z.boolean().optional(),
   password: z.string().min(8, "Минимум 8 символов").optional(),
 });
 
-/** Админ назначает роль и подразделение, отключает пользователя, сбрасывает пароль. */
+/** Админ назначает роль, отключает пользователя, сбрасывает пароль. */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
   if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -33,7 +32,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const user = await prisma.user.update({
     where: { id },
     data: { ...rest, ...(password ? { passwordHash: await hashPassword(password) } : {}) },
-    select: { id: true, name: true, email: true, role: true, departmentId: true, isActive: true },
+    select: { id: true, name: true, email: true, role: true, isActive: true },
   });
   return NextResponse.json({ user });
 }
