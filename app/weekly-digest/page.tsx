@@ -140,7 +140,7 @@ export default function WeeklyDigestPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {digest && <ExportMenu endpoint="/api/export/weekly-digest" params={new URLSearchParams({ id: digest.id })} />}
+          {digest && <ExportMenu endpoint="/api/export/weekly-digest" params={new URLSearchParams({ id: digest.id })} withPptx />}
           <button onClick={generate} disabled={generating} className="btn-ghost">
             {generating ? "Формирование…" : digest ? "Обновить" : "Сформировать"}
           </button>

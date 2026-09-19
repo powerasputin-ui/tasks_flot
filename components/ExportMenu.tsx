@@ -7,11 +7,20 @@ const FORMATS = [
 ] as const;
 
 /** Обычные ссылки на GET-эндпоинты экспорта: браузер сам скачивает файл (Content-Disposition). */
-export function ExportMenu({ endpoint, params }: { endpoint: string; params?: URLSearchParams }) {
+export function ExportMenu({
+  endpoint,
+  params,
+  withPptx = false,
+}: {
+  endpoint: string;
+  params?: URLSearchParams;
+  withPptx?: boolean;
+}) {
+  const formats = withPptx ? [...FORMATS, { key: "pptx", label: "PPTX" } as const] : FORMATS;
   return (
     <div className="flex items-center gap-1">
       <span className="mr-1 text-[11px] font-medium text-neutral-500">Экспорт</span>
-      {FORMATS.map((f) => {
+      {formats.map((f) => {
         const q = new URLSearchParams(params);
         q.set("format", f.key);
         return (
