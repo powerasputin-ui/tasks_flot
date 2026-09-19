@@ -472,7 +472,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           refs={refs}
           defaultResponsibleId={isHead ? me?.id ?? "" : ""}
           lockResponsible={isHead}
-          canEdit={editor.row ? canEditRow(editor.row) : false}
+          canEdit={editor.row ? canEditRow(editor.row) : true}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null);
