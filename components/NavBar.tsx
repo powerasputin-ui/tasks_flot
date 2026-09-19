@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/kanban", label: "Kanban" },
   { href: "/timeline", label: "Timeline" },
   { href: "/history", label: "История" },
+  { href: "/changes", label: "Изменения" },
 ];
 
 export function NavBar() {
