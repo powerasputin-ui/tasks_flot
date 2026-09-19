@@ -1,32 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import { NavBar } from "@/components/NavBar";
+import { AppShell } from "@/components/AppShell";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin", "cyrillic"],
 });
 
 export const metadata: Metadata = {
   title: "ГШП Оперативка",
-  description: "Управление рабочими треками, задачами и вариантами судов",
+  description: "Подготовка оперативной информации: подразделения, кураторы, руководство",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="ru"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
-        <NavBar />
-        <main className="flex-1">{children}</main>
+    <html lang="ru" className={`${inter.variable} h-full antialiased`}>
+      <body className="flex h-full flex-col overflow-hidden">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
