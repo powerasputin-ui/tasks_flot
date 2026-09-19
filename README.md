@@ -66,3 +66,11 @@ Comments, Notifications, AI, Canvas, Realtime, PPTX, SSO — см. TZ.md раз�
 См. [ANALYSIS.md](./ANALYSIS.md) — там же зафиксировано, какие решения уже
 подтверждены бизнес-заказчиком (например, право Куратора назначать/менять
 владельца Track/Task), а какие остаются `UNRESOLVED BUSINESS RULE`.
+
+## Экспорт (Phase 4-5, раздел 55/56/91/92 ТЗ)
+
+* Таблица треков (с текущими фильтрами), Dashboard, дайджест недели — CSV / XLSX / PDF (кнопки «Экспорт» на страницах).
+* Дайджест недели — дополнительно PPTX: `WeeklyDigest → ReportData (lib/report-data.ts) → renderer`.
+* Права: таблицу выгружают все роли; Dashboard и дайджест — Куратор и Руководитель.
+* PDF использует шрифт DejaVu Sans из `assets/fonts/` (кириллица; лицензия рядом).
+* Не реализовано, ждёт решения заказчика: Timeline, триггеры уведомлений WEEKLY_UPDATE_DUE / CHANGE_ATTENTION / EDIT_REQUEST (см. ANALYSIS.md, UNRESOLVED #5).
