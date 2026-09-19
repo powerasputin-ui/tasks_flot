@@ -6,6 +6,7 @@ import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, Clipbo
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
+import type { UserRole } from "@prisma/client";
 import { canCreateItem } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
@@ -341,7 +342,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Аналитика
               </button>
               {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
-              {me && canCreateItem(me.role) && defaultArchive !== "archived" && (
+              {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
                 <button onClick={() => setEditor({ row: null })} className="btn-primary">
                   <Plus size={15} />
                   Добавить позицию
