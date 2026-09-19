@@ -43,17 +43,24 @@ export default function CanvasPage() {
   const canArrange = role === "CURATOR";
 
   const load = useCallback(async () => {
-    const [t, s, c, me] = await Promise.all([
-      fetch("/api/table").then((r) => r.json()),
-      fetch("/api/segments").then((r) => r.json()),
-      fetch("/api/canvas").then((r) => r.json()),
-      fetch("/api/auth/me").then((r) => (r.ok ? r.json() : { user: null })),
-    ]);
-    setRows(t.rows ?? []);
-    setSegments(s.segments ?? []);
-    setSaved(new Map((c.items ?? []).map((i: { entityType: string; entityId: string; x: number; y: number }) => [`${i.entityType}:${i.entityId}`, { x: i.x, y: i.y }])));
-    setRole(me.user?.role ?? null);
-    setLoading(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const json = async (url: string) => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(url);
+        return r.json();
+      };
+      const [t, s, c, me] = await Promise.all([json("/api/table"), json("/api/segments"), json("/api/canvas"), json("/api/auth/me")]);
+      setRows(t.rows ?? []);
+      setSegments(s.segments ?? []);
+      setSaved(new Map((c.items ?? []).map((i: { entityType: string; entityId: string; x: number; y: number }) => [`${i.entityType}:${i.entityId}`, { x: i.x, y: i.y }])));
+      setRole(me.user?.role ?? null);
+    } catch {
+      setError("Не удалось загрузить данные (сервер или база недоступны).");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -166,7 +173,14 @@ export default function CanvasPage() {
         </div>
       </div>
 
-      {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">{error}</p>}
+      {error && (
+        <div className="mb-3 flex items-center gap-3 rounded-md bg-red-50 px-3 py-2 text-[13px] text-[var(--danger)]">
+          {error}
+          <button onClick={load} className="btn-ghost">
+            Повторить
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="skeleton h-96 rounded-2xl" />
