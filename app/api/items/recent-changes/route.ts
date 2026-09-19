@@ -10,11 +10,13 @@ export async function GET(request: NextRequest) {
   if (!canViewItems(actor.role)) return NextResponse.json({ events: [] });
 
   const sp = new URL(request.url).searchParams;
-  const segment = sp.get("segmentId");
+  const segmentIds = (sp.get("segmentIds") ?? "").split(",").filter(Boolean);
   const limit = Math.min(Math.max(Number(sp.get("limit")) || 30, 1), 100);
 
   const items = await prisma.operationalItem.findMany({
-    where: { ...(segment ? { segmentId: segment === "none" ? null : segment } : {}) },
+    where: segmentIds.length
+      ? { OR: [{ segmentId: { in: segmentIds.filter((s) => s !== "none") } }, ...(segmentIds.includes("none") ? [{ segmentId: null }] : [])] }
+      : {},
     select: { id: true, title: true },
   });
   if (items.length === 0) return NextResponse.json({ events: [] });

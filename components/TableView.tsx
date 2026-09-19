@@ -1,18 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ClipboardList, Columns3, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ClipboardList, Columns3, RotateCcw } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
-import { SegmentList, SegmentSelect, type SegmentRef } from "@/components/SegmentList";
+import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
 import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
 import { RecentChanges } from "@/components/RecentChanges";
 import { Popover } from "@/components/ui/Popover";
-import { countBySegment, filterBySegment } from "@/lib/segment-counts";
+import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
   segmentName: string | null;
@@ -32,13 +32,12 @@ type Me = { id: string; role: string } | null;
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
 
-type ColumnKey = "segment" | "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "comment";
+type ColumnKey = "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "comment";
 
 /** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально. */
 type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number };
 
 const DEFAULT_LABEL: Record<ColumnKey, string> = {
-  segment: "Сегмент",
   track: "Трек",
   cost: "Оценка $",
   attractiveness: "Привлекательность",
@@ -51,10 +50,9 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
   comment: "Комментарии",
 };
 
-const ALL_KEYS: ColumnKey[] = ["segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment", "deadlineWeek"];
+const ALL_KEYS: ColumnKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment", "deadlineWeek"];
 
 const WIDTH: Record<ColumnKey, number> = {
-  segment: 140,
   track: 170,
   cost: 110,
   attractiveness: 130,
@@ -67,7 +65,7 @@ const WIDTH: Record<ColumnKey, number> = {
   comment: 240,
 };
 
-const DEFAULT_VISIBLE: ColumnKey[] = ["segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
+const DEFAULT_VISIBLE: ColumnKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
 
 function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
   const ordered = [...visibleKeys, ...ALL_KEYS.filter((k) => !visibleKeys.includes(k))];
@@ -116,7 +114,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [editor, setEditorState] = useState<{ row: Row | null } | null>(null);
   const [analytics, setAnalytics] = useState(false);
-  const [segment, setSegment] = useState("all");
+  // Выбранные сегменты (можно несколько); пусто = все.
+  const [segments, setSegments] = useState<string[]>([]);
 
   // Справа открыта одна панель за раз: карточка позиции или аналитика.
   const setEditor = (v: { row: Row | null } | null) => {
@@ -142,7 +141,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   // Руководитель видит все позиции, правит только те, где он «Ответственный»; куратор правит всё.
   const isHead = me?.role === "HEAD";
-  const canCreate = me?.role === "HEAD" || me?.role === "CURATOR";
   const canEditRow = useCallback(
     (r: Row) => me?.role === "CURATOR" || (me?.role === "HEAD" && r.ownerId === me.id),
     [me]
@@ -205,9 +203,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   const exportParams = useMemo(() => {
     const p = new URLSearchParams(baseParams);
-    if (segment !== "all") p.set("segmentId", segment);
+    if (segments.length > 0) p.set("segmentIds", segments.join(","));
     return p;
-  }, [baseParams, segment]);
+  }, [baseParams, segments]);
 
   useEffect(() => {
     setLoading(true);
@@ -243,8 +241,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   }
 
   const counts = useMemo(() => countBySegment(rows), [rows]);
-  const visibleRows = useMemo(() => filterBySegment(rows, segment), [rows, segment]);
-  const selectedName = segment === "all" ? "Все сегменты" : segment === "none" ? "Без сегмента" : segmentRefs.find((s) => s.id === segment)?.name ?? "Сегмент";
+  const visibleRows = useMemo(() => filterBySegments(rows, segments), [rows, segments]);
+  const colors = useMemo(() => segmentColors(segmentRefs), [segmentRefs]);
+  const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : segmentRefs.find((s) => s.id === id)?.name ?? "Сегмент");
+  const selectedName = segments.length === 0 ? "Все сегменты" : segments.length <= 2 ? segments.map(segmentName).join(" · ") : `Сегментов выбрано: ${segments.length}`;
+  // При нескольких сегментах (или «все») строки группируются по сегментам — так их удобно сравнивать.
+  const groups = useMemo(
+    () => (segments.length === 1 ? null : groupBySegment(visibleRows, segmentRefs.map((s) => s.id))),
+    [visibleRows, segments, segmentRefs]
+  );
   const operCount = visibleRows.filter((r) => r.operFlag).length;
   const lastUpdated = visibleRows.reduce<string | null>((m, r) => (!m || r.updatedAt > m ? r.updatedAt : m), null);
 
@@ -255,14 +260,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
 
-  // Сегмент уже выбран слева — колонка «Сегмент» нужна только в режиме «Все сегменты».
-  const visibleColumns = columns.filter((c) => c.visible && !(c.key === "segment" && segment !== "all"));
+  const visibleColumns = columns.filter((c) => c.visible);
   const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
 
   function renderCell(row: Row, col: ColumnConfig) {
     switch (col.key) {
-      case "segment":
-        return row.segmentName ?? "—";
       case "track":
         return row.trackName ?? "—";
       case "cost":
@@ -315,12 +317,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   return (
     <div className="flex h-full min-h-0">
-      <SegmentList segments={segmentRefs} counts={counts} selected={segment} onSelect={setSegment} />
+      <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
 
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="border-b border-outline-variant bg-surface px-6 py-4">
-          <div className="mb-3 lg:hidden">
-            <SegmentSelect segments={segmentRefs} counts={counts} selected={segment} onSelect={setSegment} />
+          <div className="mb-3">
+            <SegmentSelect segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
           </div>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
@@ -350,12 +352,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Аналитика
               </button>
               {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
-              {canCreate && (
-                <button onClick={() => setEditor({ row: null })} className="btn-primary">
-                  <Plus size={16} />
-                  Добавить
-                </button>
-              )}
             </div>
           </div>
 
@@ -433,41 +429,46 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                     </tr>
                   ))}
                 {!loading &&
-                  visibleRows.map((row, i) => (
-                    <tr
-                      key={row.id}
-                      onClick={() => setEditor({ row })}
-                      className={`row-hover animate-fade-in cursor-pointer border-t border-outline-variant/50 ${editor?.row?.id === row.id ? "bg-primary-soft" : ""}`}
-                      style={{ animationDelay: `${Math.min(i, 16) * 10}ms` }}
-                    >
-                      {visibleColumns.map((col) => (
-                        <td
-                          key={col.key}
-                          className={`px-4 py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
-                            col.key === "name" || col.key === "comment" ? "" : "truncate"
-                          }`}
-                          title={col.key === "name" ? row.name : undefined}
+                  (groups ?? [{ id: "", rows: visibleRows }]).map((group) => (
+                    <Fragment key={group.id || "flat"}>
+                      {groups && (
+                        <tr className="bg-surface-low">
+                          <td colSpan={visibleColumns.length} className="border-y border-outline-variant border-l-4 px-4 py-2" style={{ borderLeftColor: colors.get(group.id) ?? "#94a3b8" }}>
+                            <span className="text-[12px] font-bold text-on-surface">{segmentName(group.id)}</span>
+                            <span className="ml-2 text-[11px] text-on-surface-variant">{group.rows.length} поз.</span>
+                          </td>
+                        </tr>
+                      )}
+                      {group.rows.map((row) => (
+                        <tr
+                          key={row.id}
+                          onClick={() => setEditor({ row })}
+                          className={`row-hover cursor-pointer border-t border-outline-variant/50 ${editor?.row?.id === row.id ? "bg-primary-soft" : ""}`}
                         >
-                          {renderCell(row, col)}
-                        </td>
+                          {visibleColumns.map((col) => (
+                            <td
+                              key={col.key}
+                              className={`px-4 py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
+                                col.key === "name" || col.key === "comment" ? "" : "truncate"
+                              }`}
+                              title={col.key === "name" ? row.name : undefined}
+                            >
+                              {renderCell(row, col)}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
+                    </Fragment>
                   ))}
               </tbody>
             </table>
 
             {!loading && !error && visibleRows.length === 0 && (
-              <EmptyState
-                filtered={anyFilter || segment !== "all"}
-                canCreate={canCreate}
-                onCreate={() => setEditor({ row: null })}
-                onReset={() => { resetFilters(); setSegment("all"); }}
-                archive={defaultArchive === "archived"}
-              />
+              <EmptyState filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} />
             )}
           </div>
 
-          <RecentChanges segment={segment} refreshKey={refetchTick} onOpen={openById} />
+          <RecentChanges segments={segments} refreshKey={refetchTick} onOpen={openById} />
         </div>
       </section>
 
@@ -480,7 +481,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           refs={refs}
           defaultResponsibleId={isHead ? me?.id ?? "" : ""}
           lockResponsible={isHead}
-          canEdit={editor.row ? canEditRow(editor.row) : canCreate}
+          canEdit={editor.row ? canEditRow(editor.row) : false}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null);
@@ -492,7 +493,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   );
 }
 
-function EmptyState({ filtered, canCreate, onCreate, onReset, archive }: { filtered: boolean; canCreate: boolean; onCreate: () => void; onReset: () => void; archive: boolean }) {
+function EmptyState({ filtered, onReset, archive }: { filtered: boolean; onReset: () => void; archive: boolean }) {
   return (
     <div className="flex flex-col items-center px-6 py-16 text-center">
       <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-high text-outline">
@@ -500,16 +501,10 @@ function EmptyState({ filtered, canCreate, onCreate, onReset, archive }: { filte
       </span>
       <p className="text-[14px] font-semibold text-on-surface">{filtered ? "Ничего не найдено" : archive ? "В архиве пока пусто" : "Пока нет позиций"}</p>
       <p className="mt-1 max-w-sm text-[13px] text-on-surface-variant">
-        {filtered ? "Измените условия поиска или сбросьте фильтры." : archive ? "Сюда попадают закрытые и старые позиции." : "Создайте первую позицию — она появится в таблице."}
+        {filtered ? "Измените условия поиска или сбросьте фильтры." : archive ? "Сюда попадают закрытые и старые позиции." : "Позиции появятся здесь, когда будут добавлены."}
       </p>
       <div className="mt-4 flex gap-2">
         {filtered && <button onClick={onReset} className="btn-ghost">Сбросить фильтры</button>}
-        {!filtered && !archive && canCreate && (
-          <button onClick={onCreate} className="btn-primary">
-            <Plus size={16} />
-            Добавить позицию
-          </button>
-        )}
       </div>
     </div>
   );

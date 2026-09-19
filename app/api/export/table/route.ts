@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   const rows = applyTableSort(
     applyTableFilters(await loadTableRows(archive), {
-      segmentId: sp.get("segmentId") ?? undefined,
+      segmentIds: sp.get("segmentIds") ? sp.get("segmentIds")!.split(",").filter(Boolean) : undefined,
       trackId: sp.get("trackId") ?? undefined,
       statusId: sp.get("statusId") ?? undefined,
       ownerId: sp.get("ownerId") ?? undefined,

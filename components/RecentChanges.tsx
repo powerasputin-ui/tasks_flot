@@ -21,18 +21,18 @@ const DOT: Record<string, string> = {
 };
 
 /** «История изменений» под таблицей (как блок с точками в образце): последние правки выбранной выборки. */
-export function RecentChanges({ segment, refreshKey, onOpen }: { segment: string; refreshKey: number; onOpen: (itemId: string) => void }) {
+export function RecentChanges({ segments, refreshKey, onOpen }: { segments: string[]; refreshKey: number; onOpen: (itemId: string) => void }) {
   const [events, setEvents] = useState<Ev[] | null>(null);
   const [limit, setLimit] = useState(10);
 
   useEffect(() => {
     const p = new URLSearchParams({ limit: String(limit + 1) });
-    if (segment !== "all") p.set("segmentId", segment);
+    if (segments.length > 0) p.set("segmentIds", segments.join(","));
     fetch(`/api/items/recent-changes?${p.toString()}`)
       .then((r) => (r.ok ? r.json() : { events: [] }))
       .then((d) => setEvents(d.events))
       .catch(() => setEvents([]));
-  }, [segment, refreshKey, limit]);
+  }, [segments, refreshKey, limit]);
 
   if (events === null || events.length === 0) return null;
   const shown = events.slice(0, limit);

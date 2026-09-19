@@ -18,9 +18,29 @@ export function countBySegment(rows: Array<{ segmentId: string | null; operFlag:
   return counts;
 }
 
-/** Выбранный сегмент: "all" — все, NO_SEGMENT — без сегмента, иначе id сегмента. */
-export function filterBySegment<T extends { segmentId: string | null }>(rows: T[], selected: string): T[] {
-  if (selected === "all") return rows;
-  if (selected === NO_SEGMENT) return rows.filter((r) => r.segmentId === null);
-  return rows.filter((r) => r.segmentId === selected);
+/** Выбранные сегменты (можно несколько): пусто — все; NO_SEGMENT — позиции без сегмента. */
+export function filterBySegments<T extends { segmentId: string | null }>(rows: T[], selected: string[]): T[] {
+  if (selected.length === 0) return rows;
+  const set = new Set(selected);
+  return rows.filter((r) => set.has(r.segmentId ?? NO_SEGMENT));
+}
+
+/** Переключает сегмент в выборе (добавляет, если не выбран; убирает, если выбран). */
+export function toggleSegment(selected: string[], id: string): string[] {
+  return selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
+}
+
+/**
+ * Группы для наглядного сравнения: строки раскладываются по выбранным сегментам в порядке
+ * списка слева; пустые группы пропускаются.
+ */
+export function groupBySegment<T extends { segmentId: string | null }>(rows: T[], order: string[]): Array<{ id: string; rows: T[] }> {
+  const byId = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = r.segmentId ?? NO_SEGMENT;
+    byId.set(key, [...(byId.get(key) ?? []), r]);
+  }
+  const known = [...order, NO_SEGMENT];
+  const rest = [...byId.keys()].filter((k) => !known.includes(k));
+  return [...known, ...rest].filter((id) => byId.has(id)).map((id) => ({ id, rows: byId.get(id)! }));
 }

@@ -42,10 +42,12 @@ describe("applyTableFilters", () => {
     expect(applyTableFilters(rows, { week: 32 })).toHaveLength(1);
   });
 
-  it("фильтр сегмента: id, а none — позиции без сегмента", () => {
-    const rows = [row({ id: "1", segmentId: "s1" }), row({ id: "2", segmentId: null })];
-    expect(applyTableFilters(rows, { segmentId: "s1" }).map((r) => r.id)).toEqual(["1"]);
-    expect(applyTableFilters(rows, { segmentId: "none" }).map((r) => r.id)).toEqual(["2"]);
+  it("фильтр по нескольким сегментам, none — позиции без сегмента", () => {
+    const rows = [row({ id: "1", segmentId: "s1" }), row({ id: "2", segmentId: null }), row({ id: "3", segmentId: "s2" })];
+    expect(applyTableFilters(rows, { segmentIds: ["s1"] }).map((r) => r.id)).toEqual(["1"]);
+    expect(applyTableFilters(rows, { segmentIds: ["s1", "s2"] }).map((r) => r.id)).toEqual(["1", "3"]);
+    expect(applyTableFilters(rows, { segmentIds: ["none"] }).map((r) => r.id)).toEqual(["2"]);
+    expect(applyTableFilters(rows, { segmentIds: [] })).toHaveLength(3);
   });
 
   it("поиск q ищет по названию, комментарию, треку и ответственному без учёта регистра", () => {

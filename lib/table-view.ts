@@ -38,7 +38,8 @@ export type TableRow = {
 export type ArchiveMode = "active" | "archived" | "all";
 
 export type TableFilters = {
-  segmentId?: string;
+  /** Несколько сегментов сразу; "none" — позиции без сегмента; пусто — все. */
+  segmentIds?: string[];
   trackId?: string;
   statusId?: string;
   ownerId?: string;
@@ -117,8 +118,7 @@ export async function loadTableRow(id: string): Promise<TableRow | null> {
 export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[] {
   const q = f.q?.trim().toLowerCase();
   return rows.filter((r) => {
-    // "none" — позиции без сегмента (пункт «Без сегмента» в левом списке).
-    if (f.segmentId && (f.segmentId === "none" ? r.segmentId !== null : r.segmentId !== f.segmentId)) return false;
+    if (f.segmentIds && f.segmentIds.length > 0 && !f.segmentIds.includes(r.segmentId ?? "none")) return false;
     if (f.trackId && r.trackId !== f.trackId) return false;
     if (f.statusId && r.statusId !== f.statusId) return false;
     if (f.ownerId && r.ownerId !== f.ownerId) return false;
