@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+// Статические файлы из public (логотип и т.п.) нужны и на странице входа.
+const STATIC_FILE = /\.(svg|png|jpe?g|webp|ico|woff2?)$/i;
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith("/_next")) {
+  if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith("/_next") || STATIC_FILE.test(pathname)) {
     return NextResponse.next();
   }
 
