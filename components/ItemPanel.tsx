@@ -7,7 +7,6 @@ import { ATTRACTIVENESS_LABEL } from "@/components/ui/Badge";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
-import { Popover } from "@/components/ui/Popover";
 import { FIELD_LABEL } from "@/lib/audit-format";
 
 export type Ref = { id: string; name: string };

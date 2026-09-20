@@ -147,7 +147,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   // Вид колонок (порядок, подписи, показ, «удалённые») общий для всех и хранится в базе; меняет его куратор.
   // Остальные видят вид куратора; ширину колонок они могут подтянуть на время сессии.
   const canLayoutRef = useRef(false);
-  canLayoutRef.current = me?.role === "CURATOR" || me?.role === "SYSTEM_ADMIN";
+  useEffect(() => {
+    canLayoutRef.current = me?.role === "CURATOR" || me?.role === "SYSTEM_ADMIN";
+  }, [me?.role]);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistColumns = useCallback((next: ColumnConfig[]) => {
     if (!canLayoutRef.current) return;

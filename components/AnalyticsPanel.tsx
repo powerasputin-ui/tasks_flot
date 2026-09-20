@@ -114,14 +114,17 @@ function Kpi({ label, value, tone }: { label: string; value: number; tone?: "eme
 
 /** Кольцо по образцу: окружности с stroke-dasharray, сегменты идут друг за другом. */
 function Donut({ slices, total }: { slices: Slice[]; total: number }) {
-  let offset = 0;
+  // смещение каждого сегмента = сумма долей предыдущих (без переприсваивания переменной в цикле)
+  const pcts = slices.map((s) => (s.count / total) * 100);
+  const offsets = pcts.map((_, i) => pcts.slice(0, i).reduce((a, b) => a + b, 0));
   return (
     <div className="relative flex h-28 w-28 shrink-0 items-center justify-center">
       <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 36 36">
         <circle cx="18" cy="18" r="16" fill="none" stroke="#e4eaf0" strokeWidth="4" />
-        {slices.map((s) => {
-          const pct = (s.count / total) * 100;
-          const el = (
+        {slices.map((s, i) => {
+          const pct = pcts[i];
+          const offset = offsets[i];
+          return (
             <circle
               key={s.name}
               cx="18"
@@ -135,8 +138,6 @@ function Donut({ slices, total }: { slices: Slice[]; total: number }) {
               pathLength={100}
             />
           );
-          offset += pct;
-          return el;
         })}
       </svg>
       <div className="flex flex-col items-center">
