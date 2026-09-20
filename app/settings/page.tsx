@@ -88,12 +88,12 @@ export default function SettingsPage() {
     return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны куратору и администратору системы.</div>;
   }
 
-  // Куратор ведёт ответственных и колонки таблицы; справочники и роли — только администратор.
+  // Куратор ведёт ответственных, треки и колонки таблицы; остальные справочники и роли — только администратор.
   const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
     { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
     { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
     { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length, adminOnly: true },
-    { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length, adminOnly: true },
+    { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
     { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
   ];
@@ -468,7 +468,7 @@ function TracksSection({ tracks, segments, act }: { tracks: Track[]; segments: R
   const [segmentId, setSegmentId] = useState("");
   return (
     <>
-      <SectionHeader title="Треки" hint="Справочник. Трек можно привязать к сегменту — тогда в форме позиции он предлагается для этого сегмента." />
+      <SectionHeader title="Треки" hint="Добавляйте, меняйте и удаляйте треки. Трек можно привязать к сегменту — тогда в форме позиции он предлагается для этого сегмента." />
       <AddRow
         placeholder="Новый трек"
         onAdd={(name) => act(send("/api/tracks", "POST", { name, segmentId: segmentId || null }), "Трек добавлен.")}
@@ -483,16 +483,84 @@ function TracksSection({ tracks, segments, act }: { tracks: Track[]; segments: R
       />
       <ListCard empty={tracks.length === 0 ? "Треков пока нет." : undefined}>
         {tracks.map((t) => (
-          <li key={t.id} className={`flex items-center justify-between gap-3 px-4 py-2.5 ${t.isActive ? "" : "opacity-60"}`}>
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-on-surface">{t.name}</p>
-              <p className="text-[12px] text-on-surface-variant">{t.segment?.name ?? "Без сегмента"}</p>
-            </div>
-            <button onClick={() => act(send(`/api/tracks/${t.id}`, "PATCH", { isActive: !t.isActive }))} className="btn-ghost h-8 shrink-0">{t.isActive ? "Отключить" : "Включить"}</button>
-          </li>
+          <TrackItem key={t.id} track={t} segments={segments} act={act} />
         ))}
       </ListCard>
     </>
+  );
+}
+
+/** Строка трека: карандаш — изменить название и сегмент, корзина — удалить (с подтверждением в строке). */
+function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[]; act: Act }) {
+  const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
+  const [name, setName] = useState(t.name);
+  const [segmentId, setSegmentId] = useState(t.segmentId ?? "");
+
+  return (
+    <li className={`px-4 py-2.5 ${t.isActive ? "" : "opacity-60"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-semibold text-on-surface">{t.name}</p>
+          <p className="text-[12px] text-on-surface-variant">
+            {t.segment?.name ?? "Без сегмента"}
+            {!t.isActive && " · скрыт"}
+          </p>
+        </div>
+        {mode === "view" && (
+          <div className="flex shrink-0 items-center gap-1">
+            {!t.isActive && (
+              <button onClick={() => act(send(`/api/tracks/${t.id}`, "PATCH", { isActive: true }), "Трек возвращён.")} className="btn-ghost h-8">Вернуть</button>
+            )}
+            <button onClick={() => { setName(t.name); setSegmentId(t.segmentId ?? ""); setMode("edit"); }} className="btn-icon h-8 w-8" title="Изменить" aria-label="Изменить">
+              <Pencil size={15} />
+            </button>
+            <button onClick={() => setMode("delete")} className="btn-icon h-8 w-8 text-status-red" title="Удалить" aria-label="Удалить">
+              <Trash2 size={15} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {mode === "edit" && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="input min-w-48 flex-1" />
+          <select value={segmentId} onChange={(e) => setSegmentId(e.target.value)} className="select">
+            <option value="">Без сегмента</option>
+            {segments.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <button
+            disabled={!name.trim()}
+            onClick={async () => { await act(send(`/api/tracks/${t.id}`, "PATCH", { name: name.trim(), segmentId: segmentId || null }), "Трек изменён."); setMode("view"); }}
+            className="btn-primary h-9"
+          >
+            Сохранить
+          </button>
+          <button onClick={() => setMode("view")} className="btn-ghost h-9">Отмена</button>
+        </div>
+      )}
+
+      {mode === "delete" && (
+        <div className="mt-2.5 rounded-md border border-status-red/30 bg-status-red/5 p-3">
+          <p className="text-[13px] text-on-surface">Удалить трек «{t.name}»?</p>
+          <p className="mt-0.5 text-[12px] text-on-surface-variant">Если на трек ссылаются позиции, он будет скрыт, а в этих позициях останется.</p>
+          <div className="mt-2.5 flex gap-2">
+            <button
+              onClick={async () => {
+                const r = await send(`/api/tracks/${t.id}`, "DELETE");
+                await act(Promise.resolve(r), r.data && (r.data as { mode?: string }).mode === "hidden" ? "Трек используется в позициях, поэтому скрыт." : "Трек удалён.");
+                setMode("view");
+              }}
+              className="btn-primary h-8 bg-status-red hover:bg-status-red"
+            >
+              Да, удалить
+            </button>
+            <button onClick={() => setMode("view")} className="btn-ghost h-8">Отмена</button>
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { canManageDirectory } from "@/lib/permissions";
+import { canManageTracks } from "@/lib/permissions";
 import { trackSchema } from "@/lib/validation";
 
-// Трек — справочник (TZ_v4, раздел 3): читают все, управляет SYSTEM_ADMIN.
+// Трек — справочник (TZ_v4, раздел 3): читают все, ведут куратор и администратор.
 export async function GET(request: NextRequest) {
   const session = await requireSession();
-  const all = new URL(request.url).searchParams.get("all") === "1" && canManageDirectory(session.role);
+  const all = new URL(request.url).searchParams.get("all") === "1" && canManageTracks(session.role);
   const tracks = await prisma.track.findMany({
     where: all ? {} : { isActive: true },
     include: { segment: { select: { id: true, name: true } } },
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const session = await requireSession();
-  if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  if (!canManageTracks(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const parsed = trackSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });

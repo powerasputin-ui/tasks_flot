@@ -69,6 +69,11 @@ export function canManageColumns(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN" || role === "CURATOR";
 }
 
+/** Треки (справочник «Трек»): добавляют, меняют и удаляют куратор и администратор. */
+export function canManageTracks(role: UserRole): boolean {
+  return role === "SYSTEM_ADMIN" || role === "CURATOR";
+}
+
 /** Пользователи и справочники — только SYSTEM_ADMIN. */
 export function canManageDirectory(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN";

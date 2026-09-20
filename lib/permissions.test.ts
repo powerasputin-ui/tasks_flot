@@ -6,6 +6,7 @@ import {
   canEditItem,
   canExportWorkTable,
   canManageDirectory,
+  canManageTracks,
   canManageUser,
   canManageUsers,
   canViewItems,
@@ -112,5 +113,14 @@ describe("управление пользователями", () => {
     expect(canManageUser(curator, "SYSTEM_ADMIN")).toBe(false);
     expect(canManageUser(admin, "CURATOR")).toBe(true);
     expect(canManageUser({ id: "u", role: "HEAD" }, "HEAD")).toBe(false);
+  });
+});
+
+describe("треки", () => {
+  it("треки ведут куратор и администратор", () => {
+    expect(canManageTracks("CURATOR")).toBe(true);
+    expect(canManageTracks("SYSTEM_ADMIN")).toBe(true);
+    expect(canManageTracks("HEAD")).toBe(false);
+    expect(canManageTracks("MANAGEMENT")).toBe(false);
   });
 });
