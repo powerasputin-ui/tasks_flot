@@ -5,7 +5,7 @@ import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, St
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
-import { COLUMN_TYPE_LABEL, parseOptions, type ColumnType } from "@/lib/custom-columns";
+import { ColumnsSettings } from "@/components/ColumnsSettings";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
@@ -14,7 +14,7 @@ type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
 type SectionKey = "users" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
-type ColumnRow = { id: string; name: string; type: ColumnType; options: string[] };
+type ColumnRow = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -57,6 +57,11 @@ export default function SettingsPage() {
     if (window.location.hash === "#columns") setSection("columns");
   }, [reload]);
 
+  // руководителю доступен один раздел — открываем его сразу
+  useEffect(() => {
+    if (me?.role === "HEAD") setSection("columns");
+  }, [me?.role]);
+
   useEffect(() => {
     if (!message) return;
     const t = setTimeout(() => setMessage(null), 4500);
@@ -84,8 +89,9 @@ export default function SettingsPage() {
 
   if (me === undefined) return <div className="p-6"><div className="skeleton h-6 w-1/3 rounded" /></div>;
   const isAdmin = me?.role === "SYSTEM_ADMIN";
-  if (!isAdmin && me?.role !== "CURATOR") {
-    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны куратору и администратору системы.</div>;
+  const isHead = me?.role === "HEAD";
+  if (!isAdmin && !isHead && me?.role !== "CURATOR") {
+    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки недоступны для вашей роли.</div>;
   }
 
   // Куратор ведёт ответственных, треки и колонки таблицы; остальные справочники и роли — только администратор.
@@ -97,7 +103,8 @@ export default function SettingsPage() {
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
     { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
   ];
-  const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
+  // Руководитель настраивает только вид своей таблицы; куратор — ещё ответственных и треки; администратор — всё.
+  const sections = allSections.filter((s) => (isHead ? s.key === "columns" : isAdmin || !s.adminOnly));
 
   return (
     <div className="flex h-full min-h-0">
@@ -136,7 +143,7 @@ export default function SettingsPage() {
         )}
 
         {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
-        {section === "columns" && <ColumnsSection columns={columns} act={act} />}
+        {section === "columns" && <ColumnsSettings canManage={isAdmin || me?.role === "CURATOR"} />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
           <RefSection title="Сегменты" hint="Левая колонка таблицы. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
@@ -340,118 +347,6 @@ function AddRow({ placeholder, onAdd, extra }: { placeholder: string; onAdd: (na
         Добавить
       </button>
     </div>
-  );
-}
-
-/** Свои колонки таблицы: куратор создаёт, переименовывает и удаляет; значения заполняют в карточке позиции. */
-function ColumnsSection({ columns, act }: { columns: ColumnRow[]; act: Act }) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState<ColumnType>("TEXT");
-  const [options, setOptions] = useState("");
-  const opts = parseOptions(options);
-  const valid = name.trim() && (type !== "SELECT" || opts.length > 0);
-
-  return (
-    <>
-      <SectionHeader
-        title="Колонки таблицы"
-        hint="Свои колонки появляются в таблице и в карточке позиции. Удалённая колонка скрывается, введённые значения и история сохраняются."
-      />
-      <div className="surface mb-5 max-w-xl space-y-3 p-4">
-        <p className="label-caps">Новая колонка</p>
-        <div className="flex flex-wrap gap-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название колонки" className="input min-w-48 flex-1" />
-          <select value={type} onChange={(e) => setType(e.target.value as ColumnType)} className="select">
-            {(Object.keys(COLUMN_TYPE_LABEL) as ColumnType[]).map((t) => (
-              <option key={t} value={t}>{COLUMN_TYPE_LABEL[t]}</option>
-            ))}
-          </select>
-        </div>
-        {type === "SELECT" && (
-          <input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="Варианты через запятую: Высокий, Средний, Низкий" className="input w-full" />
-        )}
-        <button
-          disabled={!valid}
-          onClick={async () => {
-            await act(send("/api/columns", "POST", { name: name.trim(), type, options: type === "SELECT" ? opts : undefined }), "Колонка добавлена.");
-            setName("");
-            setOptions("");
-          }}
-          className="btn-primary"
-        >
-          <Plus size={16} />
-          Добавить колонку
-        </button>
-      </div>
-
-      <ListCard empty={columns.length === 0 ? "Своих колонок пока нет." : undefined}>
-        {columns.map((c) => (
-          <ColumnItem key={c.id} column={c} act={act} />
-        ))}
-      </ListCard>
-    </>
-  );
-}
-
-/** Строка своей колонки: понятные кнопки «Переименовать» и «Удалить» с подтверждением прямо в строке. */
-function ColumnItem({ column: c, act }: { column: ColumnRow; act: Act }) {
-  const [mode, setMode] = useState<"view" | "rename" | "delete">("view");
-  const [name, setName] = useState(c.name);
-
-  return (
-    <li className="px-4 py-3">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold text-on-surface">{c.name}</p>
-          <p className="truncate text-[12px] text-on-surface-variant">
-            {COLUMN_TYPE_LABEL[c.type]}
-            {c.type === "SELECT" && `: ${c.options.join(", ")}`}
-          </p>
-        </div>
-        {mode === "view" && (
-          <div className="flex shrink-0 items-center gap-2">
-            <button onClick={() => { setName(c.name); setMode("rename"); }} className="btn-ghost h-8">
-              <Pencil size={14} />
-              Переименовать
-            </button>
-            <button onClick={() => setMode("delete")} className="btn-ghost h-8 border-status-red/40 text-status-red hover:bg-status-red/10">
-              <Trash2 size={14} />
-              Удалить
-            </button>
-          </div>
-        )}
-      </div>
-
-      {mode === "rename" && (
-        <div className="mt-3 flex items-center gap-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="input min-w-0 flex-1" />
-          <button
-            disabled={!name.trim() || name.trim() === c.name}
-            onClick={async () => { await act(send(`/api/columns/${c.id}`, "PATCH", { name: name.trim() }), "Колонка переименована."); setMode("view"); }}
-            className="btn-primary h-9"
-          >
-            Сохранить
-          </button>
-          <button onClick={() => setMode("view")} className="btn-ghost h-9">Отмена</button>
-        </div>
-      )}
-
-      {mode === "delete" && (
-        <div className="mt-3 rounded-md border border-status-red/30 bg-status-red/5 p-3">
-          <p className="text-[13px] text-on-surface">Удалить колонку «{c.name}»?</p>
-          <p className="mt-0.5 text-[12px] text-on-surface-variant">Она пропадёт из таблицы и карточек. Введённые значения и история изменений сохранятся.</p>
-          <div className="mt-2.5 flex gap-2">
-            <button
-              onClick={async () => { await act(send(`/api/columns/${c.id}`, "DELETE"), "Колонка удалена."); setMode("view"); }}
-              className="btn-primary h-8 bg-status-red hover:bg-status-red"
-            >
-              Да, удалить
-            </button>
-            <button onClick={() => setMode("view")} className="btn-ghost h-8">Отмена</button>
-          </div>
-        </div>
-      )}
-    </li>
   );
 }
 

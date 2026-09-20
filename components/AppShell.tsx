@@ -110,7 +110,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const nav = me ? NAV_BY_ROLE[me.role] ?? [] : [];
-  const onTablePage = pathname.startsWith("/table") || pathname.startsWith("/archive");
 
   return (
     <>
@@ -147,9 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
           <div id="header-actions" className="flex items-center" />
           {me && <NotificationsBell />}
-          {/* На страницах таблицы шестерёнка (настройки таблицы) выносится сюда порталом. */}
-          {onTablePage && <div id="header-settings" className="flex items-center" />}
-          {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && !onTablePage && (
+          {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR" || me?.role === "HEAD") && (
             <Link
               href="/settings"
               title="Настройки"
