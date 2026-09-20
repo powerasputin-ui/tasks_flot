@@ -368,7 +368,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return <span className={`text-[13px] font-semibold ${row.archived ? "text-outline" : "text-on-surface"}`}>{row.name}</span>;
+        return <span className={`text-[13px] font-semibold [overflow-wrap:anywhere] ${row.archived ? "text-outline" : "text-on-surface"}`}>{row.name}</span>;
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
@@ -417,7 +417,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       }
       case "comment":
-        return <span className="line-clamp-2 text-[12px] leading-tight text-on-surface-variant">{row.comment ?? "—"}</span>;
+        return <span className="line-clamp-3 whitespace-pre-line text-[12px] leading-tight text-on-surface-variant [overflow-wrap:anywhere]">{row.comment ?? "—"}</span>;
       default: {
         // своя колонка куратора
         const id = col.key.slice("custom:".length);
@@ -591,7 +591,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                               className={`px-4 py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
                                 col.key === "name" || col.key === "comment" ? "" : "truncate"
                               }`}
-                              title={col.key === "name" ? row.name : undefined}
+                              title={col.key === "name" ? row.name : col.key === "comment" ? row.comment ?? undefined : undefined}
                             >
                               {renderCell(row, col)}
                             </td>

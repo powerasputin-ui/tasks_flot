@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeAuditAction, formatAuditValue } from "@/lib/audit-format";
+import { clipText, describeAuditAction, formatAuditValue, isLongChange } from "@/lib/audit-format";
 
 const maps = { statusId: new Map([["s1", "В работе"]]), responsibleId: new Map([["u1", "Сухов В.А."]]) };
 
@@ -32,5 +32,19 @@ describe("describeAuditAction", () => {
     expect(describeAuditAction("CREATE", null)).toBe("создал(а) позицию");
     expect(describeAuditAction("ARCHIVE", null)).toBe("отправил(а) в архив");
     expect(describeAuditAction("RESTORE", null)).toBe("вернул(а) из архива");
+  });
+});
+
+describe("clipText / isLongChange", () => {
+  it("короткий текст не меняется, длинный обрезается с многоточием", () => {
+    expect(clipText("abc", 5)).toBe("abc");
+    expect(clipText("abcdefgh", 5)).toBe("abcde…");
+  });
+
+  it("длинным считается значение дольше порога или с переводом строки", () => {
+    expect(isLongChange("—", "Завершено")).toBe(false);
+    expect(isLongChange("—", "x".repeat(41))).toBe(true);
+    expect(isLongChange("строка 1\nстрока 2", "—")).toBe(true);
+    expect(isLongChange(null, null)).toBe(false);
   });
 });

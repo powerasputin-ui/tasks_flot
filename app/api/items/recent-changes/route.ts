@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canViewItems } from "@/lib/permissions";
-import { describeAuditAction, formatAuditValue, type NameMaps } from "@/lib/audit-format";
+import { clipText, describeAuditAction, FIELD_LABEL, formatAuditValue, type NameMaps } from "@/lib/audit-format";
+import { CUSTOM_FIELD_PREFIX } from "@/lib/custom-columns";
+
+// Длинные значения в ленте обрезаются: полный текст остаётся в журнале позиции.
+const FEED_VALUE_MAX = 300;
 
 // Лента последних изменений по видимым пользователю позициям (сегмент — необязательный фильтр).
 export async function GET(request: NextRequest) {
@@ -22,7 +26,7 @@ export async function GET(request: NextRequest) {
   if (items.length === 0) return NextResponse.json({ events: [] });
   const titleById = new Map(items.map((i) => [i.id, i.title]));
 
-  const [events, segments, tracks, attractiveness, statuses, users] = await Promise.all([
+  const [events, segments, tracks, attractiveness, statuses, users, customCols] = await Promise.all([
     prisma.auditEvent.findMany({
       where: { entityType: "OperationalItem", entityId: { in: [...titleById.keys()] } },
       include: { actor: { select: { name: true } } },
@@ -34,7 +38,9 @@ export async function GET(request: NextRequest) {
     prisma.attractiveness.findMany({ select: { id: true, name: true } }),
     prisma.status.findMany({ select: { id: true, name: true } }),
     prisma.user.findMany({ select: { id: true, name: true } }),
+    prisma.customColumn.findMany({ select: { id: true, name: true, type: true } }),
   ]);
+  const customById = new Map(customCols.map((c) => [`${CUSTOM_FIELD_PREFIX}${c.id}`, c]));
 
   const map = (list: Array<{ id: string; name: string }>) => new Map(list.map((x) => [x.id, x.name]));
   const maps: NameMaps = {
@@ -43,6 +49,13 @@ export async function GET(request: NextRequest) {
     attractivenessId: map(attractiveness),
     statusId: map(statuses),
     responsibleId: map(users),
+  };
+
+  const labelOf = (field: string) => FIELD_LABEL[field] ?? customById.get(field)?.name ?? (field.startsWith(CUSTOM_FIELD_PREFIX) ? "Доп. поле" : field);
+  const valueOf = (field: string, v: string | null) => {
+    const custom = customById.get(field);
+    const text = custom ? (v && custom.type === "DATE" ? new Date(v).toLocaleDateString("ru-RU") : v || "—") : formatAuditValue(field, v, maps);
+    return clipText(text, FEED_VALUE_MAX);
   };
 
   return NextResponse.json({
@@ -55,8 +68,9 @@ export async function GET(request: NextRequest) {
       action: e.action,
       what: describeAuditAction(e.action, e.fieldName),
       field: e.fieldName,
-      before: e.fieldName ? formatAuditValue(e.fieldName, e.before, maps) : null,
-      after: e.fieldName ? formatAuditValue(e.fieldName, e.after, maps) : null,
+      label: e.fieldName ? labelOf(e.fieldName) : null,
+      before: e.fieldName ? valueOf(e.fieldName, e.before) : null,
+      after: e.fieldName ? valueOf(e.fieldName, e.after) : null,
     })),
   });
 }

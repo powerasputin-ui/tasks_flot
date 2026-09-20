@@ -13,10 +13,12 @@ export const referenceItemSchema = z.object({
 
 const idOrNull = z.string().min(1).nullable().optional();
 const textOrNull = z.string().nullable().optional();
+// Длинные «простыни» ломают журнал и выгрузки: комментарий до 2000 символов, задача до 300.
+const commentOrNull = z.string().max(2000, "Комментарий не длиннее 2000 символов").nullable().optional();
 
 // Позиция оперативки (TZ_v4, раздел 3). Название обязательно; остальное — по мере заполнения.
 export const createItemSchema = z.object({
-  title: z.string().trim().min(1, "Название обязательно"),
+  title: z.string().trim().min(1, "Название обязательно").max(300, "Задача не длиннее 300 символов"),
   segmentId: idOrNull,
   trackId: idOrNull,
   cost: textOrNull,
@@ -24,7 +26,7 @@ export const createItemSchema = z.object({
   responsibleId: idOrNull,
   deadline: z.coerce.date().nullable().optional(),
   statusId: idOrNull,
-  comment: textOrNull,
+  comment: commentOrNull,
   operFlag: z.boolean().optional(),
   // значения своих колонок: { <id колонки>: значение } (проверка типа — на сервере, lib/custom-columns)
   customValues: z.record(z.string(), z.string()).optional(),

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
+import { AuditChange } from "@/components/AuditChange";
 import { ATTRACTIVENESS_LABEL } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
 import { Popover } from "@/components/ui/Popover";
@@ -281,7 +282,7 @@ export function ItemPanel({
 
           <Section title="Основное">
             <Field label="Задача *">
-              <textarea value={form.title} onChange={(e) => set("title", e.target.value)} disabled={disabled} rows={3} className="input w-full" />
+              <textarea value={form.title} onChange={(e) => set("title", e.target.value)} disabled={disabled} rows={3} maxLength={300} className="input w-full" />
             </Field>
             <Field label="Оценка $">
               <input value={form.cost} onChange={(e) => set("cost", e.target.value)} disabled={disabled} className="input w-full" placeholder="например, 2 млн.$" />
@@ -353,7 +354,8 @@ export function ItemPanel({
           )}
 
           <Section title="Комментарий">
-            <textarea value={form.comment} onChange={(e) => set("comment", e.target.value)} disabled={disabled} rows={4} className="input w-full" />
+            <textarea value={form.comment} onChange={(e) => set("comment", e.target.value)} disabled={disabled} rows={4} maxLength={2000} className="input w-full" />
+            <p className="mt-1 text-right text-[11px] text-outline">{form.comment.length} / 2000</p>
           </Section>
 
           <div className={`rounded-lg border p-3.5 ${form.operFlag ? "border-status-emerald/40 bg-status-emerald/10" : "border-outline-variant bg-surface-low"}`}>
@@ -383,13 +385,17 @@ export function ItemPanel({
               {history.map((e) => (
                 <li key={e.id} className="relative">
                   <span className={`absolute -left-[25px] top-1.5 h-2 w-2 rounded-full ${e.action === "ARCHIVE" ? "bg-status-red" : e.action === "CREATE" ? "bg-status-emerald" : "bg-status-amber"}`} />
-                  <p className="text-[12px] text-on-surface">
+                  <div className="text-[12px] text-on-surface [overflow-wrap:anywhere]">
                     <span className="font-semibold">{e.actor?.name ?? "Система"}</span>{" "}
                     {e.afterSubmission && <span className="mr-1 rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">после отправки</span>}
                     {e.fieldName ? (
                       <>
-                        изменил(а) «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»: <span className="text-outline">{showValue(e.fieldName, e.before)}</span> →{" "}
-                        <span className="font-semibold">{showValue(e.fieldName, e.after)}</span>
+                        изменил(а){" "}
+                        <AuditChange
+                          label={FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}
+                          before={showValue(e.fieldName, e.before)}
+                          after={showValue(e.fieldName, e.after)}
+                        />
                       </>
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"
@@ -400,7 +406,7 @@ export function ItemPanel({
                     ) : (
                       e.action
                     )}
-                  </p>
+                  </div>
                   <p className="text-[10px] text-outline">{new Date(e.timestamp).toLocaleString("ru-RU")}</p>
                 </li>
               ))}

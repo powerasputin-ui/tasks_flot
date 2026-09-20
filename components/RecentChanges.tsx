@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AuditChange } from "@/components/AuditChange";
 
 type Ev = {
   id: string;
@@ -10,6 +11,7 @@ type Ev = {
   itemTitle: string;
   action: string;
   what: string;
+  label: string | null;
   before: string | null;
   after: string | null;
 };
@@ -45,18 +47,20 @@ export function RecentChanges({ segments, refreshKey, onOpen }: { segments: stri
           <li key={e.id} className="flex gap-3">
             <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${DOT[e.action] ?? "bg-status-amber"}`} />
             <div className="min-w-0">
-              <p className="text-[12px] text-on-surface">
-                <span className="font-bold">{e.actorName}</span> {e.what}
-                {e.before !== null && (
+              <div className="text-[12px] text-on-surface [overflow-wrap:anywhere]">
+                <span className="font-bold">{e.actorName}</span>{" "}
+                {e.label !== null && e.before !== null ? (
                   <>
-                    : <span className="text-outline">{e.before}</span> → <span className="font-semibold">{e.after}</span>
+                    изменил(а) <AuditChange label={e.label} before={e.before} after={e.after ?? "—"} />
                   </>
+                ) : (
+                  e.what
                 )}{" "}
                 у{" "}
                 <button onClick={() => onOpen(e.itemId)} className="font-semibold text-primary hover:underline">
                   «{e.itemTitle.length > 60 ? `${e.itemTitle.slice(0, 60)}…` : e.itemTitle}»
                 </button>
-              </p>
+              </div>
               <p className="text-[10px] text-outline">{new Date(e.timestamp).toLocaleString("ru-RU")}</p>
             </div>
           </li>

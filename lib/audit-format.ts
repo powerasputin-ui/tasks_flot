@@ -47,3 +47,16 @@ export function describeAuditAction(action: string, field: string | null): strin
       return action;
   }
 }
+
+/** Длиннее этого значение в журнале показывается блоками «Было / Стало», а не в одну строку со стрелкой. */
+export const LONG_CHANGE_THRESHOLD = 40;
+
+export function isLongChange(before: string | null, after: string | null): boolean {
+  const long = (v: string | null) => !!v && (v.length > LONG_CHANGE_THRESHOLD || v.includes("\n"));
+  return long(before) || long(after);
+}
+
+/** Обрезает длинный текст с многоточием (для ленты изменений: полный текст остаётся в журнале позиции). */
+export function clipText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max).trimEnd()}…`;
+}
