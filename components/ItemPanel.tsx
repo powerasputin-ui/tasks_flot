@@ -130,7 +130,7 @@ export function ItemPanel({
 
   async function save() {
     if (!form.title.trim()) {
-      setError("Название обязательно");
+      setError("Задача обязательна");
       return;
     }
     setSaving(true);
@@ -269,7 +269,7 @@ export function ItemPanel({
           )}
 
           <Section title="Основное">
-            <Field label="Название *">
+            <Field label="Задача *">
               <textarea value={form.title} onChange={(e) => set("title", e.target.value)} disabled={disabled} rows={3} className="input w-full" />
             </Field>
             <Field label="Оценка $">
@@ -300,7 +300,7 @@ export function ItemPanel({
                   <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled || lockResponsible} allowEmpty={!lockResponsible} />
                 </Field>
               </div>
-              <Field label="Срок">
+              <Field label="Дедлайн">
                 <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled} className="input w-full" />
               </Field>
               <Field label="Статус">

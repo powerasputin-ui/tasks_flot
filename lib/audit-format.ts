@@ -1,13 +1,13 @@
 /** Подписи полей позиции для журнала и ленты изменений. */
 export const FIELD_LABEL: Record<string, string> = {
-  title: "Название",
+  title: "Задача",
   cost: "Оценка $",
   comment: "Комментарий",
   segmentId: "Сегмент",
   trackId: "Трек",
   attractivenessId: "Привлекательность",
   responsibleId: "Ответственный",
-  deadline: "Срок",
+  deadline: "Дедлайн",
   statusId: "Статус",
   operFlag: "Опер",
 };

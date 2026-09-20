@@ -201,7 +201,7 @@ export function OperativkaView() {
           <table className="w-full min-w-[900px] border-collapse text-[13px]">
             <thead className="bg-surface-high">
               <tr>
-                {["Сегмент", "Трек", "Название", "Оценка $", "Привлекательность", "Ответственный", "Срок", "Статус", "Комментарии"].map((h) => (
+                {["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Статус", "Комментарии"].map((h) => (
                   <th key={h} className="label-caps px-3 py-3 text-left">{h}</th>
                 ))}
               </tr>

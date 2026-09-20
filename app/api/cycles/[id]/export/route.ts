@@ -32,7 +32,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     sections: [
       {
         title: "Позиции",
-        headers: ["Сегмент", "Трек", "Название", "Оценка $", "Привлекательность", "Ответственный", "Срок", "Статус", "Комментарий"],
+        headers: ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Статус", "Комментарий"],
         rows: rows.map((r) => [r.segmentName, r.trackName, r.name, r.cost, r.attractivenessName ?? "P0", r.ownerName, date(r.deadline), r.statusName, r.comment]),
       },
     ],

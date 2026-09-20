@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     { sortBy: (sp.get("sortBy") as TableSort["sortBy"]) ?? undefined, sortDir: (sp.get("sortDir") as "asc" | "desc") ?? undefined }
   );
 
-  const headers = ["Сегмент", "Трек", "Название", "Оценка $", "Привлекательность", "Ответственный", "Срок", "Неделя", "Статус", "Опер", "Комментарий"];
+  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Опер", "Комментарий"];
   const data = rows.map((r) => [
     r.segmentName,
     r.trackName,

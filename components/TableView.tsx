@@ -45,8 +45,8 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
   track: "Трек",
   cost: "Оценка $",
   attractiveness: "Привлекательность",
-  name: "Название",
-  deadline: "Срок",
+  name: "Задача",
+  deadline: "Дедлайн",
   deadlineWeek: "Неделя",
   owner: "Ответственный",
   status: "Статус",
@@ -85,6 +85,9 @@ function loadColumns(): ColumnConfig[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_COLUMNS;
     const parsed = (JSON.parse(raw) as ColumnConfig[]).filter((c) => ALL_KEYS.includes(c.key));
+    // Старые стандартные подписи (до переименования) заменяем новыми; свои названия не трогаем.
+    const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн" };
+    for (const c of parsed) if (RENAMED[c.label]) c.label = RENAMED[c.label];
     const known = new Set(parsed.map((c) => c.key));
     return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
   } catch {
@@ -412,7 +415,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               onChange={setOperFlag}
             />
             <MoreFilters activeCount={moreActive}>
-              <FilterField label="Срок">
+              <FilterField label="Дедлайн">
                 <div className="flex items-center gap-1.5">
                   <input type="date" value={deadlineFrom} onChange={(e) => setDeadlineFrom(e.target.value)} className="input w-full" />
                   <span className="text-outline">—</span>
@@ -620,8 +623,8 @@ function EmptyState({ filtered, onReset, archive, canCreate, onCreate }: { filte
 
 type SortChoice = { label: string; field: string; dir: "asc" | "desc" };
 const SORT_GROUPS: Array<{ title: string; choices: SortChoice[] }> = [
-  { title: "Название", choices: [{ label: "От А до Я", field: "title", dir: "asc" }, { label: "От Я до А", field: "title", dir: "desc" }] },
-  { title: "Срок", choices: [{ label: "Сначала ближайшие", field: "deadline", dir: "asc" }, { label: "Сначала дальние", field: "deadline", dir: "desc" }] },
+  { title: "Задача", choices: [{ label: "От А до Я", field: "title", dir: "asc" }, { label: "От Я до А", field: "title", dir: "desc" }] },
+  { title: "Дедлайн", choices: [{ label: "Сначала ближайшие", field: "deadline", dir: "asc" }, { label: "Сначала дальние", field: "deadline", dir: "desc" }] },
   { title: "Привлекательность", choices: [{ label: "От высокой к низкой", field: "attractiveness", dir: "desc" }, { label: "От низкой к высокой", field: "attractiveness", dir: "asc" }] },
   { title: "Ответственный", choices: [{ label: "От А до Я", field: "owner", dir: "asc" }, { label: "От Я до А", field: "owner", dir: "desc" }] },
   { title: "Трек", choices: [{ label: "От А до Я", field: "track", dir: "asc" }, { label: "От Я до А", field: "track", dir: "desc" }] },
