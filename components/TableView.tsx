@@ -84,18 +84,23 @@ const DEFAULT_COLUMNS = buildColumns(DEFAULT_VISIBLE);
 // v2: сброшен набор колонок первой версии.
 const STORAGE_KEY = "operativka.tableColumns.v2";
 
-function loadColumns(): ColumnConfig[] {
+/** Приводит сохранённые настройки к актуальному набору колонок (переименования, новые колонки). */
+function normalizeColumns(saved: ColumnConfig[]): ColumnConfig[] {
+  const parsed = saved.filter((c) => ALL_KEYS.includes(c.key as StdKey) || c.key.startsWith("custom:"));
+  // Старые стандартные подписи (до переименования) заменяем новыми; свои названия не трогаем.
+  const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн" };
+  for (const c of parsed) if (RENAMED[c.label]) c.label = RENAMED[c.label];
+  const known = new Set<string>(parsed.map((c) => c.key));
+  return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
+}
+
+/** Настройки, оставшиеся в этом браузере от прежней версии (переносятся в учётную запись один раз). */
+function loadLocalColumns(): ColumnConfig[] | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_COLUMNS;
-    const parsed = (JSON.parse(raw) as ColumnConfig[]).filter((c) => ALL_KEYS.includes(c.key as StdKey) || c.key.startsWith("custom:"));
-    // Старые стандартные подписи (до переименования) заменяем новыми; свои названия не трогаем.
-    const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн" };
-    for (const c of parsed) if (RENAMED[c.label]) c.label = RENAMED[c.label];
-    const known = new Set<string>(parsed.map((c) => c.key));
-    return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
+    return raw ? (JSON.parse(raw) as ColumnConfig[]) : null;
   } catch {
-    return DEFAULT_COLUMNS;
+    return null;
   }
 }
 
@@ -216,17 +221,35 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     [me]
   );
 
-  useEffect(() => {
-    setColumns(loadColumns());
+  // Настройки колонок хранятся в базе, у каждого пользователя свои: одинаково на любом устройстве.
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistColumns = useCallback((next: ColumnConfig[]) => {
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    // перетаскивание границы шлёт много изменений подряд — сохраняем один раз, когда закончили
+    persistTimer.current = setTimeout(() => {
+      fetch("/api/me/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => {});
+    }, 600);
   }, []);
+
+  useEffect(() => {
+    fetch("/api/me/table-columns")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.columns) return setColumns(normalizeColumns(d.columns));
+        // в базе пока пусто: переносим то, что было настроено в этом браузере
+        const local = loadLocalColumns();
+        if (local) {
+          const normalized = normalizeColumns(local);
+          setColumns(normalized);
+          persistColumns(normalized);
+        }
+      })
+      .catch(() => {});
+  }, [persistColumns]);
 
   function saveColumns(next: ColumnConfig[]) {
     setColumns(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // per-viewer удобство, не критично
-    }
+    persistColumns(next);
   }
 
   useEffect(() => {
@@ -783,7 +806,7 @@ function ColumnConfigPanel({ columns, onChange, onReset }: { columns: ColumnConf
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[11px] text-outline">Настройки хранятся в этом браузере. Ширину можно менять перетаскиванием границы в шапке.</p>
+      <p className="mt-2 text-[11px] text-outline">Настройки колонок сохраняются в вашей учётной записи и одинаковы на любом устройстве. Ширину можно менять перетаскиванием границы в шапке.</p>
     </div>
   );
 }
