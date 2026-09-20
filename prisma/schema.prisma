@@ -253,3 +253,13 @@ model CustomColumn {
 
   @@map("custom_columns")
 }
+
+/// Общие настройки приложения (ключ → значение). Сейчас: "table.columns" — вид колонок таблицы для всех,
+/// его задаёт куратор (порядок, подписи, показ, «удалённые» колонки).
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}

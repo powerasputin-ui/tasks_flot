@@ -141,31 +141,31 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     [me]
   );
 
-  // Настройки колонок хранятся в базе, у каждого пользователя свои: одинаково на любом устройстве.
+  // Вид колонок (порядок, подписи, показ, «удалённые») общий для всех и хранится в базе; меняет его куратор.
+  // Остальные видят вид куратора; ширину колонок они могут подтянуть на время сессии.
+  const canLayoutRef = useRef(false);
+  canLayoutRef.current = me?.role === "CURATOR" || me?.role === "SYSTEM_ADMIN";
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistColumns = useCallback((next: ColumnConfig[]) => {
+    if (!canLayoutRef.current) return;
     if (persistTimer.current) clearTimeout(persistTimer.current);
     // перетаскивание границы шлёт много изменений подряд — сохраняем один раз, когда закончили
     persistTimer.current = setTimeout(() => {
-      fetch("/api/me/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => {});
+      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => {});
     }, 600);
   }, []);
 
   useEffect(() => {
-    fetch("/api/me/table-columns")
+    fetch("/api/table-columns")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.columns) return setColumns(normalizeColumns(d.columns));
-        // в базе пока пусто: переносим то, что было настроено в этом браузере
+        // общего вида ещё нет: до первого сохранения куратором берём то, что было настроено в этом браузере
         const local = loadLocalColumns();
-        if (local) {
-          const normalized = normalizeColumns(local);
-          setColumns(normalized);
-          persistColumns(normalized);
-        }
+        if (local) setColumns(normalizeColumns(local));
       })
       .catch(() => {});
-  }, [persistColumns]);
+  }, []);
 
   function saveColumns(next: ColumnConfig[]) {
     setColumns(next);

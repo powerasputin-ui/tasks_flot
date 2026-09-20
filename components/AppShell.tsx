@@ -146,7 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
           <div id="header-actions" className="flex items-center" />
           {me && <NotificationsBell />}
-          {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR" || me?.role === "HEAD") && (
+          {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && (
             <Link
               href="/settings"
               title="Настройки"

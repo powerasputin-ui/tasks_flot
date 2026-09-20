@@ -7,10 +7,11 @@ import { DEFAULT_COLUMNS, loadLocalColumns, normalizeColumns, withCustomColumns,
 
 /**
  * Настройки → «Колонки таблицы».
- * Личный вид таблицы (что показывать, порядок, подписи, «удаление» стандартных колонок) хранится в учётной записи.
- * Свои колонки (создать, переименовать, удалить) — у куратора и администратора, общие для всех.
+ * Вид таблицы общий: всё, что меняет куратор (показ, порядок, подписи, удаление стандартных колонок,
+ * создание и удаление своих), сразу действует у всех пользователей.
  */
-export function ColumnsSettings({ canManage }: { canManage: boolean }) {
+export function ColumnsSettings() {
+  const canManage = true; // страница доступна только куратору и администратору
   const [saved, setSaved] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [customCols, setCustomCols] = useState<CustomCol[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +35,7 @@ export function ColumnsSettings({ canManage }: { canManage: boolean }) {
   const persist = useCallback((next: ColumnConfig[]) => {
     if (persistTimer.current) clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(() => {
-      fetch("/api/me/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => setError("Не удалось сохранить настройки."));
+      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => setError("Не удалось сохранить настройки."));
     }, 400);
   }, []);
   const change = (next: ColumnConfig[]) => {
@@ -49,7 +50,7 @@ export function ColumnsSettings({ canManage }: { canManage: boolean }) {
 
   useEffect(() => {
     (async () => {
-      const [mine] = await Promise.all([fetch("/api/me/table-columns").then((r) => (r.ok ? r.json() : null)).catch(() => null), reloadCustom()]);
+      const [mine] = await Promise.all([fetch("/api/table-columns").then((r) => (r.ok ? r.json() : null)).catch(() => null), reloadCustom()]);
       if (mine?.columns) setSaved(normalizeColumns(mine.columns));
       else {
         const local = loadLocalColumns();
@@ -97,7 +98,7 @@ export function ColumnsSettings({ canManage }: { canManage: boolean }) {
       <div className="mb-4">
         <h2 className="text-2xl font-semibold leading-8 text-on-surface">Колонки таблицы</h2>
         <p className="text-[13px] text-on-surface-variant">
-          Галочка — колонка показана в таблице. Корзина убирает колонку; убранные можно вернуть внизу списка. Настройки вида личные и сохраняются в вашей учётной записи.
+          Галочка — колонка показана в таблице. Корзина убирает колонку; убранные можно вернуть внизу списка. Всё, что вы меняете здесь, применяется у всех пользователей.
         </p>
       </div>
 
@@ -106,7 +107,7 @@ export function ColumnsSettings({ canManage }: { canManage: boolean }) {
       <div className="mb-2 flex justify-end">
         <button onClick={() => change(DEFAULT_COLUMNS)} className="btn-ghost h-8">
           <RotateCcw size={14} />
-          Сбросить вид
+          Сбросить к стандартным
         </button>
       </div>
 
@@ -170,7 +171,7 @@ export function ColumnsSettings({ canManage }: { canManage: boolean }) {
 
               {custom && confirmKey === col.key && (
                 <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-status-red/30 bg-status-red/5 px-3 py-2">
-                  <span className="flex-1 text-[13px] text-on-surface">Удалить колонку «{col.label}» у всех? Введённые значения сохранятся в истории.</span>
+                  <span className="flex-1 text-[13px] text-on-surface">Удалить колонку «{col.label}»? Она пропадёт у всех, введённые значения сохранятся в истории.</span>
                   <button
                     onClick={async () => { await api(`/api/columns/${customId}`, "DELETE", undefined, "Не удалось удалить колонку."); setConfirmKey(null); }}
                     className="btn-primary h-8 bg-status-red hover:bg-status-red"
@@ -227,7 +228,7 @@ export function ColumnsSettings({ canManage }: { canManage: boolean }) {
               </div>
             </div>
           )}
-          <p className="mt-3 text-[12px] text-on-surface-variant">Свои колонки создаёт куратор. Они появляются в таблице у всех, а значения вносят те, кто правит позицию.</p>
+          <p className="mt-3 text-[12px] text-on-surface-variant">Новая колонка появляется в таблице у всех, а значения вносят те, кто правит позицию.</p>
         </div>
       )}
     </div>

@@ -57,11 +57,6 @@ export default function SettingsPage() {
     if (window.location.hash === "#columns") setSection("columns");
   }, [reload]);
 
-  // руководителю доступен один раздел — открываем его сразу
-  useEffect(() => {
-    if (me?.role === "HEAD") setSection("columns");
-  }, [me?.role]);
-
   useEffect(() => {
     if (!message) return;
     const t = setTimeout(() => setMessage(null), 4500);
@@ -89,9 +84,8 @@ export default function SettingsPage() {
 
   if (me === undefined) return <div className="p-6"><div className="skeleton h-6 w-1/3 rounded" /></div>;
   const isAdmin = me?.role === "SYSTEM_ADMIN";
-  const isHead = me?.role === "HEAD";
-  if (!isAdmin && !isHead && me?.role !== "CURATOR") {
-    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки недоступны для вашей роли.</div>;
+  if (!isAdmin && me?.role !== "CURATOR") {
+    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны куратору и администратору системы.</div>;
   }
 
   // Куратор ведёт ответственных, треки и колонки таблицы; остальные справочники и роли — только администратор.
@@ -103,8 +97,8 @@ export default function SettingsPage() {
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
     { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
   ];
-  // Руководитель настраивает только вид своей таблицы; куратор — ещё ответственных и треки; администратор — всё.
-  const sections = allSections.filter((s) => (isHead ? s.key === "columns" : isAdmin || !s.adminOnly));
+  // Куратор ведёт колонки таблицы, ответственных и треки; администратор — всё.
+  const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
 
   return (
     <div className="flex h-full min-h-0">
@@ -143,7 +137,7 @@ export default function SettingsPage() {
         )}
 
         {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
-        {section === "columns" && <ColumnsSettings canManage={isAdmin || me?.role === "CURATOR"} />}
+        {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
           <RefSection title="Сегменты" hint="Левая колонка таблицы. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
