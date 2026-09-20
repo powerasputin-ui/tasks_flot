@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { canManageTracks } from "@/lib/permissions";
@@ -15,6 +16,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!(await prisma.track.findUnique({ where: { id } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const track = await prisma.track.update({ where: { id }, data: parsed.data });
+  invalidateDicts();
   return NextResponse.json({ track });
 }
 
@@ -29,8 +31,10 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const used = await prisma.operationalItem.count({ where: { trackId: id } });
   if (used === 0) {
     await prisma.track.delete({ where: { id } });
+    invalidateDicts();
     return NextResponse.json({ ok: true, mode: "deleted" });
   }
   await prisma.track.update({ where: { id }, data: { isActive: false } });
+  invalidateDicts();
   return NextResponse.json({ ok: true, mode: "hidden", used });
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
@@ -45,5 +46,6 @@ export async function POST(request: NextRequest) {
     data: { ...rest, passwordHash: await hashPassword(password) },
     select: { id: true, name: true, email: true, role: true, isActive: true },
   });
+  invalidateDicts();
   return NextResponse.json({ user }, { status: 201 });
 }

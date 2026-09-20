@@ -6,6 +6,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
 import { ColumnsSettings } from "@/components/ColumnsSettings";
+import { clearBootstrap } from "@/lib/client-bootstrap";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
@@ -66,6 +67,7 @@ export default function SettingsPage() {
   const act: Act = async (promise, okText) => {
     const r = await promise;
     if (r.ok) {
+      clearBootstrap(); // справочники изменились — таблица должна перечитать их
       if (okText) setMessage({ text: okText, tone: "ok" });
       await reload();
     } else {

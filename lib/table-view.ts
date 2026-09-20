@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getDicts, type Dicts } from "@/lib/dictionaries";
 import { deadlineWeek } from "@/lib/deadline-week";
 import { idsChangedAfterSubmission } from "@/lib/submission";
 import { ATTRACTIVENESS_LABEL } from "@/lib/attractiveness";
@@ -71,44 +72,41 @@ function weeksSince(date: Date, now: Date = new Date()): number {
   return Math.max(0, Math.floor((now.getTime() - date.getTime()) / (7 * 24 * 60 * 60 * 1000)));
 }
 
-const ITEM_INCLUDE = {
-  segment: { select: { name: true } },
-  track: { select: { name: true } },
-  attractiveness: { select: { name: true, color: true } },
-  responsible: { select: { id: true, name: true, role: true } },
-  status: { select: { name: true, color: true } },
-  createdBy: { select: { name: true } },
-} satisfies Prisma.OperationalItemInclude;
+/** Позиция как есть в базе (без связанных таблиц): имена подставляются из кэша справочников. */
+export type ItemRecord = Prisma.OperationalItemGetPayload<object>;
 
-type ItemWithRelations = Prisma.OperationalItemGetPayload<{ include: typeof ITEM_INCLUDE }>;
-
-export function toTableRow(i: ItemWithRelations, changedAfterSubmission = false): TableRow {
+export function toTableRow(i: ItemRecord, dicts: Dicts, changedAfterSubmission = false): TableRow {
+  const segment = i.segmentId ? dicts.segments.get(i.segmentId) : undefined;
+  const track = i.trackId ? dicts.tracks.get(i.trackId) : undefined;
+  const attractiveness = i.attractivenessId ? dicts.attractiveness.get(i.attractivenessId) : undefined;
+  const responsible = i.responsibleId ? dicts.users.get(i.responsibleId) : undefined;
+  const status = i.statusId ? dicts.statuses.get(i.statusId) : undefined;
   return {
     id: i.id,
     segmentId: i.segmentId,
-    segmentName: i.segment?.name ?? null,
+    segmentName: segment?.name ?? null,
     trackId: i.trackId,
-    trackName: i.track?.name ?? null,
+    trackName: track?.name ?? null,
     name: i.title,
     cost: i.cost,
     attractivenessId: i.attractivenessId,
-    attractivenessName: i.attractiveness?.name ?? null,
-    attractivenessColor: i.attractiveness?.color ?? null,
+    attractivenessName: attractiveness?.name ?? null,
+    attractivenessColor: attractiveness?.color ?? null,
     ownerId: i.responsibleId,
-    ownerName: i.responsible?.name ?? null,
-    ownerRole: i.responsible?.role ?? null,
+    ownerName: responsible?.name ?? null,
+    ownerRole: responsible?.role ?? null,
     deadline: i.deadline,
     deadlineWeek: deadlineWeek(i.deadline),
     statusId: i.statusId,
-    statusName: i.status?.name ?? null,
-    statusColor: i.status?.color ?? null,
+    statusName: status?.name ?? null,
+    statusColor: status?.color ?? null,
     operFlag: i.operFlag,
     comment: i.comment,
     version: i.version,
     createdById: i.createdById,
     changedAfterSubmission,
     customValues: (i.customValues ?? {}) as Record<string, string>,
-    createdByName: i.createdBy.name,
+    createdByName: dicts.users.get(i.createdById)?.name ?? "—",
     updatedAt: i.updatedAt,
     staleWeeks: weeksSince(i.updatedAt),
     archived: i.archivedAt !== null,
@@ -117,13 +115,22 @@ export function toTableRow(i: ItemWithRelations, changedAfterSubmission = false)
 
 /** Права на просмотр проверяет вызывающий маршрут (canViewItems); фильтра по отделам нет. */
 export async function loadTableRows(archive: ArchiveMode = "active"): Promise<TableRow[]> {
-  const items = await prisma.operationalItem.findMany({
-    where: archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {},
-    include: ITEM_INCLUDE,
-    orderBy: { createdAt: "desc" },
-  });
+  // позиции и справочники запрашиваются параллельно (справочники чаще всего берутся из кэша)
+  const [items, dicts] = await Promise.all([
+    prisma.operationalItem.findMany({
+      where: archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {},
+      orderBy: { createdAt: "desc" },
+    }),
+    getDicts(),
+  ]);
   const changed = await changedAfterSubmissionIds(items.filter((i) => i.operFlag).map((i) => i.id));
-  return items.map((i) => toTableRow(i, changed.has(i.id)));
+  return items.map((i) => toTableRow(i, dicts, changed.has(i.id)));
+}
+
+/** Строка по уже загруженной позиции (после создания/правки): без лишнего чтения из базы. */
+export async function rowFromRecord(item: ItemRecord): Promise<TableRow> {
+  const [dicts, changed] = await Promise.all([getDicts(), item.operFlag ? changedAfterSubmissionIds([item.id]) : Promise.resolve(new Set<string>())]);
+  return toTableRow(item, dicts, changed.has(item.id));
 }
 
 /** Какие из отправленных позиций правили после отправки (по журналу изменений). */
@@ -137,10 +144,8 @@ async function changedAfterSubmissionIds(sentIds: string[]): Promise<Set<string>
 }
 
 export async function loadTableRow(id: string): Promise<TableRow | null> {
-  const item = await prisma.operationalItem.findUnique({ where: { id }, include: ITEM_INCLUDE });
-  if (!item) return null;
-  const changed = item.operFlag ? await changedAfterSubmissionIds([id]) : new Set<string>();
-  return toTableRow(item, changed.has(id));
+  const item = await prisma.operationalItem.findUnique({ where: { id } });
+  return item ? rowFromRecord(item) : null;
 }
 
 const ruDate = (d: Date) => d.toLocaleDateString("ru-RU");

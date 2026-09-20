@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { canManageDirectory } from "@/lib/permissions";
@@ -26,5 +27,6 @@ export async function POST(request: NextRequest) {
   }
 
   const status = await prisma.status.create({ data: parsed.data });
+  invalidateDicts();
   return NextResponse.json({ status }, { status: 201 });
 }

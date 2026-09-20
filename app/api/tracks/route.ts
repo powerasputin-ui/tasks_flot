@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { canManageTracks } from "@/lib/permissions";
@@ -27,5 +28,6 @@ export async function POST(request: NextRequest) {
   if (duplicate) return NextResponse.json({ error: "NAME_TAKEN" }, { status: 409 });
 
   const track = await prisma.track.create({ data: parsed.data });
+  invalidateDicts();
   return NextResponse.json({ track }, { status: 201 });
 }

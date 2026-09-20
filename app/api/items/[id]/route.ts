@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { canViewItems } from "@/lib/permissions";
-import { loadTableRow } from "@/lib/table-view";
+import { loadTableRow, rowFromRecord } from "@/lib/table-view";
 import { ITEM_ERROR_STATUS, setItemArchived, updateItem } from "@/lib/items";
 import { updateItemSchema } from "@/lib/validation";
 
@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!result.ok) {
     return NextResponse.json({ error: result.error, currentVersion: result.currentVersion, message: result.message }, { status: ITEM_ERROR_STATUS[result.error] });
   }
-  return NextResponse.json({ row: await loadTableRow(id) });
+  return NextResponse.json({ row: await rowFromRecord(result.record) });
 }
 
 // «Удаление» = архивирование.
@@ -35,5 +35,5 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const { id } = await params;
   const result = await setItemArchived(actor, id, true);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: ITEM_ERROR_STATUS[result.error] });
-  return NextResponse.json({ row: await loadTableRow(id) });
+  return NextResponse.json({ row: await rowFromRecord(result.record) });
 }

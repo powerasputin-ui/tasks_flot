@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
@@ -22,6 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     where: { id },
     data: { name: parsed.data.name, ...(existing.type === "SELECT" && parsed.data.options?.length ? { options: parsed.data.options } : {}) },
   });
+  invalidateDicts();
   return NextResponse.json({ column });
 }
 
@@ -33,5 +35,6 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const existing = await prisma.customColumn.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   await prisma.customColumn.update({ where: { id }, data: { isActive: false } });
+  invalidateDicts();
   return NextResponse.json({ ok: true });
 }

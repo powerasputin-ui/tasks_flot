@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
+import { invalidateActor } from "@/lib/session";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
@@ -40,5 +42,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     data: { ...rest, ...(password ? { passwordHash: await hashPassword(password) } : {}) },
     select: { id: true, name: true, email: true, role: true, isActive: true },
   });
+  invalidateDicts();
+  invalidateActor(id);
   return NextResponse.json({ user });
 }

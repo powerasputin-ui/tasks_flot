@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { canViewItems } from "@/lib/permissions";
-import { applyTableFilters, applyTableSort, loadTableRow, loadTableRows, type ArchiveMode, type TableSort } from "@/lib/table-view";
+import { applyTableFilters, applyTableSort, loadTableRows, rowFromRecord, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { createItem, ITEM_ERROR_STATUS } from "@/lib/items";
 import { createItemSchema } from "@/lib/validation";
 
@@ -42,5 +42,5 @@ export async function POST(request: NextRequest) {
   }
   const result = await createItem(actor, parsed.data);
   if (!result.ok) return NextResponse.json({ error: result.error, message: result.message }, { status: ITEM_ERROR_STATUS[result.error] });
-  return NextResponse.json({ row: await loadTableRow(result.id) }, { status: 201 });
+  return NextResponse.json({ row: await rowFromRecord(result.record) }, { status: 201 });
 }

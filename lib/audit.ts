@@ -83,23 +83,21 @@ export async function recordFieldChanges(
   db: Db = prisma
 ) {
   const changes = diffFields(params.before, params.after, params.trackedFields);
-  await Promise.all(
-    changes.map((c) =>
-      recordAudit(
-        {
-          entityType: params.entityType,
-          entityId: params.entityId,
-          actorId: params.actorId,
-          action: FIELD_TO_ACTION[c.field] ?? "UPDATE",
-          fieldName: c.field,
-          before: c.before,
-          after: c.after,
-          afterSubmission: params.afterSubmission,
-        },
-        db
-      )
-    )
-  );
+  // одним запросом: в транзакции параллельные записи всё равно идут по очереди, а каждая стоит обмена с базой
+  if (changes.length > 0) {
+    await db.auditEvent.createMany({
+      data: changes.map((c) => ({
+        entityType: params.entityType,
+        entityId: params.entityId,
+        actorId: params.actorId,
+        action: FIELD_TO_ACTION[c.field] ?? "UPDATE",
+        fieldName: c.field,
+        before: c.before,
+        after: c.after,
+        afterSubmission: params.afterSubmission ?? false,
+      })),
+    });
+  }
   return changes;
 }
 

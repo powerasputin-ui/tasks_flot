@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
+import { loadBootstrap } from "@/lib/client-bootstrap";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
@@ -43,8 +44,8 @@ export function OperativkaView() {
   const [view, setView] = useState<{ cycle: Final; rows: SnapRow[] } | null>(null);
 
   const load = useCallback(async () => {
-    const [me, cur] = await Promise.all([fetch("/api/auth/me").then((r) => r.json()), fetch("/api/cycles/current").then((r) => r.json())]);
-    setRole(me?.user?.role ?? null);
+    const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
+    setRole(boot?.user?.role ?? null);
     setCycle(cur.cycle);
     setSummary(cur.summary ?? []);
     setFinals(cur.finals ?? []);

@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, LogOut, Search, Settings, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
+import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { Avatar } from "@/components/ui/Avatar";
 import { MenuItem, Popover } from "@/components/ui/Popover";
 
@@ -100,15 +101,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me>(null);
 
   useEffect(() => {
-    if (pathname === "/login") return;
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : { user: null }))
-      .then((d) => setMe(d.user))
-      .catch(() => setMe(null));
+    if (pathname === "/login") {
+      clearBootstrap(); // после входа под другим пользователем данные должны загрузиться заново
+      return;
+    }
+    loadBootstrap().then((b) => setMe((b?.user as Me) ?? null));
   }, [pathname]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    clearBootstrap();
     router.push("/login");
     router.refresh();
   }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Lock, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { clearBootstrap } from "@/lib/client-bootstrap";
 import { COLUMN_TYPE_LABEL, parseOptions, type ColumnType } from "@/lib/custom-columns";
 import { DEFAULT_COLUMNS, loadLocalColumns, normalizeColumns, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
 
@@ -35,7 +36,9 @@ export function ColumnsSettings() {
   const persist = useCallback((next: ColumnConfig[]) => {
     if (persistTimer.current) clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(() => {
-      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => setError("Не удалось сохранить настройки."));
+      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) })
+        .then(() => clearBootstrap())
+        .catch(() => setError("Не удалось сохранить настройки."));
     }, 400);
   }, []);
   const change = (next: ColumnConfig[]) => {
@@ -77,7 +80,10 @@ export function ColumnsSettings() {
     setError(null);
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok) setError(fail);
-    else await reloadCustom();
+    else {
+      clearBootstrap();
+      await reloadCustom();
+    }
     return res.ok;
   }
 

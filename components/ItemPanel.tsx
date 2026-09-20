@@ -99,7 +99,8 @@ export function ItemPanel({
   canDelete: boolean;
   customColumns?: CustomColumnRef[];
   onClose: () => void;
-  onSaved: () => void;
+  /** Вызывается после сохранения/удаления/возврата; row — актуальная строка с сервера. */
+  onSaved: (row?: ItemRow) => void;
 }) {
   const [base, setBase] = useState<ItemRow | null>(row);
   const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId));
@@ -156,7 +157,7 @@ export function ItemPanel({
         body: JSON.stringify(isNew ? payload() : { ...payload(), version: base!.version }),
       });
       if (res.ok) {
-        onSaved();
+        onSaved((await res.json().catch(() => null))?.row);
         return;
       }
       if (res.status === 409) {
@@ -186,7 +187,7 @@ export function ItemPanel({
     const res = await fetch(base.archived ? `/api/items/${base.id}/restore` : `/api/items/${base.id}`, {
       method: base.archived ? "POST" : "DELETE",
     });
-    if (res.ok) onSaved();
+    if (res.ok) onSaved((await res.json().catch(() => null))?.row);
     else setError(base.archived ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
   }
 

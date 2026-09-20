@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateDicts } from "@/lib/dictionaries";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
@@ -31,5 +32,6 @@ export async function POST(request: NextRequest) {
   const column = await prisma.customColumn.create({
     data: { name, type, options: type === "SELECT" ? options : [], sortOrder: (last?.sortOrder ?? 0) + 1 },
   });
+  invalidateDicts();
   return NextResponse.json({ column }, { status: 201 });
 }

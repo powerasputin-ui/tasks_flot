@@ -38,6 +38,7 @@ import * as cycles from "@/app/api/cycles/route";
 import * as cyclesCurrent from "@/app/api/cycles/current/route";
 import * as cycleReview from "@/app/api/cycles/[id]/review/route";
 import * as cycleExport from "@/app/api/cycles/[id]/export/route";
+import * as bootstrap from "@/app/api/bootstrap/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -407,5 +408,25 @@ describe("цикл оперативки", () => {
     expect((await call(head, cycleReview.POST, `/api/cycles/${ok.data.id}/review`, { method: "POST", id: ok.data.id })).status).toBe(403);
     expect((await call(curator, cycleReview.POST, `/api/cycles/${ok.data.id}/review`, { method: "POST", id: ok.data.id })).status).toBe(200);
     expect((await call(curator, cycleReview.POST, `/api/cycles/${ok.data.id}/review`, { method: "POST", id: ok.data.id })).status).toBe(409);
+  });
+});
+
+describe("быстрая загрузка", () => {
+  it("bootstrap отдаёт пользователя, справочники, свои колонки и общий вид одним запросом", async () => {
+    const r = await call(head, bootstrap.GET, "/api/bootstrap");
+    expect(r.status).toBe(200);
+    expect(r.data.user.id).toBe(head.id);
+    for (const k of ["segments", "tracks", "statuses", "attractiveness", "users", "columns"]) expect(Array.isArray(r.data[k])).toBe(true);
+    expect(r.data.segments.length).toBeGreaterThan(0);
+    expect("tableColumns" in r.data).toBe(true);
+  });
+
+  it("строки таблицы содержат имена справочников (кэш справочников подставляет их без join)", async () => {
+    const rows = (await call(head, items.GET, "/api/items")).data.rows as Array<{ trackId: string | null; trackName: string | null; segmentId: string | null; segmentName: string | null; ownerId: string | null; ownerName: string | null }>;
+    const withTrack = rows.filter((r) => r.trackId);
+    expect(withTrack.length).toBeGreaterThan(0);
+    expect(withTrack.every((r) => !!r.trackName)).toBe(true);
+    expect(rows.filter((r) => r.ownerId).every((r) => !!r.ownerName)).toBe(true);
+    expect(rows.filter((r) => r.segmentId).every((r) => !!r.segmentName)).toBe(true);
   });
 });

@@ -10,11 +10,12 @@ import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem } from "@/lib/permissions";
-import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
+import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
 import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
 import { RecentChanges } from "@/components/RecentChanges";
+import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
 import { DEFAULT_COLUMNS, loadLocalColumns, normalizeColumns, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
@@ -91,6 +92,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [deadlineFrom, setDeadlineFrom] = useState("");
   const [deadlineTo, setDeadlineTo] = useState("");
   const [refetchTick, setRefetchTick] = useState(0);
+  // лента изменений обновляется отдельно и в фоне: правка не должна ждать её перезагрузки
+  const [feedTick, setFeedTick] = useState(0);
 
   // Руководитель видит все позиции, правит только те, где он «Ответственный»; куратор правит всё.
   const isHead = me?.role === "HEAD";
@@ -122,8 +125,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     const res = await fetch(action === "restore" ? `/api/items/${row.id}/restore` : `/api/items/${row.id}`, {
       method: action === "restore" ? "POST" : "DELETE",
     });
-    if (res.ok) setRefetchTick((t) => t + 1);
-    else setError(action === "restore" ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
+    if (res.ok) {
+      const d = await res.json().catch(() => null);
+      if (d?.row) applyRow(d.row);
+      else setRefetchTick((t) => t + 1);
+      setFeedTick((t) => t + 1);
+    } else setError(action === "restore" ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
   }
 
   async function returnRow(row: Row) {
@@ -135,8 +142,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ comment }),
     });
-    if (res.ok) setRefetchTick((t) => t + 1);
-    else setError("Не удалось вернуть позицию.");
+    if (res.ok) {
+      const d = await res.json().catch(() => null);
+      if (d?.row) applyRow(d.row);
+      else setRefetchTick((t) => t + 1);
+      setFeedTick((t) => t + 1);
+    } else setError("Не удалось вернуть позицию.");
   }
 
   const canDeleteRow = useCallback(
@@ -156,49 +167,39 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     if (persistTimer.current) clearTimeout(persistTimer.current);
     // перетаскивание границы шлёт много изменений подряд — сохраняем один раз, когда закончили
     persistTimer.current = setTimeout(() => {
-      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) }).catch(() => {});
+      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) })
+        .then(() => clearBootstrap())
+        .catch(() => {});
     }, 600);
   }, []);
 
+  // Один запрос при открытии: пользователь, справочники, свои колонки и общий вид таблицы (см. /api/bootstrap).
   useEffect(() => {
-    fetch("/api/table-columns")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.columns) return setColumns(normalizeColumns(d.columns));
+    loadBootstrap().then((b) => {
+      if (!b) return;
+      setMe(b.user);
+      setCustomCols(b.columns ?? []);
+      setSegmentRefs(b.segments.map((x) => ({ id: x.id, name: x.name, color: x.color ?? null })));
+      setRefs({
+        segments: b.segments,
+        tracks: b.tracks.map((x) => ({ id: x.id, name: x.name, segmentId: x.segmentId })),
+        statuses: b.statuses,
+        attractiveness: b.attractiveness,
+        users: b.users.map((x) => ({ id: x.id, name: x.name })),
+      });
+      if (b.tableColumns) setColumns(normalizeColumns(b.tableColumns as ColumnConfig[]));
+      else {
         // общего вида ещё нет: до первого сохранения куратором берём то, что было настроено в этом браузере
         const local = loadLocalColumns();
         if (local) setColumns(normalizeColumns(local));
-      })
-      .catch(() => {});
+      }
+    });
   }, []);
 
   function saveColumns(next: ColumnConfig[]) {
     setColumns(next);
     persistColumns(next);
   }
-
-  useEffect(() => {
-    const get = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
-    get("/api/columns").then((d) => setCustomCols(d?.columns ?? []));
-    Promise.all([
-      get("/api/auth/me"),
-      get("/api/segments"),
-      get("/api/tracks"),
-      get("/api/statuses"),
-      get("/api/attractiveness"),
-      get("/api/users"),
-    ]).then(([m, s, t, st, a, u]) => {
-      setMe(m?.user ?? null);
-      setSegmentRefs((s?.segments ?? []).map((x: SegmentRef) => ({ id: x.id, name: x.name, color: x.color ?? null })));
-      setRefs({
-        segments: s?.segments ?? [],
-        tracks: (t?.tracks ?? []).map((x: TrackRef) => ({ id: x.id, name: x.name, segmentId: x.segmentId })),
-        statuses: st?.statuses ?? [],
-        attractiveness: a?.attractiveness ?? [],
-        users: (u?.users ?? []).map((x: Ref) => ({ id: x.id, name: x.name })),
-      });
-    });
-  }, []);
 
   // Параметры без сегмента: сегмент фильтруется на клиенте, чтобы счётчики слева были полными.
   const baseParams = useMemo(() => {
@@ -237,14 +238,52 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       .finally(() => setLoading(false));
   }, [baseParams, refetchTick]);
 
+  /** Кладёт строку, вернувшуюся с сервера, в список сразу — без ожидания полной перезагрузки таблицы. */
+  const applyRow = useCallback(
+    (row: Row) => {
+      setRows((prev) => {
+        const idx = prev.findIndex((r) => r.id === row.id);
+        const visible = archive === "all" || (archive === "archived" ? row.archived : !row.archived);
+        if (!visible) return idx >= 0 ? prev.filter((r) => r.id !== row.id) : prev;
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = row;
+          return next;
+        }
+        return [row, ...prev];
+      });
+    },
+    [archive]
+  );
+
+  const paramsRef = useRef(baseParams);
+  useEffect(() => {
+    paramsRef.current = baseParams;
+  }, [baseParams]);
+  /** Тихая сверка списка с сервером (без индикатора загрузки) — например, после конфликта версий. */
+  const revalidate = useCallback(() => {
+    fetch(`/api/items?${paramsRef.current.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.rows && setRows(d.rows))
+      .catch(() => {});
+  }, []);
+
   async function toggleOper(row: Row, next: boolean) {
+    applyRow({ ...row, operFlag: next }); // галка меняется сразу, не дожидаясь сервера
     const res = await fetch(`/api/items/${row.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ version: row.version, operFlag: next }),
     });
-    if (!res.ok) setError(res.status === 409 ? "Позиция была изменена другим пользователем — список обновлён." : "Не удалось изменить отметку «Опер».");
-    setRefetchTick((t) => t + 1);
+    if (res.ok) {
+      const d = await res.json().catch(() => null);
+      if (d?.row) applyRow(d.row);
+      setFeedTick((t) => t + 1);
+      return;
+    }
+    applyRow(row); // не вышло — возвращаем как было
+    setError(res.status === 409 ? "Позиция была изменена другим пользователем — список обновлён." : "Не удалось изменить отметку «Опер».");
+    if (res.status === 409) revalidate();
   }
 
   const isOverdue = useCallback((row: Row) => {
@@ -508,7 +547,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             )}
           </div>
 
-          <RecentChanges segments={segments} refreshKey={refetchTick} onOpen={openById} />
+          <RecentChanges segments={segments} refreshKey={feedTick + refetchTick} onOpen={openById} />
         </div>
       </section>
 
@@ -568,9 +607,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           canDelete={editor.row ? canDeleteRow(editor.row) : false}
           customColumns={customCols}
           onClose={() => setEditor(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
             setEditor(null);
-            setRefetchTick((t) => t + 1);
+            if (saved) applyRow(saved as Row);
+            else setRefetchTick((t) => t + 1);
+            setFeedTick((t) => t + 1);
           }}
         />
       )}

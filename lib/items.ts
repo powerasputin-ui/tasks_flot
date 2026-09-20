@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canRestoreItem, canViewItems, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
+import { getDicts } from "@/lib/dictionaries";
+import type { ItemRecord } from "@/lib/table-view";
 
 /**
  * Сервис позиций оперативки. Вся логика прав и версий здесь, API-маршруты только
@@ -22,17 +24,18 @@ export type ItemFields = {
   customValues?: Record<string, string>;
 };
 
+/** ok-результат несёт сохранённую позицию, чтобы вызывающий вернул строку без повторного чтения из базы. */
 export type ItemResult =
-  | { ok: true; id: string }
+  | { ok: true; id: string; record: ItemRecord }
   | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM"; currentVersion?: number; message?: string };
 
 function isForeignKeyError(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003";
 }
 
+// Активные свои колонки берём из кэша справочников (lib/dictionaries), а не отдельным запросом.
 async function activeColumnDefs(): Promise<ColumnDef[]> {
-  const cols = await prisma.customColumn.findMany({ where: { isActive: true } });
-  return cols.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options }));
+  return (await getDicts()).customColumns;
 }
 
 export async function createItem(actor: Actor, input: ItemFields & { title: string }): Promise<ItemResult> {
@@ -54,7 +57,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
       data: { ...rest, customValues: custom, responsibleId, createdById: actor.id, updatedById: actor.id },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
-    return { ok: true, id: item.id };
+    return { ok: true, id: item.id, record: item };
   } catch (e) {
     if (isForeignKeyError(e)) return { ok: false, error: "INVALID_REFERENCE" };
     throw e;
@@ -83,16 +86,13 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   }
 
   try {
-    return await prisma.$transaction(async (tx): Promise<ItemResult> => {
-      const { count } = await tx.operationalItem.updateMany({
+    // Изменение и журнал — в одной транзакции (журнал не должен расходиться с данными).
+    // update с условием по версии: если версия ушла вперёд, Prisma бросает P2025 → конфликт.
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.operationalItem.update({
         where: { id, version },
         data: { ...fields, ...(nextCustom ? { customValues: nextCustom } : {}), updatedById: actor.id, version: { increment: 1 } },
       });
-      if (count === 0) {
-        const current = await tx.operationalItem.findUnique({ where: { id }, select: { version: true } });
-        return { ok: false, error: "CONFLICT", currentVersion: current?.version };
-      }
-      const updated = await tx.operationalItem.findUniqueOrThrow({ where: { id } });
       await recordFieldChanges(
         {
           entityType: "OperationalItem",
@@ -100,16 +100,21 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
           actorId: actor.id,
           // значения своих колонок идут в журнал отдельными полями custom:<id>
           before: { ...existing, ...flattenCustom(existing.customValues) },
-          after: { ...updated, ...flattenCustom(updated.customValues) },
-          trackedFields: [...TRACKED_ITEM_FIELDS, ...Object.keys({ ...flattenCustom(existing.customValues), ...flattenCustom(updated.customValues) })],
+          after: { ...row, ...flattenCustom(row.customValues) },
+          trackedFields: [...TRACKED_ITEM_FIELDS, ...Object.keys({ ...flattenCustom(existing.customValues), ...flattenCustom(row.customValues) })],
           // позиция уже отправлена куратору и остаётся отправленной — правка идёт как «после отправки»
-          afterSubmission: existing.operFlag && updated.operFlag,
+          afterSubmission: existing.operFlag && row.operFlag,
         },
         tx
       );
-      return { ok: true, id };
+      return row;
     });
+    return { ok: true, id, record: updated };
   } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+      const current = await prisma.operationalItem.findUnique({ where: { id }, select: { version: true } });
+      return { ok: false, error: "CONFLICT", currentVersion: current?.version };
+    }
     if (isForeignKeyError(e)) return { ok: false, error: "INVALID_REFERENCE" };
     throw e;
   }
@@ -121,16 +126,17 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
   if (!existing) return { ok: false, error: "NOT_FOUND" };
   if (!(archived ? canDeleteItem(actor, existing) : canRestoreItem(actor, existing))) return { ok: false, error: "FORBIDDEN" };
-  if (archived === (existing.archivedAt !== null)) return { ok: true, id }; // уже в нужном состоянии
+  if (archived === (existing.archivedAt !== null)) return { ok: true, id, record: existing }; // уже в нужном состоянии
 
-  await prisma.$transaction(async (tx) => {
-    await tx.operationalItem.update({
+  const record = await prisma.$transaction(async (tx) => {
+    const row = await tx.operationalItem.update({
       where: { id },
       data: { archivedAt: archived ? new Date() : null, updatedById: actor.id, version: { increment: 1 } },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: archived ? "ARCHIVE" : "RESTORE" }, tx);
+    return row;
   });
-  return { ok: true, id };
+  return { ok: true, id, record };
 }
 
 export const ITEM_ERROR_STATUS: Record<Exclude<ItemResult, { ok: true }>["error"], number> = {
