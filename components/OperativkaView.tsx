@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { loadBootstrap } from "@/lib/client-bootstrap";
+import { usePreviewAs } from "@/lib/preview-as";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
@@ -77,7 +78,9 @@ export function OperativkaView() {
     setView({ cycle: f, rows: (d.cycle.snapshot ?? []) as SnapRow[] });
   }
 
-  const isCurator = role === "CURATOR";
+  // Режим «Посмотреть как руководитель»: кнопки куратора скрыты, как у руководителя
+  const previewUser = usePreviewAs();
+  const isCurator = role === "CURATOR" && !previewUser;
   const sentTotal = summary.reduce((s, p) => s + p.sent, 0);
   const missing = summary.filter((p) => p.sent === 0);
 

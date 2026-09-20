@@ -89,6 +89,7 @@ export function ItemPanel({
   canEdit,
   canDelete,
   customColumns = [],
+  previewMode = false,
   onClose,
   onSaved,
 }: {
@@ -99,6 +100,8 @@ export function ItemPanel({
   canEdit: boolean;
   canDelete: boolean;
   customColumns?: CustomColumnRef[];
+  /** Куратор смотрит глазами руководителя: сохранять и удалять нельзя. */
+  previewMode?: boolean;
   onClose: () => void;
   /** Вызывается после сохранения/удаления/возврата; row — актуальная строка с сервера. */
   onSaved: (row?: ItemRow) => void;
@@ -144,6 +147,7 @@ export function ItemPanel({
   });
 
   async function save() {
+    if (previewMode) return;
     if (!form.title.trim()) {
       setError("Задача обязательна");
       return;
@@ -184,7 +188,7 @@ export function ItemPanel({
   }
 
   async function toggleArchive() {
-    if (!base) return;
+    if (!base || previewMode) return;
     const res = await fetch(base.archived ? `/api/items/${base.id}/restore` : `/api/items/${base.id}`, {
       method: base.archived ? "POST" : "DELETE",
     });
@@ -208,7 +212,7 @@ export function ItemPanel({
   };
 
   const disabled = !canEdit || (base?.archived ?? false);
-  const editable = canEdit && !(base?.archived ?? false);
+  const editable = canEdit && !(base?.archived ?? false) && !previewMode;
 
   const footer = (
     <div className="flex items-center justify-between gap-2">
@@ -219,14 +223,18 @@ export function ItemPanel({
           </button>
         )}
         <button onClick={onClose} className="btn-ghost">{editable ? "Отмена" : "Закрыть"}</button>
-        {dirty && !isNew && <span className="text-[11px] text-status-amber">● есть изменения</span>}
+        {previewMode ? (
+          <span className="text-[11px] text-on-surface-variant">Режим просмотра — изменения не сохраняются</span>
+        ) : (
+          dirty && !isNew && <span className="text-[11px] text-status-amber">● есть изменения</span>
+        )}
       </div>
-      {!isNew && base!.archived && canEdit && (
+      {!isNew && base!.archived && canEdit && !previewMode && (
         <button onClick={toggleArchive} className="btn-ghost">
           <RotateCcw size={15} /> Вернуть в работу
         </button>
       )}
-      {!isNew && !base!.archived && canDelete &&
+      {!isNew && !base!.archived && canDelete && !previewMode &&
         (confirmArchive ? (
           <div className="flex items-center gap-2">
             <span className="text-[12px] text-on-surface-variant">Удалить позицию?</span>

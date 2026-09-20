@@ -17,6 +17,7 @@ import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/compone
 import { RecentChanges } from "@/components/RecentChanges";
 import { Panel } from "@/components/ui/Panel";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
+import { usePreviewAs } from "@/lib/preview-as";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
 import { DEFAULT_COLUMNS, loadLocalColumns, normalizeColumns, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
@@ -59,7 +60,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [error, setError] = useState<string | null>(null);
   const [refs, setRefs] = useState<Refs>({ segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
   const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
-  const [me, setMe] = useState<Me>(null);
+  const [realMe, setMe] = useState<Me>(null);
+  // Режим «Посмотреть как руководитель»: права и кнопки как у выбранного руководителя, запись отключена.
+  const previewUser = usePreviewAs();
+  const preview = realMe?.role === "CURATOR" ? previewUser : null;
+  const me = useMemo<Me>(() => (preview && realMe ? { id: preview.id, role: "HEAD" } : realMe), [preview, realMe]);
+  const previewBlock = () => setError("Режим просмотра: изменения отключены.");
   const [savedColumns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [customCols, setCustomCols] = useState<CustomCol[]>([]);
   const columns = useMemo(() => withCustomColumns(savedColumns, customCols), [savedColumns, customCols]);
@@ -135,6 +141,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   async function ctxAction(row: Row, action: "delete" | "restore") {
     setCtx(null);
+    if (preview) return previewBlock();
     const res = await fetch(action === "restore" ? `/api/items/${row.id}/restore` : `/api/items/${row.id}`, {
       method: action === "restore" ? "POST" : "DELETE",
     });
@@ -148,6 +155,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   async function returnRow(row: Row) {
     setCtx(null);
+    if (preview) return previewBlock();
     const comment = window.prompt(`Что нужно исправить в «${row.name}»? Комментарий увидит ответственный.`);
     if (!comment?.trim()) return;
     const res = await fetch(`/api/items/${row.id}/return`, {
@@ -282,6 +290,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   }, []);
 
   async function toggleOper(row: Row, next: boolean) {
+    if (preview) return previewBlock();
     applyRow({ ...row, operFlag: next }); // галка меняется сразу, не дожидаясь сервера
     const res = await fetch(`/api/items/${row.id}`, {
       method: "PATCH",
@@ -385,6 +394,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           <input
             type="checkbox"
             checked={row.operFlag}
+            disabled={!!preview}
             onChange={(e) => toggleOper(row, e.target.checked)}
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-4 cursor-pointer accent-primary"
@@ -638,6 +648,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           canEdit={editor.row ? canEditRow(editor.row) : true}
           canDelete={editor.row ? canDeleteRow(editor.row) : false}
           customColumns={customCols}
+          previewMode={!!preview}
           onClose={() => setEditor(null)}
           onSaved={(saved) => {
             setEditor(null);

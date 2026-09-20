@@ -4,9 +4,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, LogOut, Search, Settings, X } from "lucide-react";
+import { ChevronDown, Eye, LogOut, Search, Settings, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
+import { setPreview, usePreviewAs } from "@/lib/preview-as";
 import { Avatar } from "@/components/ui/Avatar";
 import { MenuItem, Popover } from "@/components/ui/Popover";
 
@@ -99,18 +100,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me>(null);
+  // руководители, глазами которых куратор может посмотреть систему
+  const [heads, setHeads] = useState<Array<{ id: string; name: string }>>([]);
+  const preview = usePreviewAs();
 
   useEffect(() => {
     if (pathname === "/login") {
       clearBootstrap(); // после входа под другим пользователем данные должны загрузиться заново
       return;
     }
-    loadBootstrap().then((b) => setMe((b?.user as Me) ?? null));
+    loadBootstrap().then((b) => {
+      setMe((b?.user as Me) ?? null);
+      setHeads((b?.users ?? []).filter((u) => u.role === "HEAD").map((u) => ({ id: u.id, name: u.name })));
+    });
   }, [pathname]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     clearBootstrap();
+    setPreview(null);
     router.push("/login");
     router.refresh();
   }
@@ -119,7 +127,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main className="min-h-0 flex-1 overflow-auto">{children}</main>;
   }
 
-  const nav = me ? NAV_BY_ROLE[me.role] ?? [] : [];
+  // Режим просмотра доступен только куратору; в нём меню и кнопки такие же, как у руководителя.
+  const canPreview = me?.role === "CURATOR";
+  const previewing = canPreview ? preview : null;
+  const effRole = previewing ? "HEAD" : me?.role;
+  const nav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
 
   return (
     <>
@@ -156,7 +168,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
           <div id="header-actions" className="flex items-center" />
           {me && <NotificationsBell />}
-          {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && (
+          {(effRole === "SYSTEM_ADMIN" || effRole === "CURATOR") && (
             <Link
               href="/settings"
               title="Настройки"
@@ -184,6 +196,27 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <p className="text-[13px] font-semibold text-on-surface">{me.name}</p>
                     <p className="text-[12px] text-on-surface-variant">{ROLE_LABEL[me.role]}</p>
                   </div>
+                  {canPreview && (
+                    <div className="border-b border-outline-variant py-1.5">
+                      {previewing ? (
+                        <MenuItem onClick={() => setPreview(null)} icon={<Eye size={15} />}>
+                          Выйти из режима просмотра
+                        </MenuItem>
+                      ) : (
+                        <>
+                          <p className="label-caps px-3.5 pb-1 pt-1">Посмотреть как руководитель</p>
+                          <div className="max-h-56 overflow-y-auto">
+                            {heads.length === 0 && <p className="px-3.5 py-2 text-[12px] text-outline">Руководителей пока нет</p>}
+                            {heads.map((h) => (
+                              <MenuItem key={h.id} onClick={() => setPreview({ id: h.id, name: h.name })} icon={<Avatar name={h.name} size={18} />}>
+                                {h.name}
+                              </MenuItem>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <MenuItem onClick={logout} icon={<LogOut size={15} />}>
                     Выйти
                   </MenuItem>
@@ -193,6 +226,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </div>
       </header>
+      {previewing && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-primary-soft px-4 py-2 text-[13px] text-primary">
+          <Eye size={15} className="shrink-0" />
+          <span className="min-w-0 flex-1">
+            Режим просмотра: вы видите систему глазами руководителя <strong className="font-semibold">{previewing.name}</strong>. Изменения в этом режиме не сохраняются.
+          </span>
+          <button onClick={() => setPreview(null)} className="btn-ghost h-8 bg-surface">
+            Выйти из режима
+          </button>
+        </div>
+      )}
       <main className="min-h-0 flex-1 overflow-auto">{children}</main>
     </>
   );
