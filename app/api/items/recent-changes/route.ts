@@ -21,6 +21,13 @@ export async function GET(request: NextRequest) {
   const sp = new URL(request.url).searchParams;
   const segmentIds = (sp.get("segmentIds") ?? "").split(",").filter(Boolean);
   const limit = Math.min(Math.max(Number(sp.get("limit")) || 30, 1), 100);
+  // фильтры ленты: «Кто» (actorIds) и «Поле» (fields; "__none" — события без поля: создание, архив, возврат)
+  const actorIds = (sp.get("actorIds") ?? "").split(",").filter(Boolean);
+  const fieldList = (sp.get("fields") ?? "").split(",").filter(Boolean);
+  const namedFields = fieldList.filter((f) => f !== "__none");
+  const fieldWhere = fieldList.length
+    ? { OR: [...(fieldList.includes("__none") ? [{ fieldName: null }] : []), ...(namedFields.length ? [{ fieldName: { in: namedFields } }] : [])] }
+    : {};
 
   // Фильтр по сегменту требует списка позиций сегмента; без фильтра этот запрос не нужен.
   let entityFilter: { entityId?: { in: string[] } } = {};
@@ -35,7 +42,7 @@ export async function GET(request: NextRequest) {
 
   const [events, dicts] = await Promise.all([
     prisma.auditEvent.findMany({
-      where: { entityType: "OperationalItem", ...entityFilter },
+      where: { entityType: "OperationalItem", ...entityFilter, ...(actorIds.length ? { actorId: { in: actorIds } } : {}), ...fieldWhere },
       orderBy: { timestamp: "desc" },
       take: limit,
     }),
@@ -68,6 +75,7 @@ export async function GET(request: NextRequest) {
       .map((e) => ({
         id: e.id,
         timestamp: e.timestamp.toISOString(),
+        actorId: e.actorId,
         actorName: (e.actorId && dicts.users.get(e.actorId)?.name) || "Система",
         itemId: e.entityId,
         itemTitle: titleById.get(e.entityId) ?? "—",

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
 import { AuditChange } from "@/components/AuditChange";
+import { HistoryEntry } from "@/components/HistoryEntry";
 import { ATTRACTIVENESS_LABEL } from "@/components/ui/Badge";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
@@ -393,25 +394,30 @@ export function ItemPanel({
       ) : (
         <div className="px-5 py-5">
           {history === null ? (
-            <div className="space-y-3">
-              <div className="skeleton h-4 w-3/4 rounded" />
-              <div className="skeleton h-4 w-2/3 rounded" />
-            </div>
+            <ul className="space-y-4">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="flex gap-3">
+                  <div className="skeleton h-6 w-6 shrink-0 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <div className="skeleton h-3.5 w-2/3 rounded" />
+                    <div className="skeleton h-3.5 w-1/3 rounded" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : history.length === 0 ? (
             <p className="text-[13px] text-outline">Изменений пока нет.</p>
           ) : (
-            <ul className="relative space-y-4 border-l border-outline-variant pl-5">
+            <ul>
               {history.map((e) => (
-                <li key={e.id} className="relative">
-                  <span className="absolute -left-[25px] top-1.5 h-2 w-2 rounded-full bg-outline-variant" />
-                  <div className="text-[12px] text-on-surface [overflow-wrap:anywhere]">
-                    <span className="font-semibold">{e.actor?.name ?? "Система"}</span>{" "}
-                    {e.afterSubmission && <span className="mr-1 rounded-sm bg-surface-high px-1 text-[10px] font-semibold text-on-surface-variant">после отправки</span>}
-                    {e.fieldName ? (
-                      <>
-                        изменил(а) поле «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»
-                        <AuditChange before={showValue(e.fieldName, e.before)} after={showValue(e.fieldName, e.after)} />
-                      </>
+                <HistoryEntry
+                  key={e.id}
+                  actorName={e.actor?.name}
+                  timestamp={e.timestamp}
+                  badge={e.afterSubmission ? "после отправки" : undefined}
+                  headline={
+                    e.fieldName ? (
+                      <>изменил(а) поле «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»</>
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"
                     ) : e.action === "ARCHIVE" ? (
@@ -420,10 +426,10 @@ export function ItemPanel({
                       "вернул(а) из архива"
                     ) : (
                       e.action
-                    )}
-                  </div>
-                  <p className="text-[10px] text-outline">{new Date(e.timestamp).toLocaleString("ru-RU")}</p>
-                </li>
+                    )
+                  }
+                  detail={e.fieldName ? <AuditChange before={showValue(e.fieldName, e.before)} after={showValue(e.fieldName, e.after)} /> : undefined}
+                />
               ))}
             </ul>
           )}

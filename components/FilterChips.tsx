@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, ChevronDown, Plus, Search } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 
-export type Option = { id: string; name: string; /** Пояснение справа от названия (например, «Выше среднего» у P70). */ hint?: string };
+export type Option = { id: string; name: string; /** Пояснение справа от названия (например, «Выше среднего» у P70). */ hint?: string; /** Значок слева от названия (например, аватар человека). */ leading?: ReactNode };
 
 /**
  * Чип-фильтр как в образце: «МЕТКА значение ▾». Можно выбрать несколько значений сразу —
@@ -56,7 +56,7 @@ export function FilterChip({
           <div className="max-h-64 overflow-y-auto">
             <Row checked={value.length === 0} onClick={() => onChange([])}>{allLabel}</Row>
             {filtered.map((o) => (
-              <Row key={o.id} checked={value.includes(o.id)} onClick={() => toggle(o.id)} hint={o.hint}>{o.name}</Row>
+              <Row key={o.id} checked={value.includes(o.id)} onClick={() => toggle(o.id)} hint={o.hint} leading={o.leading}>{o.name}</Row>
             ))}
             {filtered.length === 0 && <p className="px-3.5 py-3 text-[12px] text-outline">Ничего не найдено</p>}
           </div>
@@ -71,12 +71,13 @@ export function FilterChip({
   );
 }
 
-function Row({ children, checked, onClick, hint }: { children: ReactNode; checked: boolean; onClick: () => void; hint?: string }) {
+function Row({ children, checked, onClick, hint, leading }: { children: ReactNode; checked: boolean; onClick: () => void; hint?: string; leading?: ReactNode }) {
   return (
     <button onClick={onClick} role="checkbox" aria-checked={checked} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft">
       <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${checked ? "border-primary bg-primary text-white" : "border-outline bg-surface"}`}>
         {checked && <Check size={12} strokeWidth={3} />}
       </span>
+      {leading}
       <span className={`flex min-w-0 items-baseline gap-2 ${checked ? "font-semibold text-primary" : "text-on-surface"}`}>
         <span className="truncate">{children}</span>
         {hint && <span className="truncate text-[12px] font-normal text-on-surface-variant">— {hint}</span>}

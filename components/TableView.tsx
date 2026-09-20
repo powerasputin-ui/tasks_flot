@@ -547,7 +547,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             )}
           </div>
 
-          <RecentChanges segments={segments} refreshKey={feedTick + refetchTick} onOpen={openById} />
+          <RecentChanges segments={segments} refreshKey={feedTick + refetchTick} onOpen={openById} people={refs.users} customColumns={customCols} />
         </div>
       </section>
 

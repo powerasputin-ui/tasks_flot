@@ -411,6 +411,38 @@ describe("цикл оперативки", () => {
   });
 });
 
+describe("лента изменений: фильтры «Кто» и «Поле»", () => {
+  const feed = async (qs: string) => (await call(head, recent.GET, `/api/items/recent-changes?limit=100&${qs}`)).data.events as Array<{ itemId: string; actorId: string | null; field: string | null; label: string | null }>;
+
+  it("в ответе есть actorId, фильтр «Кто» оставляет только выбранного человека", async () => {
+    const mine = (await feed(`actorIds=${head.id}`)).filter((e) => e.itemId === headItem);
+    expect(mine.length).toBeGreaterThan(0);
+    expect(mine.every((e) => e.actorId === head.id)).toBe(true);
+    const curators = (await feed(`actorIds=${curator.id}`)).filter((e) => e.itemId === headItem);
+    expect(curators.every((e) => e.actorId === curator.id)).toBe(true);
+    expect(curators.some((e) => e.actorId === head.id)).toBe(false);
+  });
+
+  it("фильтр «Поле» оставляет только выбранные поля; «Создание и архив» — события без поля", async () => {
+    const comments = (await feed("fields=comment")).filter((e) => e.itemId === headItem);
+    expect(comments.length).toBeGreaterThan(0);
+    expect(comments.every((e) => e.field === "comment")).toBe(true);
+    const none = (await feed("fields=__none")).filter((e) => e.itemId === headItem);
+    expect(none.length).toBeGreaterThan(0);
+    expect(none.every((e) => e.field === null)).toBe(true);
+    const both = (await feed("fields=comment,__none")).filter((e) => e.itemId === headItem);
+    expect(both.every((e) => e.field === "comment" || e.field === null)).toBe(true);
+  });
+
+  it("фильтры сочетаются (пересечение)", async () => {
+    const r = (await feed(`actorIds=${curator.id}&fields=comment`)).filter((e) => e.itemId === headItem);
+    expect(r.every((e) => e.actorId === curator.id && e.field === "comment")).toBe(true);
+    expect(r.length).toBeGreaterThan(0);
+    const empty = await feed(`actorIds=${head.id}&fields=__none&segmentIds=none-such-segment`);
+    expect(empty.filter((e) => e.itemId === headItem)).toEqual([]);
+  });
+});
+
 describe("быстрая загрузка", () => {
   it("bootstrap отдаёт пользователя, справочники, свои колонки и общий вид одним запросом", async () => {
     const r = await call(head, bootstrap.GET, "/api/bootstrap");
