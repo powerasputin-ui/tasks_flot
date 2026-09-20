@@ -213,7 +213,7 @@ export function OperativkaView() {
                 <tr key={r.id} className="border-t border-outline-variant/50 align-top">
                   <td className="px-3 py-2.5">{r.segmentName ?? "—"}</td>
                   <td className="px-3 py-2.5">{r.trackName ?? "—"}</td>
-                  <td className="min-w-56 px-3 py-2.5 font-medium"><ExpandableText text={r.name} lines={2} /></td>
+                  <td className="min-w-56 px-3 py-2.5"><ExpandableText text={r.name} lines={2} /></td>
                   <td className="px-3 py-2.5">{r.cost ?? "—"}</td>
                   <td className="px-3 py-2.5">{r.attractivenessName ?? "—"}</td>
                   <td className="px-3 py-2.5">{r.ownerName ?? "—"}</td>

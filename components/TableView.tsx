@@ -369,7 +369,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return <HoverText text={row.name} lines={2} className={`text-[13px] font-semibold leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
+        return <HoverText text={row.name} lines={2} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
