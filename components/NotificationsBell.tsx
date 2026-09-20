@@ -29,7 +29,10 @@ export function NotificationsBell() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 30_000);
+    // не опрашиваем сервер, пока вкладка скрыта: каждый опрос — обращение к удалённой базе
+    const interval = setInterval(() => {
+      if (!document.hidden) load();
+    }, 30_000);
     return () => clearInterval(interval);
   }, []);
 
