@@ -16,12 +16,6 @@ type Ev = {
   after: string | null;
 };
 
-const DOT: Record<string, string> = {
-  CREATE: "bg-status-emerald",
-  ARCHIVE: "bg-status-red",
-  RESTORE: "bg-sky",
-};
-
 /** «История изменений» под таблицей (как блок с точками в образце): последние правки выбранной выборки. */
 export function RecentChanges({ segments, refreshKey, onOpen }: { segments: string[]; refreshKey: number; onOpen: (itemId: string) => void }) {
   const [events, setEvents] = useState<Ev[] | null>(null);
@@ -44,8 +38,7 @@ export function RecentChanges({ segments, refreshKey, onOpen }: { segments: stri
       <h4 className="label-caps mb-4">История изменений</h4>
       <ul className="space-y-3">
         {shown.map((e) => (
-          <li key={e.id} className="flex gap-3">
-            <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${DOT[e.action] ?? "bg-status-amber"}`} />
+          <li key={e.id}>
             <div className="min-w-0">
               <div className="text-[12px] text-on-surface [overflow-wrap:anywhere]">
                 <span className="font-bold">{e.actorName}</span>{" "}
@@ -55,10 +48,12 @@ export function RecentChanges({ segments, refreshKey, onOpen }: { segments: stri
                   </>
                 ) : (
                   e.what
-                )}{" "}
-                у{" "}
-                <button onClick={() => onOpen(e.itemId)} className="font-semibold text-primary hover:underline">
-                  «{e.itemTitle.length > 60 ? `${e.itemTitle.slice(0, 60)}…` : e.itemTitle}»
+                )}
+              </div>
+              <div className="mt-1 text-[12px] text-on-surface-variant">
+                Задача:{" "}
+                <button onClick={() => onOpen(e.itemId)} className="font-semibold text-primary hover:underline [overflow-wrap:anywhere]">
+                  {e.itemTitle.length > 80 ? `${e.itemTitle.slice(0, 80)}…` : e.itemTitle}
                 </button>
               </div>
               <p className="text-[10px] text-outline">{new Date(e.timestamp).toLocaleString("ru-RU")}</p>

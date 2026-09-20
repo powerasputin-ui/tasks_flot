@@ -403,10 +403,10 @@ export function ItemPanel({
             <ul className="relative space-y-4 border-l border-outline-variant pl-5">
               {history.map((e) => (
                 <li key={e.id} className="relative">
-                  <span className={`absolute -left-[25px] top-1.5 h-2 w-2 rounded-full ${e.action === "ARCHIVE" ? "bg-status-red" : e.action === "CREATE" ? "bg-status-emerald" : "bg-status-amber"}`} />
+                  <span className="absolute -left-[25px] top-1.5 h-2 w-2 rounded-full bg-outline-variant" />
                   <div className="text-[12px] text-on-surface [overflow-wrap:anywhere]">
                     <span className="font-semibold">{e.actor?.name ?? "Система"}</span>{" "}
-                    {e.afterSubmission && <span className="mr-1 rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">после отправки</span>}
+                    {e.afterSubmission && <span className="mr-1 rounded-sm bg-surface-high px-1 text-[10px] font-semibold text-on-surface-variant">после отправки</span>}
                     {e.fieldName ? (
                       <>
                         изменил(а){" "}

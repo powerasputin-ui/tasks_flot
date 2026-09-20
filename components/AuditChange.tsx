@@ -1,13 +1,14 @@
 "use client";
 
+import { ArrowDown } from "lucide-react";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { isLongChange } from "@/lib/audit-format";
 
 /**
  * Одно изменение поля в журнале: «Поле»: было → стало.
- * Короткие значения — в одну строку со стрелкой. Длинные (и с абзацами) — двумя карточками
- * «Было» / «Стало»: слова любой длины переносятся, каждая карточка свёрнута до 3 строк,
- * а «Показать полностью» появляется, только если текст действительно обрезан.
+ * Короткие значения — в одну строку со стрелкой. Длинные (и с абзацами) — двумя спокойными
+ * блоками: прежнее значение (серым) и новое, между ними стрелка. Слова любой длины переносятся,
+ * блок свёрнут до 3 строк, а «Показать полностью» появляется, только если текст действительно обрезан.
  * Нужен внутри контейнера-блока (div): длинный вариант выводит блочные элементы.
  */
 export function AuditChange({ label, before, after }: { label: string; before: string; after: string }) {
@@ -22,20 +23,19 @@ export function AuditChange({ label, before, after }: { label: string; before: s
   return (
     <>
       «{label}»:
-      <div className="mt-1.5 space-y-1.5">
-        <Quote tag="Было" text={before} tone="old" />
-        <Quote tag="Стало" text={after} tone="new" />
+      <div className="mt-1.5 space-y-1">
+        <Block text={before} muted />
+        <ArrowDown size={13} className="ml-3 text-outline" aria-label="изменено на" />
+        <Block text={after} />
       </div>
     </>
   );
 }
 
-function Quote({ tag, text, tone }: { tag: string; text: string; tone: "old" | "new" }) {
-  const old = tone === "old";
+function Block({ text, muted }: { text: string; muted?: boolean }) {
   return (
-    <div className={`rounded-md border-l-[3px] bg-surface-low py-2 pl-3 pr-3 ${old ? "border-status-red/50" : "border-status-emerald"}`}>
-      <span className={`mb-0.5 block text-[10px] font-bold uppercase tracking-wide ${old ? "text-status-red/80" : "text-status-emerald"}`}>{tag}</span>
-      <ExpandableText text={text} lines={3} className={`text-[12px] leading-relaxed ${old ? "text-on-surface-variant" : "text-on-surface"}`} />
+    <div className="rounded-md bg-surface-low px-3 py-2">
+      <ExpandableText text={text} lines={3} className={`text-[12px] leading-relaxed ${muted ? "text-on-surface-variant" : "text-on-surface"}`} />
     </div>
   );
 }
