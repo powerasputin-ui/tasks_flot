@@ -13,8 +13,10 @@ export default defineConfig({
     environment: "node",
     include: ["e2e/**/*.e2e.ts"],
     env: loadEnv("", process.cwd(), ""),
-    testTimeout: 90_000,
-    hookTimeout: 120_000,
+    testTimeout: 150_000,
+    // удалённая база иногда рвёт соединение (Windows 10054) — повторяем упавший тест, а не всю проверку
+    retry: 2,
+    hookTimeout: 240_000,
     fileParallelism: false,
   },
 });
