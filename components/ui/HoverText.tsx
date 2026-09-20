@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClamped } from "@/components/ui/ExpandableText";
+import { Highlight } from "@/components/ui/Highlight";
 
 const CLAMP: Record<number, string> = { 1: "line-clamp-1", 2: "line-clamp-2", 3: "line-clamp-3", 4: "line-clamp-4" };
 const CARD_W = 420;
@@ -11,7 +12,7 @@ const CARD_W = 420;
  * Текст в ячейке таблицы: компактный (несколько строк), а если он обрезан — при наведении
  * рядом появляется карточка с полным текстом. Клик по строке, как и раньше, открывает позицию.
  */
-export function HoverText({ text, lines = 3, className = "" }: { text: string; lines?: number; className?: string }) {
+export function HoverText({ text, lines = 3, className = "", query }: { text: string; lines?: number; className?: string; query?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const clamped = useIsClamped(ref, true, text);
   const [pos, setPos] = useState<{ left: number; top: number; above: boolean } | null>(null);
@@ -31,7 +32,7 @@ export function HoverText({ text, lines = 3, className = "" }: { text: string; l
   return (
     <>
       <div ref={ref} onMouseEnter={show} onMouseLeave={hide} className={`whitespace-pre-line [overflow-wrap:anywhere] ${CLAMP[lines] ?? CLAMP[3]} ${className}`}>
-        {text}
+        <Highlight text={text} query={query} />
       </div>
       {pos &&
         createPortal(
@@ -42,7 +43,7 @@ export function HoverText({ text, lines = 3, className = "" }: { text: string; l
             className="fixed z-50 max-h-[50vh] overflow-y-auto rounded-md border border-outline-variant bg-surface p-3.5 text-[13px] font-normal leading-relaxed text-on-surface shadow-lg [overflow-wrap:anywhere]"
             style={{ left: pos.left, top: pos.top, width: CARD_W, maxWidth: "calc(100vw - 16px)", transform: pos.above ? "translateY(-100%)" : undefined }}
           >
-            <p className="whitespace-pre-wrap">{text}</p>
+            <p className="whitespace-pre-wrap"><Highlight text={text} query={query} /></p>
           </div>,
           document.body
         )}

@@ -1,10 +1,4 @@
-const ATTRACTIVENESS_LABEL: Record<string, string> = {
-  P100: "Высокая",
-  P70: "Выше среднего",
-  P50: "Средняя",
-  P10: "Низкая",
-  P0: "Отсутствует",
-};
+import { ATTRACTIVENESS_LABEL } from "@/lib/attractiveness";
 
 /** Бейдж шкалы привлекательности (как P90/P50/P10 в образце): цвет берётся из справочника. */
 export function AttractivenessBadge({ name, color }: { name: string | null; color: string | null }) {

@@ -2,7 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Highlight } from "@/components/ui/Highlight";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
@@ -45,6 +46,8 @@ const ARCHIVE_LABEL = { active: "Активные", archived: "Архив", all:
 
 export function TableView({ defaultArchive = "active" }: { defaultArchive?: "active" | "archived" }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const q = searchParams.get("q") ?? "";
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -270,7 +273,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   const moreActive = [deadlineFrom || deadlineTo, archive !== defaultArchive].filter(Boolean).length;
   const anyFilter = !!(trackIds.length || statusIds.length || attractivenessIds.length || ownerIds.length || operFlags.length || q || moreActive);
+  /** Убирает поисковый запрос из адреса (строка поиска в шапке следит за адресом и очистится сама). */
+  function clearQuery() {
+    router.replace(pathname, { scroll: false });
+  }
+
   function resetFilters() {
+    clearQuery();
     setTrackIds([]); setStatusIds([]); setAttractivenessIds([]); setOwnerIds([]); setOperFlags([]);
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
@@ -281,13 +290,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   function renderCell(row: Row, col: ColumnConfig) {
     switch (col.key) {
       case "track":
-        return row.trackName ?? "—";
+        return row.trackName ? <Highlight text={row.trackName} query={q} /> : "—";
       case "cost":
-        return row.cost ?? "—";
+        return row.cost ? <Highlight text={row.cost} query={q} /> : "—";
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return <HoverText text={row.name} lines={2} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
+        return <HoverText text={row.name} lines={2} query={q} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
@@ -303,7 +312,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         return row.ownerName ? (
           <span className="inline-flex items-center gap-2">
             <Avatar name={row.ownerName} size={20} />
-            <span className="truncate">{row.ownerName}</span>
+            <span className="truncate"><Highlight text={row.ownerName} query={q} /></span>
             {row.ownerRole === "CURATOR" && <CuratorMark />}
           </span>
         ) : (
@@ -336,7 +345,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       }
       case "comment":
-        return row.comment ? <HoverText text={row.comment} lines={3} className="text-[12px] leading-snug text-on-surface-variant" /> : "—";
+        return row.comment ? <HoverText text={row.comment} lines={3} query={q} className="text-[12px] leading-snug text-on-surface-variant" /> : "—";
       default: {
         // своя колонка куратора
         const id = col.key.slice("custom:".length);
@@ -493,7 +502,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             </table>
 
             {!loading && !error && visibleRows.length === 0 && (
-              <EmptyState filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
+              <EmptyState query={q} filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
             )}
           </div>
 
@@ -576,18 +585,18 @@ function CuratorMark() {
   );
 }
 
-function EmptyState({ filtered, onReset, archive, canCreate, onCreate }: { filtered: boolean; onReset: () => void; archive: boolean; canCreate: boolean; onCreate: () => void }) {
+function EmptyState({ filtered, onReset, archive, canCreate, onCreate, query }: { filtered: boolean; onReset: () => void; archive: boolean; canCreate: boolean; onCreate: () => void; query: string }) {
   return (
     <div className="flex flex-col items-center px-6 py-16 text-center">
       <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-high text-outline">
         <ClipboardList size={22} />
       </span>
-      <p className="text-[14px] font-semibold text-on-surface">{filtered ? "Ничего не найдено" : archive ? "В архиве пока пусто" : "Пока нет позиций"}</p>
+      <p className="text-[14px] font-semibold text-on-surface">{filtered ? (query.trim() ? `Ничего не найдено по запросу «${query.trim()}»` : "Ничего не найдено") : archive ? "В архиве пока пусто" : "Пока нет позиций"}</p>
       <p className="mt-1 max-w-sm text-[13px] text-on-surface-variant">
-        {filtered ? "Измените условия поиска или сбросьте фильтры." : archive ? "Сюда попадают закрытые и старые позиции." : "Позиции появятся здесь, когда будут добавлены."}
+        {filtered ? "Проверьте написание, попробуйте меньше слов (ищутся все слова сразу) или сбросьте фильтры." : archive ? "Сюда попадают закрытые и старые позиции." : "Позиции появятся здесь, когда будут добавлены."}
       </p>
       <div className="mt-4 flex gap-2">
-        {filtered && <button onClick={onReset} className="btn-ghost">Сбросить фильтры</button>}
+        {filtered && <button onClick={onReset} className="btn-ghost">Сбросить поиск и фильтры</button>}
         {!filtered && !archive && canCreate && (
           <button onClick={onCreate} className="btn-primary">
             <Plus size={16} />

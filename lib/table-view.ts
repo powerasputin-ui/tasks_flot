@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { deadlineWeek } from "@/lib/deadline-week";
 import { idsChangedAfterSubmission } from "@/lib/submission";
+import { ATTRACTIVENESS_LABEL } from "@/lib/attractiveness";
+import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -141,8 +143,32 @@ export async function loadTableRow(id: string): Promise<TableRow | null> {
   return toTableRow(item, changed.has(id));
 }
 
+const ruDate = (d: Date) => d.toLocaleDateString("ru-RU");
+const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+
+/** Текст строки для поиска: все, что видно в таблице, плюс пояснения (P70 → «выше среднего»), даты и свои колонки. */
+export function searchHaystack(r: TableRow): string {
+  return normalizeText(
+    [
+      r.name,
+      r.comment,
+      r.cost,
+      r.trackName,
+      r.segmentName,
+      r.ownerName,
+      r.statusName,
+      r.attractivenessName,
+      r.attractivenessName ? ATTRACTIVENESS_LABEL[r.attractivenessName] : null,
+      r.deadline ? `${ruDate(r.deadline)} ${isoDate(r.deadline)}` : null,
+      ...Object.values(r.customValues ?? {}),
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
 export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[] {
-  const q = f.q?.trim().toLowerCase();
+  const tokens = tokenize(f.q ?? "");
   return rows.filter((r) => {
     if (f.segmentIds && f.segmentIds.length > 0 && !f.segmentIds.includes(r.segmentId ?? "none")) return false;
     if (f.trackIds?.length && !f.trackIds.includes(r.trackId ?? "")) return false;
@@ -153,10 +179,7 @@ export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[]
     if (f.operFlag !== undefined && r.operFlag !== f.operFlag) return false;
     if (f.deadlineFrom && (!r.deadline || r.deadline < f.deadlineFrom)) return false;
     if (f.deadlineTo && (!r.deadline || r.deadline > f.deadlineTo)) return false;
-    if (q) {
-      const hay = [r.name, r.comment, r.cost, r.trackName, r.segmentName, r.ownerName].filter(Boolean).join(" ").toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
+    if (tokens.length > 0 && !matchesTokens(searchHaystack(r), tokens)) return false;
     return true;
   });
 }

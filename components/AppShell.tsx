@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, LogOut, Search, Settings } from "lucide-react";
+import { ChevronDown, LogOut, Search, Settings, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { Avatar } from "@/components/ui/Avatar";
 import { MenuItem, Popover } from "@/components/ui/Popover";
@@ -79,9 +79,17 @@ function TopSearch() {
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Поиск по названию, комментарию, ответственному…"
-        className="input w-full pl-9"
+        onKeyDown={(e) => e.key === "Escape" && setValue("")}
+        placeholder="Поиск: задача, комментарий, трек, ответственный, статус…"
+        aria-label="Поиск по таблице"
+        maxLength={200}
+        className="input w-full pl-9 pr-9"
       />
+      {value && (
+        <button onClick={() => setValue("")} className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface" title="Очистить поиск (Esc)" aria-label="Очистить поиск">
+          <X size={15} />
+        </button>
+      )}
     </div>
   );
 }
