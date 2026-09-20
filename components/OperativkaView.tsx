@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ExportMenu } from "@/components/ExportMenu";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
@@ -191,9 +192,12 @@ export function OperativkaView() {
 
       {view && (
         <div className="surface mt-4 overflow-x-auto">
-          <p className="border-b border-outline-variant px-4 py-3 text-[13px] font-semibold">
-            Оперативка №{view.cycle.number} — зафиксирована {fmt(view.cycle.finalizedAt)}, позиций: {view.rows.length}
-          </p>
+          <div className="flex items-center justify-between gap-3 border-b border-outline-variant px-4 py-3">
+            <p className="text-[13px] font-semibold">
+              Оперативка №{view.cycle.number} — зафиксирована {fmt(view.cycle.finalizedAt)}, позиций: {view.rows.length}
+            </p>
+            <ExportMenu endpoint={`/api/cycles/${view.cycle.id}/export`} />
+          </div>
           <table className="w-full min-w-[900px] border-collapse text-[13px]">
             <thead className="bg-surface-high">
               <tr>
