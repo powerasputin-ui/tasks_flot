@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, ChevronDown, Plus, Search } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 
-export type Option = { id: string; name: string };
+export type Option = { id: string; name: string; /** Пояснение справа от названия (например, «Выше среднего» у P70). */ hint?: string };
 
 /** Чип-фильтр как в образце: «МЕТКА значение ▾». Активный (значение выбрано) подсвечен. */
 export function FilterChip({
@@ -26,7 +26,7 @@ export function FilterChip({
 
   return (
     <Popover
-      width={240}
+      width={280}
       trigger={({ toggle }) => (
         <button
           onClick={toggle}
@@ -51,7 +51,7 @@ export function FilterChip({
           <div className="max-h-64 overflow-y-auto">
             <Row active={!value} onClick={() => { onChange(""); close(); }}>{allLabel}</Row>
             {filtered.map((o) => (
-              <Row key={o.id} active={o.id === value} onClick={() => { onChange(o.id); close(); }}>{o.name}</Row>
+              <Row key={o.id} active={o.id === value} onClick={() => { onChange(o.id); close(); }} hint={o.hint}>{o.name}</Row>
             ))}
             {filtered.length === 0 && <p className="px-3.5 py-3 text-[12px] text-outline">Ничего не найдено</p>}
           </div>
@@ -61,10 +61,13 @@ export function FilterChip({
   );
 }
 
-function Row({ children, active, onClick }: { children: ReactNode; active: boolean; onClick: () => void }) {
+function Row({ children, active, onClick, hint }: { children: ReactNode; active: boolean; onClick: () => void; hint?: string }) {
   return (
     <button onClick={onClick} className={`flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${active ? "font-semibold text-primary" : "text-on-surface"}`}>
-      <span className="truncate">{children}</span>
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="truncate">{children}</span>
+        {hint && <span className="truncate text-[12px] font-normal text-on-surface-variant">— {hint}</span>}
+      </span>
       {active && <Check size={14} className="shrink-0" />}
     </button>
   );

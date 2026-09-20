@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
+import { ATTRACTIVENESS_LABEL } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
 import { Popover } from "@/components/ui/Popover";
 import { FIELD_LABEL } from "@/lib/audit-format";
@@ -287,7 +288,7 @@ export function ItemPanel({
               </Field>
               <div className="col-span-2">
                 <Field label="Привлекательность">
-                  <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness} disabled={disabled} emptyLabel="P0 (не указана)" />
+                  <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: ATTRACTIVENESS_LABEL[a.name] ? `${a.name} — ${ATTRACTIVENESS_LABEL[a.name]}` : a.name }))} disabled={disabled} emptyLabel="P0 — Отсутствует (не указана)" />
                 </Field>
               </div>
             </div>

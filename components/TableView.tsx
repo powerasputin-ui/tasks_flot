@@ -12,7 +12,7 @@ import { canCreateItem, canDeleteItem } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Ref, type Refs, type TrackRef } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
-import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
+import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
 import { RecentChanges } from "@/components/RecentChanges";
 import { Popover } from "@/components/ui/Popover";
 import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
@@ -412,7 +412,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
             <FilterChip label="Трек" value={trackId} options={refs.tracks} onChange={setTrackId} />
             <FilterChip label="Статус" value={statusId} options={refs.statuses} onChange={setStatusId} />
-            <FilterChip label="Привлекательность" value={attractivenessId} options={refs.attractiveness} onChange={setAttractivenessId} />
+            <FilterChip label="Привлекательность" value={attractivenessId} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessId} />
             <FilterChip label="Ответственный" value={ownerId} options={refs.users} onChange={setOwnerId} />
             <FilterChip
               label="Опер"
