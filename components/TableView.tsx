@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Highlight } from "@/components/ui/Highlight";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
@@ -15,6 +15,7 @@ import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/co
 import { Avatar } from "@/components/ui/Avatar";
 import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
 import { RecentChanges } from "@/components/RecentChanges";
+import { Panel } from "@/components/ui/Panel";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
@@ -64,6 +65,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const columns = useMemo(() => withCustomColumns(savedColumns, customCols), [savedColumns, customCols]);
   const [editor, setEditorState] = useState<{ row: Row | null } | null>(null);
   const [analytics, setAnalytics] = useState(false);
+  const [history, setHistory] = useState(false);
   // Экспорт живёт в шапке рядом с колокольчиком: рендерим его туда через портал.
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -75,10 +77,19 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   // Справа открыта одна панель за раз: карточка позиции или аналитика.
   const setEditor = (v: { row: Row | null } | null) => {
     setEditorState(v);
-    if (v) setAnalytics(false);
+    if (v) {
+      setAnalytics(false);
+      setHistory(false);
+    }
   };
   const toggleAnalytics = () => {
     setAnalytics((a) => !a);
+    setHistory(false);
+    setEditorState(null);
+  };
+  const toggleHistory = () => {
+    setHistory((h) => !h);
+    setAnalytics(false);
     setEditorState(null);
   };
 
@@ -419,6 +430,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button onClick={toggleHistory} className={`btn-ghost w-9 px-0 ${history ? "border-primary bg-primary-soft text-primary" : ""}`} title="История изменений" aria-label="История изменений">
+                <History size={16} />
+              </button>
               <button onClick={toggleAnalytics} className={`btn-ghost ${analytics ? "border-primary bg-primary-soft text-primary" : ""}`} title="Аналитика выборки">
                 <BarChart3 size={15} />
                 Аналитика
@@ -549,7 +563,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             )}
           </div>
 
-          <RecentChanges segments={segments} refreshKey={feedTick + refetchTick} onOpen={openById} people={refs.users} customColumns={customCols} />
         </div>
       </section>
 
@@ -594,6 +607,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             </>
           )}
         </div>
+      )}
+
+      {history && (
+        <Panel title="История изменений" subtitle={segments.length === 0 ? "Все сегменты" : selectedName} width={480} onClose={() => setHistory(false)}>
+          <RecentChanges segments={segments} refreshKey={feedTick + refetchTick} onOpen={openById} people={refs.users} customColumns={customCols} />
+        </Panel>
       )}
 
       {analytics && <AnalyticsPanel rows={visibleRows} title={selectedName} onClose={() => setAnalytics(false)} />}

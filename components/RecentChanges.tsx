@@ -23,12 +23,13 @@ type Ev = {
 
 /** Значение фильтра «Поле» для событий без поля (создание позиции, архив, возврат). */
 const NO_FIELD = "__none";
-const PAGE = 10;
+const PAGE = 15;
 const STANDARD_FIELDS = ["title", "comment", "cost", "attractivenessId", "responsibleId", "deadline", "statusId", "operFlag", "trackId", "segmentId"];
 
 /**
- * «История изменений» под таблицей: последние правки выбранной выборки с фильтрами по человеку и полю.
- * Люди различаются цветом (аватар и имя), фильтры работают на сервере, поэтому «Показать ещё» остаётся точным.
+ * Содержимое правой панели «История изменений»: последние правки выбранной выборки с фильтрами по человеку и полю.
+ * Панель открывается по иконке в тулбаре, поэтому данные грузятся только когда история нужна.
+ * Люди различаются цветом (аватар и имя); фильтры работают на сервере, поэтому «Показать ещё» остаётся точным.
  */
 export function RecentChanges({
   segments,
@@ -70,16 +71,12 @@ export function RecentChanges({
   }, [segments, refreshKey, limit, actorIds, fields]);
 
   const filtered = actorIds.length > 0 || fields.length > 0;
-  // без данных и без фильтров раздел не нужен; при фильтрах остаётся, чтобы их можно было сбросить
-  if (events !== null && events.length === 0 && !filtered) return null;
-
   const shown = events?.slice(0, limit) ?? [];
   const more = events ? Math.max(0, events.length - limit) : 0;
 
   return (
-    <section className="mt-8">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h4 className="label-caps mr-2">История изменений</h4>
+    <div>
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-outline-variant bg-surface px-5 py-3">
         <FilterChip label="Кто" value={actorIds} options={peopleOptions} onChange={(v) => { setActorIds(v); setLimit(PAGE); }} />
         <FilterChip label="Поле" value={fields} options={fieldOptions} onChange={(v) => { setFields(v); setLimit(PAGE); }} />
         {filtered && (
@@ -89,10 +86,10 @@ export function RecentChanges({
         )}
       </div>
 
-      <div className="rounded-lg border border-outline-variant bg-surface px-4 py-4 shadow-sm">
+      <div className="px-5 py-4">
         {events === null ? (
           <ul className="space-y-4">
-            {[0, 1, 2].map((i) => (
+            {[0, 1, 2, 3].map((i) => (
               <li key={i} className="flex gap-3">
                 <div className="skeleton h-6 w-6 shrink-0 rounded-full" />
                 <div className="flex-1 space-y-2">
@@ -103,7 +100,7 @@ export function RecentChanges({
             ))}
           </ul>
         ) : shown.length === 0 ? (
-          <p className="py-4 text-center text-[13px] text-on-surface-variant">Нет изменений по выбранным условиям.</p>
+          <p className="py-8 text-center text-[13px] text-on-surface-variant">{filtered ? "Нет изменений по выбранным условиям." : "Изменений пока нет."}</p>
         ) : (
           <ul>
             {shown.map((e) => (
@@ -133,6 +130,6 @@ export function RecentChanges({
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
