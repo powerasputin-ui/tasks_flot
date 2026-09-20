@@ -412,7 +412,16 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   return (
     <div className="flex h-full min-h-0">
-      {headerSlot && me && me.role !== "SYSTEM_ADMIN" && createPortal(<ExportMenu endpoint="/api/export/table" params={exportParams} iconOnly />, headerSlot)}
+      {headerSlot &&
+        createPortal(
+          <>
+            <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
+              <BarChart3 size={18} />
+            </button>
+            {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} iconOnly />}
+          </>,
+          headerSlot
+        )}
       <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
 
       <section className="flex min-w-0 flex-1 flex-col">
@@ -430,10 +439,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={toggleAnalytics} className={`btn-ghost ${analytics ? "border-primary bg-primary-soft text-primary" : ""}`} title="Аналитика выборки">
-                <BarChart3 size={15} />
-                Аналитика
-              </button>
               {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
                 <button onClick={() => setEditor({ row: null })} className="btn-primary">
                   <Plus size={16} />
