@@ -220,7 +220,7 @@ export function OperativkaView() {
                   <td className="px-3 py-2.5">{r.ownerName ?? "—"}</td>
                   <td className="px-3 py-2.5">{fmt(r.deadline)}</td>
                   <td className="px-3 py-2.5">{r.statusName ?? "—"}</td>
-                  <td className="min-w-64 px-3 py-2.5 text-on-surface-variant">{r.comment ? <ExpandableText text={r.comment} lines={3} /> : "—"}</td>
+                  <td className="min-w-64 px-3 py-2.5">{r.comment ? <ExpandableText text={r.comment} lines={3} /> : "—"}</td>
                   {r.customFields?.map((f, i) => (
                     <td key={i} className="px-3 py-2.5">{f.value ? (f.type === "DATE" ? fmt(f.value) : f.value) : "—"}</td>
                   ))}

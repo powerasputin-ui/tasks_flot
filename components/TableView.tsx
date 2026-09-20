@@ -42,6 +42,8 @@ type Me = { id: string; role: string } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
+/** Колонки с плашками, датой и галкой: при нехватке места обрезаются без «…» (многоточие рядом с плашкой выглядело как лишние точки). */
+const CLIPPED_COLUMNS: ColumnKey[] = ["attractiveness", "status", "deadline", "deadlineWeek", "operFlag"];
 
 const ARCHIVE_LABEL = { active: "Активные", archived: "Архив", all: "Все" } as const;
 
@@ -342,7 +344,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
             {isOverdue(row) && <AlertCircle size={13} />}
-            {new Date(row.deadline).toLocaleDateString("ru-RU")}
+            {new Date(row.deadline).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })}
           </span>
         ) : (
           "—"
@@ -386,7 +388,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       }
       case "comment":
-        return row.comment ? <HoverText text={row.comment} lines={3} query={q} className="text-[13px] leading-snug text-on-surface-variant" /> : "—";
+        return row.comment ? <HoverText text={row.comment} lines={3} query={q} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} /> : "—";
       default: {
         // своя колонка куратора
         const id = col.key.slice("custom:".length);
@@ -528,8 +530,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                           {visibleColumns.map((col) => (
                             <td
                               key={col.key}
-                              className={`px-4 py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
-                                col.key === "name" || col.key === "comment" ? "" : "truncate"
+                              className={`${CLIPPED_COLUMNS.includes(col.key) ? "px-2" : "px-4"} py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
+                                col.key === "name" || col.key === "comment" ? "" : CLIPPED_COLUMNS.includes(col.key) ? "overflow-hidden text-clip" : "truncate"
                               }`}
                             >
                               {renderCell(row, col)}

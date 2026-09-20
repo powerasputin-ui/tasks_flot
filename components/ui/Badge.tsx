@@ -19,9 +19,9 @@ export function StatusPill({ name, color }: { name: string | null; color: string
   if (!name) return <span className="text-outline">—</span>;
   const c = color ?? "#64748b";
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `${c}1a`, color: c }}>
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
-      {name}
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `${c}1a`, color: c }}>
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c }} />
+      <span className="truncate">{name}</span>
     </span>
   );
 }
