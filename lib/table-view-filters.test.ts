@@ -52,6 +52,18 @@ describe("applyTableFilters", () => {
     expect(applyTableFilters(rows, { segmentIds: [] })).toHaveLength(3);
   });
 
+  it("несколько значений в одном фильтре (ИЛИ), между фильтрами — И", () => {
+    const rows = [
+      row({ id: "1", trackId: "t1", statusId: "s1" }),
+      row({ id: "2", trackId: "t2", statusId: "s1" }),
+      row({ id: "3", trackId: "t3", statusId: "s2" }),
+      row({ id: "4", trackId: "t1", statusId: "s2" }),
+    ];
+    expect(applyTableFilters(rows, { trackIds: ["t1", "t2"] }).map((r) => r.id)).toEqual(["1", "2", "4"]);
+    expect(applyTableFilters(rows, { trackIds: ["t1", "t2"], statusIds: ["s1"] }).map((r) => r.id)).toEqual(["1", "2"]);
+    expect(applyTableFilters(rows, { trackIds: [] })).toHaveLength(4);
+  });
+
   it("поиск q ищет по названию, комментарию, треку и ответственному без учёта регистра", () => {
     const rows = [
       row({ id: "1", name: "Переговоры с судовладельцем" }),

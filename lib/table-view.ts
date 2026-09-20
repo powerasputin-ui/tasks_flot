@@ -43,10 +43,11 @@ export type ArchiveMode = "active" | "archived" | "all";
 export type TableFilters = {
   /** Несколько сегментов сразу; "none" — позиции без сегмента; пусто — все. */
   segmentIds?: string[];
-  trackId?: string;
-  statusId?: string;
-  ownerId?: string;
-  attractivenessId?: string;
+  /** Несколько значений сразу (ИЛИ внутри одного фильтра, И между фильтрами); пусто — без ограничения. */
+  trackIds?: string[];
+  statusIds?: string[];
+  ownerIds?: string[];
+  attractivenessIds?: string[];
   week?: number;
   deadlineFrom?: Date;
   deadlineTo?: Date;
@@ -124,10 +125,10 @@ export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[]
   const q = f.q?.trim().toLowerCase();
   return rows.filter((r) => {
     if (f.segmentIds && f.segmentIds.length > 0 && !f.segmentIds.includes(r.segmentId ?? "none")) return false;
-    if (f.trackId && r.trackId !== f.trackId) return false;
-    if (f.statusId && r.statusId !== f.statusId) return false;
-    if (f.ownerId && r.ownerId !== f.ownerId) return false;
-    if (f.attractivenessId && r.attractivenessId !== f.attractivenessId) return false;
+    if (f.trackIds?.length && !f.trackIds.includes(r.trackId ?? "")) return false;
+    if (f.statusIds?.length && !f.statusIds.includes(r.statusId ?? "")) return false;
+    if (f.ownerIds?.length && !f.ownerIds.includes(r.ownerId ?? "")) return false;
+    if (f.attractivenessIds?.length && !f.attractivenessIds.includes(r.attractivenessId ?? "")) return false;
     if (f.week && r.deadlineWeek !== f.week) return false;
     if (f.operFlag !== undefined && r.operFlag !== f.operFlag) return false;
     if (f.deadlineFrom && (!r.deadline || r.deadline < f.deadlineFrom)) return false;

@@ -6,7 +6,10 @@ import { Popover } from "@/components/ui/Popover";
 
 export type Option = { id: string; name: string; /** Пояснение справа от названия (например, «Выше среднего» у P70). */ hint?: string };
 
-/** Чип-фильтр как в образце: «МЕТКА значение ▾». Активный (значение выбрано) подсвечен. */
+/**
+ * Чип-фильтр как в образце: «МЕТКА значение ▾». Можно выбрать несколько значений сразу —
+ * так удобно сравнивать выборки. Список не закрывается при выборе. Активный чип подсвечен.
+ */
 export function FilterChip({
   label,
   value,
@@ -15,32 +18,34 @@ export function FilterChip({
   allLabel = "Все",
 }: {
   label: string;
-  value: string;
+  value: string[];
   options: Option[];
-  onChange: (id: string) => void;
+  onChange: (ids: string[]) => void;
   allLabel?: string;
 }) {
   const [search, setSearch] = useState("");
-  const current = options.find((o) => o.id === value);
+  const selected = options.filter((o) => value.includes(o.id));
   const filtered = search ? options.filter((o) => o.name.toLowerCase().includes(search.toLowerCase())) : options;
+  const summary = selected.length === 0 ? allLabel : selected.length === 1 ? selected[0].name : `${selected.length} выбрано`;
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
     <Popover
       width={280}
-      trigger={({ toggle }) => (
+      trigger={({ toggle: open }) => (
         <button
-          onClick={toggle}
+          onClick={open}
           className={`flex h-9 items-center gap-2 rounded-md border px-3 transition-colors ${
-            current ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"
+            selected.length > 0 ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"
           }`}
         >
           <span className="label-caps">{label}</span>
-          <span className={`max-w-36 truncate text-[13px] font-semibold ${current ? "text-primary" : "text-on-surface"}`}>{current?.name ?? allLabel}</span>
+          <span className={`max-w-36 truncate text-[13px] font-semibold ${selected.length > 0 ? "text-primary" : "text-on-surface"}`}>{summary}</span>
           <ChevronDown size={14} className="text-outline" />
         </button>
       )}
     >
-      {(close) => (
+      {() => (
         <div>
           {options.length > 8 && (
             <div className="relative px-2 pb-1 pt-1">
@@ -49,26 +54,33 @@ export function FilterChip({
             </div>
           )}
           <div className="max-h-64 overflow-y-auto">
-            <Row active={!value} onClick={() => { onChange(""); close(); }}>{allLabel}</Row>
+            <Row checked={value.length === 0} onClick={() => onChange([])}>{allLabel}</Row>
             {filtered.map((o) => (
-              <Row key={o.id} active={o.id === value} onClick={() => { onChange(o.id); close(); }} hint={o.hint}>{o.name}</Row>
+              <Row key={o.id} checked={value.includes(o.id)} onClick={() => toggle(o.id)} hint={o.hint}>{o.name}</Row>
             ))}
             {filtered.length === 0 && <p className="px-3.5 py-3 text-[12px] text-outline">Ничего не найдено</p>}
           </div>
+          {value.length > 0 && (
+            <button onClick={() => onChange([])} className="w-full border-t border-outline-variant px-3.5 py-2 text-left text-[12px] font-semibold text-primary hover:bg-primary-soft">
+              Сбросить ({value.length})
+            </button>
+          )}
         </div>
       )}
     </Popover>
   );
 }
 
-function Row({ children, active, onClick, hint }: { children: ReactNode; active: boolean; onClick: () => void; hint?: string }) {
+function Row({ children, checked, onClick, hint }: { children: ReactNode; checked: boolean; onClick: () => void; hint?: string }) {
   return (
-    <button onClick={onClick} className={`flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${active ? "font-semibold text-primary" : "text-on-surface"}`}>
-      <span className="flex min-w-0 items-baseline gap-2">
+    <button onClick={onClick} role="checkbox" aria-checked={checked} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft">
+      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${checked ? "border-primary bg-primary text-white" : "border-outline bg-surface"}`}>
+        {checked && <Check size={12} strokeWidth={3} />}
+      </span>
+      <span className={`flex min-w-0 items-baseline gap-2 ${checked ? "font-semibold text-primary" : "text-on-surface"}`}>
         <span className="truncate">{children}</span>
         {hint && <span className="truncate text-[12px] font-normal text-on-surface-variant">— {hint}</span>}
       </span>
-      {active && <Check size={14} className="shrink-0" />}
     </button>
   );
 }

@@ -15,14 +15,15 @@ export async function GET(request: NextRequest) {
   if (!format) return NextResponse.json({ error: "INVALID_FORMAT" }, { status: 400 });
   const archive = (["active", "archived", "all"].includes(sp.get("archive") ?? "") ? sp.get("archive") : "active") as ArchiveMode;
   const date = (k: string) => (sp.get(k) ? new Date(sp.get(k)!) : undefined);
+  const list = (k: string) => (sp.get(k) ? sp.get(k)!.split(",").filter(Boolean) : undefined);
 
   const rows = applyTableSort(
     applyTableFilters(await loadTableRows(archive), {
       segmentIds: sp.get("segmentIds") ? sp.get("segmentIds")!.split(",").filter(Boolean) : undefined,
-      trackId: sp.get("trackId") ?? undefined,
-      statusId: sp.get("statusId") ?? undefined,
-      ownerId: sp.get("ownerId") ?? undefined,
-      attractivenessId: sp.get("attractivenessId") ?? undefined,
+      trackIds: list("trackIds"),
+      statusIds: list("statusIds"),
+      ownerIds: list("ownerIds"),
+      attractivenessIds: list("attractivenessIds"),
       week: sp.get("week") ? Number(sp.get("week")) : undefined,
       operFlag: sp.get("operFlag") ? sp.get("operFlag") === "true" : undefined,
       deadlineFrom: date("deadlineFrom"),

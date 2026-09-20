@@ -129,11 +129,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setEditorState(null);
   };
 
-  const [trackId, setTrackId] = useState("");
-  const [statusId, setStatusId] = useState("");
-  const [attractivenessId, setAttractivenessId] = useState("");
-  const [ownerId, setOwnerId] = useState("");
-  const [operFlag, setOperFlag] = useState("");
+  // Каждый фильтр — список выбранных значений (можно несколько, чтобы сравнивать).
+  const [trackIds, setTrackIds] = useState<string[]>([]);
+  const [statusIds, setStatusIds] = useState<string[]>([]);
+  const [attractivenessIds, setAttractivenessIds] = useState<string[]>([]);
+  const [ownerIds, setOwnerIds] = useState<string[]>([]);
+  const [operFlags, setOperFlags] = useState<string[]>([]);
   const [archive, setArchive] = useState<"active" | "archived" | "all">(defaultArchive);
   const [sortBy, setSortBy] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -232,11 +233,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const baseParams = useMemo(() => {
     const p = new URLSearchParams();
     const add = (k: string, v: string) => v && p.set(k, v);
-    add("trackId", trackId);
-    add("statusId", statusId);
-    add("attractivenessId", attractivenessId);
-    add("ownerId", ownerId);
-    add("operFlag", operFlag);
+    add("trackIds", trackIds.join(","));
+    add("statusIds", statusIds.join(","));
+    add("attractivenessIds", attractivenessIds.join(","));
+    add("ownerIds", ownerIds.join(","));
+    // «Отправлено» и «Не отправлено» вместе = без ограничения
+    if (operFlags.length === 1) add("operFlag", operFlags[0]);
     add("q", q);
     add("deadlineFrom", deadlineFrom);
     add("deadlineTo", deadlineTo);
@@ -246,7 +248,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       p.set("sortDir", sortDir);
     }
     return p;
-  }, [trackId, statusId, attractivenessId, ownerId, operFlag, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
+  }, [trackIds, statusIds, attractivenessIds, ownerIds, operFlags, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir]);
 
   const exportParams = useMemo(() => {
     const p = new URLSearchParams(baseParams);
@@ -301,9 +303,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const lastUpdated = visibleRows.reduce<string | null>((m, r) => (!m || r.updatedAt > m ? r.updatedAt : m), null);
 
   const moreActive = [deadlineFrom || deadlineTo, archive !== defaultArchive].filter(Boolean).length;
-  const anyFilter = !!(trackId || statusId || attractivenessId || ownerId || operFlag || q || moreActive);
+  const anyFilter = !!(trackIds.length || statusIds.length || attractivenessIds.length || ownerIds.length || operFlags.length || q || moreActive);
   function resetFilters() {
-    setTrackId(""); setStatusId(""); setAttractivenessId(""); setOwnerId(""); setOperFlag("");
+    setTrackIds([]); setStatusIds([]); setAttractivenessIds([]); setOwnerIds([]); setOperFlags([]);
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
 
@@ -410,15 +412,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
-            <FilterChip label="Трек" value={trackId} options={refs.tracks} onChange={setTrackId} />
-            <FilterChip label="Статус" value={statusId} options={refs.statuses} onChange={setStatusId} />
-            <FilterChip label="Привлекательность" value={attractivenessId} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessId} />
-            <FilterChip label="Ответственный" value={ownerId} options={refs.users} onChange={setOwnerId} />
+            <FilterChip label="Трек" value={trackIds} options={refs.tracks} onChange={setTrackIds} />
+            <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
+            <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessIds} />
+            <FilterChip label="Ответственный" value={ownerIds} options={refs.users} onChange={setOwnerIds} />
             <FilterChip
               label="Опер"
-              value={operFlag}
+              value={operFlags}
               options={[{ id: "true", name: "Отправлено" }, { id: "false", name: "Не отправлено" }]}
-              onChange={setOperFlag}
+              onChange={setOperFlags}
             />
             <MoreFilters activeCount={moreActive}>
               <FilterField label="Дедлайн">
