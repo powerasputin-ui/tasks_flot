@@ -39,7 +39,7 @@ export function HistoryEntry({
             {formatTime(timestamp)}
           </time>
         </div>
-        {detail}
+        {detail && <div className="text-[13px]">{detail}</div>}
       </div>
     </li>
   );

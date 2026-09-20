@@ -386,7 +386,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       }
       case "comment":
-        return row.comment ? <HoverText text={row.comment} lines={3} query={q} className="text-[12px] leading-snug text-on-surface-variant" /> : "—";
+        return row.comment ? <HoverText text={row.comment} lines={3} query={q} className="text-[13px] leading-snug text-on-surface-variant" /> : "—";
       default: {
         // своя колонка куратора
         const id = col.key.slice("custom:".length);

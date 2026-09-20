@@ -31,7 +31,7 @@ export function AuditChange({ before, after }: { before: string; after: string }
 function Block({ text, muted }: { text: string; muted?: boolean }) {
   return (
     <div className="rounded-md bg-surface-low px-3 py-2">
-      <ExpandableText text={text} lines={3} className={`text-[12px] leading-relaxed ${muted ? "text-on-surface-variant" : "text-on-surface"}`} />
+      <ExpandableText text={text} lines={3} className={`text-[13px] leading-relaxed ${muted ? "text-on-surface-variant" : "text-on-surface"}`} />
     </div>
   );
 }
