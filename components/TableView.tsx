@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
@@ -164,6 +164,19 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     });
     if (res.ok) setRefetchTick((t) => t + 1);
     else setError(action === "restore" ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
+  }
+
+  async function returnRow(row: Row) {
+    setCtx(null);
+    const comment = window.prompt(`Что нужно исправить в «${row.name}»? Комментарий увидит ответственный.`);
+    if (!comment?.trim()) return;
+    const res = await fetch(`/api/items/${row.id}/return`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment }),
+    });
+    if (res.ok) setRefetchTick((t) => t + 1);
+    else setError("Не удалось вернуть позицию.");
   }
 
   const canDeleteRow = useCallback(
@@ -528,6 +541,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               <button onClick={() => { setEditor({ row: ctx.row }); setCtx(null); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
                 <Pencil size={14} className="text-outline" /> Открыть
               </button>
+              {me?.role === "CURATOR" && ctx.row.operFlag && !ctx.row.archived && (
+                <button onClick={() => returnRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
+                  <Undo2 size={14} className="text-outline" /> Вернуть на доработку
+                </button>
+              )}
               {ctx.row.archived && canEditRow(ctx.row) && (
                 <button onClick={() => ctxAction(ctx.row, "restore")} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
                   <RotateCcw size={14} className="text-outline" /> Вернуть в работу

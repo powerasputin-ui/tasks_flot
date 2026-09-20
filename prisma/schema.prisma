@@ -188,6 +188,7 @@ enum NotificationType {
   CHANGE_ATTENTION
   EDIT_REQUEST
   SUBMISSION_MISSING // «ФИО ничего не заполнил и не подал» (этап 3)
+  ITEM_RETURNED // куратор вернул позицию на доработку
 }
 
 model Notification {
@@ -202,4 +203,29 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+enum CycleStatus {
+  OPEN // сбор: руководители отмечают «Опер»
+  IN_REVIEW // сборка: куратор проверяет, правит, возвращает
+  FINAL // зафиксирован снимок, цикл неизменяем
+}
+
+/// Цикл оперативки (один недельный период; активен не более одного).
+/// snapshot — неизменяемый снимок отправленных позиций на момент финализации.
+model Cycle {
+  id                String      @id @default(cuid())
+  number            Int         @unique
+  deadline          DateTime // срок подачи; за 2 дня до него куратору приходит напоминание «не подал»
+  status            CycleStatus @default(OPEN)
+  createdById       String
+  createdAt         DateTime    @default(now())
+  reviewStartedAt   DateTime?
+  finalizedAt       DateTime?
+  finalizedById     String?
+  remindersSentAt   DateTime?
+  snapshot          Json?
+
+  @@index([status])
+  @@map("cycles")
 }
