@@ -75,7 +75,11 @@ export async function finalizeCycle(actor: Actor, id: string): Promise<CycleResu
   if (!canTransition(cycle.status, "FINAL")) return { ok: false, error: "BAD_STATE" };
 
   const sent = (await loadTableRows("active")).filter((r) => r.operFlag);
-  const snapshot = JSON.parse(JSON.stringify(sent));
+  // Названия своих колонок фиксируем в снимке: позже колонку могут переименовать или удалить.
+  const custom = await prisma.customColumn.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+  const snapshot = JSON.parse(
+    JSON.stringify(sent.map((r) => ({ ...r, customFields: custom.map((c) => ({ name: c.name, type: c.type, value: r.customValues[c.id] ?? null })) })))
+  );
 
   await prisma.$transaction(async (tx) => {
     // условие по статусу защищает от двойной финализации

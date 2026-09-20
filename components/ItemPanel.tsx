@@ -60,6 +60,7 @@ type Event = {
   action: string;
   before: string | null;
   after: string | null;
+  afterSubmission?: boolean;
   actor: { name: string } | null;
 };
 
@@ -384,6 +385,7 @@ export function ItemPanel({
                   <span className={`absolute -left-[25px] top-1.5 h-2 w-2 rounded-full ${e.action === "ARCHIVE" ? "bg-status-red" : e.action === "CREATE" ? "bg-status-emerald" : "bg-status-amber"}`} />
                   <p className="text-[12px] text-on-surface">
                     <span className="font-semibold">{e.actor?.name ?? "Система"}</span>{" "}
+                    {e.afterSubmission && <span className="mr-1 rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">после отправки</span>}
                     {e.fieldName ? (
                       <>
                         изменил(а) «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»: <span className="text-outline">{showValue(e.fieldName, e.before)}</span> →{" "}

@@ -18,6 +18,7 @@ type SnapRow = {
   deadline: string | null;
   statusName: string | null;
   comment: string | null;
+  customFields?: Array<{ name: string; type: string; value: string | null }>;
 };
 
 const STATUS_LABEL = { OPEN: "Сбор", IN_REVIEW: "Сборка куратором", FINAL: "Финал" } as const;
@@ -196,12 +197,12 @@ export function OperativkaView() {
             <p className="text-[13px] font-semibold">
               Оперативка №{view.cycle.number} — зафиксирована {fmt(view.cycle.finalizedAt)}, позиций: {view.rows.length}
             </p>
-            <ExportMenu endpoint={`/api/cycles/${view.cycle.id}/export`} />
+            <ExportMenu endpoint={`/api/cycles/${view.cycle.id}/export`} withPptx />
           </div>
           <table className="w-full min-w-[900px] border-collapse text-[13px]">
             <thead className="bg-surface-high">
               <tr>
-                {["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Статус", "Комментарии"].map((h) => (
+                {["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Статус", "Комментарии", ...(view.rows[0]?.customFields?.map((f) => f.name) ?? [])].map((h) => (
                   <th key={h} className="label-caps px-3 py-3 text-left">{h}</th>
                 ))}
               </tr>
@@ -218,6 +219,9 @@ export function OperativkaView() {
                   <td className="px-3 py-2.5">{fmt(r.deadline)}</td>
                   <td className="px-3 py-2.5">{r.statusName ?? "—"}</td>
                   <td className="px-3 py-2.5 text-on-surface-variant">{r.comment ?? "—"}</td>
+                  {r.customFields?.map((f, i) => (
+                    <td key={i} className="px-3 py-2.5">{f.value ? (f.type === "DATE" ? fmt(f.value) : f.value) : "—"}</td>
+                  ))}
                 </tr>
               ))}
             </tbody>

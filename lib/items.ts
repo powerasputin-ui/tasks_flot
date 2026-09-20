@@ -102,6 +102,8 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
           before: { ...existing, ...flattenCustom(existing.customValues) },
           after: { ...updated, ...flattenCustom(updated.customValues) },
           trackedFields: [...TRACKED_ITEM_FIELDS, ...Object.keys({ ...flattenCustom(existing.customValues), ...flattenCustom(updated.customValues) })],
+          // позиция уже отправлена куратору и остаётся отправленной — правка идёт как «после отправки»
+          afterSubmission: existing.operFlag && updated.operFlag,
         },
         tx
       );

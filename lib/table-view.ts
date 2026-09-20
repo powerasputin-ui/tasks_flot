@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { deadlineWeek } from "@/lib/deadline-week";
+import { idsChangedAfterSubmission } from "@/lib/submission";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -31,6 +32,8 @@ export type TableRow = {
   comment: string | null;
   version: number;
   createdById: string;
+  /** Отправлена куратору, а после отправки её правили. */
+  changedAfterSubmission: boolean;
   /** Значения своих колонок: { <id колонки>: значение }. */
   customValues: Record<string, string>;
   createdByName: string;
@@ -77,7 +80,7 @@ const ITEM_INCLUDE = {
 
 type ItemWithRelations = Prisma.OperationalItemGetPayload<{ include: typeof ITEM_INCLUDE }>;
 
-export function toTableRow(i: ItemWithRelations): TableRow {
+export function toTableRow(i: ItemWithRelations, changedAfterSubmission = false): TableRow {
   return {
     id: i.id,
     segmentId: i.segmentId,
@@ -101,6 +104,7 @@ export function toTableRow(i: ItemWithRelations): TableRow {
     comment: i.comment,
     version: i.version,
     createdById: i.createdById,
+    changedAfterSubmission,
     customValues: (i.customValues ?? {}) as Record<string, string>,
     createdByName: i.createdBy.name,
     updatedAt: i.updatedAt,
@@ -116,12 +120,25 @@ export async function loadTableRows(archive: ArchiveMode = "active"): Promise<Ta
     include: ITEM_INCLUDE,
     orderBy: { createdAt: "desc" },
   });
-  return items.map(toTableRow);
+  const changed = await changedAfterSubmissionIds(items.filter((i) => i.operFlag).map((i) => i.id));
+  return items.map((i) => toTableRow(i, changed.has(i.id)));
+}
+
+/** Какие из отправленных позиций правили после отправки (по журналу изменений). */
+async function changedAfterSubmissionIds(sentIds: string[]): Promise<Set<string>> {
+  if (sentIds.length === 0) return new Set();
+  const events = await prisma.auditEvent.findMany({
+    where: { entityType: "OperationalItem", entityId: { in: sentIds }, OR: [{ fieldName: "operFlag", after: "true" }, { afterSubmission: true }] },
+    select: { entityId: true, fieldName: true, after: true, afterSubmission: true, timestamp: true },
+  });
+  return idsChangedAfterSubmission(events);
 }
 
 export async function loadTableRow(id: string): Promise<TableRow | null> {
   const item = await prisma.operationalItem.findUnique({ where: { id }, include: ITEM_INCLUDE });
-  return item ? toTableRow(item) : null;
+  if (!item) return null;
+  const changed = item.operFlag ? await changedAfterSubmissionIds([id]) : new Set<string>();
+  return toTableRow(item, changed.has(id));
 }
 
 export function applyTableFilters(rows: TableRow[], f: TableFilters): TableRow[] {

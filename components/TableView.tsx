@@ -19,6 +19,7 @@ import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSeg
 
 type Row = ItemRow & {
   createdById: string;
+  changedAfterSubmission: boolean;
   customValues: Record<string, string>;
   segmentName: string | null;
   trackName: string | null;
@@ -391,8 +392,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       case "status":
         return <StatusPill name={row.statusName} color={row.statusColor} />;
-      case "operFlag":
+      case "operFlag": {
+        const mark = row.operFlag && row.changedAfterSubmission && (
+          <span title="Изменено после отправки куратору — откройте историю позиции" className="ml-1.5 inline-flex h-4 items-center rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">
+            изм.
+          </span>
+        );
         return canEditRow(row) && !row.archived ? (
+          <span className="inline-flex items-center">
           <input
             type="checkbox"
             checked={row.operFlag}
@@ -401,11 +408,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             className="h-4 w-4 cursor-pointer accent-primary"
             title="Отправить куратору"
           />
+          {mark}
+          </span>
         ) : row.operFlag ? (
-          "да"
+          <span className="inline-flex items-center">да{mark}</span>
         ) : (
           "—"
         );
+      }
       case "comment":
         return <span className="line-clamp-2 text-[12px] leading-tight text-on-surface-variant">{row.comment ?? "—"}</span>;
       default: {
