@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Pencil, Plus, RotateCcw, Settings, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
@@ -113,8 +113,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [analytics, setAnalytics] = useState(false);
   // Экспорт живёт в шапке рядом с колокольчиком: рендерим его туда через портал.
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const [settingsSlot, setSettingsSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setHeaderSlot(document.getElementById("header-actions"));
+    setSettingsSlot(document.getElementById("header-settings"));
   }, []);
   // Выбранные сегменты (можно несколько); пусто = все.
   const [segments, setSegments] = useState<string[]>([]);
@@ -367,6 +369,30 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   return (
     <div className="flex h-full min-h-0">
+      {settingsSlot &&
+        createPortal(
+          <Popover
+            align="right"
+            width={440}
+            trigger={({ toggle }) => (
+              <button onClick={toggle} className="btn-icon" title="Настройки таблицы" aria-label="Настройки таблицы">
+                <Settings size={18} />
+              </button>
+            )}
+          >
+            {() => (
+              <div>
+                <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />
+                {me?.role === "SYSTEM_ADMIN" && (
+                  <a href="/settings" className="block border-t border-outline-variant px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-primary-soft">
+                    Настройки системы (пользователи, справочники) →
+                  </a>
+                )}
+              </div>
+            )}
+          </Popover>,
+          settingsSlot
+        )}
       {headerSlot && me && me.role !== "SYSTEM_ADMIN" && createPortal(<ExportMenu endpoint="/api/export/table" params={exportParams} iconOnly />, headerSlot)}
       <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
 
@@ -385,18 +411,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Popover
-                align="right"
-                width={420}
-                trigger={({ toggle }) => (
-                  <button onClick={toggle} className="btn-ghost" title="Настроить колонки">
-                    <Columns3 size={15} />
-                    Колонки
-                  </button>
-                )}
-              >
-                {() => <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />}
-              </Popover>
               <button onClick={toggleAnalytics} className={`btn-ghost ${analytics ? "border-primary bg-primary-soft text-primary" : ""}`} title="Аналитика выборки">
                 <BarChart3 size={15} />
                 Аналитика
