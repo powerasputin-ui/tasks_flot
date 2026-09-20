@@ -6,6 +6,8 @@ import {
   canEditItem,
   canExportWorkTable,
   canManageDirectory,
+  canManageUser,
+  canManageUsers,
   canViewItems,
   type Actor,
 } from "@/lib/permissions";
@@ -90,5 +92,25 @@ describe("canDeleteItem", () => {
   it("остальным ролям удалять нельзя", () => {
     expect(canDeleteItem({ id: "a", role: "SYSTEM_ADMIN" }, { responsibleId: "a", createdById: "a" })).toBe(false);
     expect(canDeleteItem({ id: "m", role: "MANAGEMENT" }, { responsibleId: "m", createdById: "m" })).toBe(false);
+  });
+});
+
+describe("управление пользователями", () => {
+  const curator: Actor = { id: "c1", role: "CURATOR" };
+  const admin: Actor = { id: "a1", role: "SYSTEM_ADMIN" };
+
+  it("раздел пользователей открыт куратору и администратору", () => {
+    expect(canManageUsers("CURATOR")).toBe(true);
+    expect(canManageUsers("SYSTEM_ADMIN")).toBe(true);
+    expect(canManageUsers("HEAD")).toBe(false);
+    expect(canManageUsers("MANAGEMENT")).toBe(false);
+  });
+
+  it("куратор ведёт только ответственных (HEAD), админ — всех", () => {
+    expect(canManageUser(curator, "HEAD")).toBe(true);
+    expect(canManageUser(curator, "CURATOR")).toBe(false);
+    expect(canManageUser(curator, "SYSTEM_ADMIN")).toBe(false);
+    expect(canManageUser(admin, "CURATOR")).toBe(true);
+    expect(canManageUser({ id: "u", role: "HEAD" }, "HEAD")).toBe(false);
   });
 });

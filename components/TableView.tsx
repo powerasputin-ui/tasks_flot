@@ -383,9 +383,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             {() => (
               <div>
                 <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />
-                {me?.role === "SYSTEM_ADMIN" && (
+                {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && (
                   <a href="/settings" className="block border-t border-outline-variant px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-primary-soft">
-                    Настройки системы (пользователи, справочники) →
+                    {me?.role === "CURATOR" ? "Ответственные и колонки таблицы →" : "Настройки системы (пользователи, справочники) →"}
                   </a>
                 )}
               </div>

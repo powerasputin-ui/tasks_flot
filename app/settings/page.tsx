@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { KeyRound, Layers, ListChecks, Plus, Route, Search, Star, Users } from "lucide-react";
+import { KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -77,17 +77,20 @@ export default function SettingsPage() {
   };
 
   if (me === undefined) return <div className="p-6"><div className="skeleton h-6 w-1/3 rounded" /></div>;
-  if (me?.role !== "SYSTEM_ADMIN") {
-    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны только администратору системы.</div>;
+  const isAdmin = me?.role === "SYSTEM_ADMIN";
+  if (!isAdmin && me?.role !== "CURATOR") {
+    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны куратору и администратору системы.</div>;
   }
 
-  const sections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number }> = [
-    { key: "users", label: "Пользователи", icon: <Users size={16} />, count: users.length },
-    { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length },
-    { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
-    { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length },
-    { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length },
+  // Куратор ведёт ответственных и колонки таблицы; справочники и роли — только администратор.
+  const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
+    { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
+    { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length, adminOnly: true },
+    { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length, adminOnly: true },
+    { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
+    { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
   ];
+  const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
 
   return (
     <div className="flex h-full min-h-0">
@@ -125,7 +128,7 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} act={act} />}
+        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
           <RefSection title="Сегменты" hint="Левая колонка таблицы. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
@@ -159,7 +162,7 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function UsersSection({ users, act }: { users: UserRow[]; act: Act }) {
+function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isAdmin: boolean }) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
@@ -174,12 +177,12 @@ function UsersSection({ users, act }: { users: UserRow[]; act: Act }) {
   return (
     <>
       <SectionHeader
-        title="Пользователи"
-        hint="Роли назначаются здесь. Руководитель правит только свои позиции, куратор — все."
+        title={isAdmin ? "Пользователи" : "Ответственные"}
+        hint={isAdmin ? "Роли назначаются здесь. Руководитель правит только свои позиции, куратор — все." : "Добавляйте, переименовывайте и отключайте ответственных. Отключённый не удаляется: его позиции и история сохраняются."}
         action={
           <button onClick={() => setCreating(true)} className="btn-primary">
             <Plus size={16} />
-            Добавить пользователя
+            {isAdmin ? "Добавить пользователя" : "Добавить ответственного"}
           </button>
         }
       />
@@ -210,11 +213,15 @@ function UsersSection({ users, act }: { users: UserRow[]; act: Act }) {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
-                    {Object.entries(ROLE_LABEL).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
-                    ))}
-                  </select>
+                  {isAdmin ? (
+                    <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
+                      {Object.entries(ROLE_LABEL).map(([k, v]) => (
+                        <option key={k} value={k}>{v}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
                 <td className="px-4 py-3">
@@ -232,6 +239,16 @@ function UsersSection({ users, act }: { users: UserRow[]; act: Act }) {
                       </>
                     ) : (
                       <>
+                        <button
+                          onClick={() => {
+                            const name = window.prompt("Имя (Фамилия И.О.)", u.name)?.trim();
+                            if (name && name !== u.name) patch(u.id, { name }, "Имя изменено.");
+                          }}
+                          className="btn-icon h-8 w-8"
+                          title="Изменить имя"
+                        >
+                          <Pencil size={15} />
+                        </button>
                         <button onClick={() => { setResetFor(u.id); setNewPassword(""); }} className="btn-icon h-8 w-8" title="Сменить пароль"><KeyRound size={15} /></button>
                         <button onClick={() => patch(u.id, { isActive: !u.isActive })} className="btn-ghost h-8">{u.isActive ? "Отключить" : "Включить"}</button>
                       </>
@@ -247,12 +264,12 @@ function UsersSection({ users, act }: { users: UserRow[]; act: Act }) {
         </table>
       </div>
 
-      {creating && <CreateUserPanel act={act} onClose={() => setCreating(false)} />}
+      {creating && <CreateUserPanel act={act} isAdmin={isAdmin} onClose={() => setCreating(false)} />}
     </>
   );
 }
 
-function CreateUserPanel({ act, onClose }: { act: Act; onClose: () => void }) {
+function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean; onClose: () => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -261,8 +278,8 @@ function CreateUserPanel({ act, onClose }: { act: Act; onClose: () => void }) {
 
   return (
     <Panel
-      title="Новый пользователь"
-      subtitle="Самостоятельной регистрации нет — доступ выдаёт администратор"
+      title={isAdmin ? "Новый пользователь" : "Новый ответственный"}
+      subtitle="Самостоятельной регистрации нет — доступ выдаёт администратор или куратор"
       onClose={onClose}
       footer={
         <div className="flex gap-2">
@@ -281,6 +298,7 @@ function CreateUserPanel({ act, onClose }: { act: Act; onClose: () => void }) {
         <FormField label="Имя *"><input value={name} onChange={(e) => setName(e.target.value)} className="input w-full" placeholder="Фамилия И.О." /></FormField>
         <FormField label="E-mail *"><input value={email} onChange={(e) => setEmail(e.target.value)} className="input w-full" /></FormField>
         <FormField label="Пароль * (не короче 8 символов)"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="input w-full" /></FormField>
+        {isAdmin && (
         <FormField label="Роль">
           <select value={role} onChange={(e) => setRole(e.target.value)} className="select w-full">
             {Object.entries(ROLE_LABEL).map(([k, v]) => (
@@ -288,6 +306,7 @@ function CreateUserPanel({ act, onClose }: { act: Act; onClose: () => void }) {
             ))}
           </select>
         </FormField>
+        )}
       </div>
     </Panel>
   );

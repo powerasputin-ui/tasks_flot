@@ -50,6 +50,25 @@ export function canDeleteItem(actor: Actor, item: { responsibleId: string | null
   return item.responsibleId === actor.id || (item.responsibleId === null && item.createdById === actor.id);
 }
 
+/** Кто открывает раздел пользователей в настройках. */
+export function canManageUsers(role: UserRole): boolean {
+  return role === "SYSTEM_ADMIN" || role === "CURATOR";
+}
+
+/**
+ * Администратор ведёт всех пользователей. Куратор — только «ответственных»
+ * (роль HEAD): добавляет, меняет имя и пароль, отключает; роли назначать не может.
+ */
+export function canManageUser(actor: Actor, targetRole: UserRole): boolean {
+  if (actor.role === "SYSTEM_ADMIN") return true;
+  return actor.role === "CURATOR" && targetRole === "HEAD";
+}
+
+/** Колонки таблицы (свои поля): создаёт и удаляет куратор; администратор — тоже. */
+export function canManageColumns(role: UserRole): boolean {
+  return role === "SYSTEM_ADMIN" || role === "CURATOR";
+}
+
 /** Пользователи и справочники — только SYSTEM_ADMIN. */
 export function canManageDirectory(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN";

@@ -149,7 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {me && <NotificationsBell />}
           {/* На страницах таблицы шестерёнка (настройки таблицы) выносится сюда порталом. */}
           {onTablePage && <div id="header-settings" className="flex items-center" />}
-          {me?.role === "SYSTEM_ADMIN" && !onTablePage && (
+          {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && !onTablePage && (
             <Link
               href="/settings"
               title="Настройки"

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { canManageDirectory } from "@/lib/permissions";
+import { canManageDirectory, canManageUser, canManageUsers } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
 
@@ -10,10 +10,12 @@ import { ROLES } from "@/lib/validation";
 export async function GET(request: NextRequest) {
   const session = await requireSession();
   const admin = canManageDirectory(session.role);
-  const all = admin && new URL(request.url).searchParams.get("all") === "1";
+  const manager = canManageUsers(session.role);
+  const all = manager && new URL(request.url).searchParams.get("all") === "1";
+  // Куратор в настройках видит и ведёт только «ответственных» (роль HEAD).
   const users = await prisma.user.findMany({
-    where: all ? {} : { isActive: true },
-    select: { id: true, name: true, role: true, isActive: true, ...(admin ? { email: true } : {}) },
+    where: all ? (admin ? {} : { role: "HEAD" }) : { isActive: true },
+    select: { id: true, name: true, role: true, isActive: true, ...(manager ? { email: true } : {}) },
     orderBy: { name: "asc" },
   });
   return NextResponse.json({ users });
@@ -29,11 +31,12 @@ const createUserSchema = z.object({
 /** Самостоятельной регистрации нет: пользователей создаёт SYSTEM_ADMIN и назначает роль. */
 export async function POST(request: NextRequest) {
   const session = await requireSession();
-  if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  if (!canManageUsers(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const parsed = createUserSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
 
+  if (!canManageUser({ id: session.userId, role: session.role }, parsed.data.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   if (await prisma.user.findUnique({ where: { email: parsed.data.email } })) {
     return NextResponse.json({ error: "EMAIL_TAKEN" }, { status: 409 });
   }
