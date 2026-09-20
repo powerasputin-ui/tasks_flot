@@ -386,39 +386,72 @@ function ColumnsSection({ columns, act }: { columns: ColumnRow[]; act: Act }) {
 
       <ListCard empty={columns.length === 0 ? "Своих колонок пока нет." : undefined}>
         {columns.map((c) => (
-          <li key={c.id} className="flex items-center gap-3 px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-semibold text-on-surface">{c.name}</p>
-              <p className="truncate text-[12px] text-on-surface-variant">
-                {COLUMN_TYPE_LABEL[c.type]}
-                {c.type === "SELECT" && `: ${c.options.join(", ")}`}
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = window.prompt("Название колонки", c.name)?.trim();
-                if (next && next !== c.name) act(send(`/api/columns/${c.id}`, "PATCH", { name: next }), "Колонка переименована.");
-              }}
-              className="btn-icon h-8 w-8"
-              title="Переименовать"
-            >
-              <Pencil size={15} />
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm(`Удалить колонку «${c.name}»? Она пропадёт из таблицы, введённые значения сохранятся в истории.`)) {
-                  act(send(`/api/columns/${c.id}`, "DELETE"), "Колонка удалена.");
-                }
-              }}
-              className="btn-icon h-8 w-8 text-status-red"
-              title="Удалить"
-            >
-              <Trash2 size={15} />
-            </button>
-          </li>
+          <ColumnItem key={c.id} column={c} act={act} />
         ))}
       </ListCard>
     </>
+  );
+}
+
+/** Строка своей колонки: понятные кнопки «Переименовать» и «Удалить» с подтверждением прямо в строке. */
+function ColumnItem({ column: c, act }: { column: ColumnRow; act: Act }) {
+  const [mode, setMode] = useState<"view" | "rename" | "delete">("view");
+  const [name, setName] = useState(c.name);
+
+  return (
+    <li className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold text-on-surface">{c.name}</p>
+          <p className="truncate text-[12px] text-on-surface-variant">
+            {COLUMN_TYPE_LABEL[c.type]}
+            {c.type === "SELECT" && `: ${c.options.join(", ")}`}
+          </p>
+        </div>
+        {mode === "view" && (
+          <div className="flex shrink-0 items-center gap-2">
+            <button onClick={() => { setName(c.name); setMode("rename"); }} className="btn-ghost h-8">
+              <Pencil size={14} />
+              Переименовать
+            </button>
+            <button onClick={() => setMode("delete")} className="btn-ghost h-8 border-status-red/40 text-status-red hover:bg-status-red/10">
+              <Trash2 size={14} />
+              Удалить
+            </button>
+          </div>
+        )}
+      </div>
+
+      {mode === "rename" && (
+        <div className="mt-3 flex items-center gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="input min-w-0 flex-1" />
+          <button
+            disabled={!name.trim() || name.trim() === c.name}
+            onClick={async () => { await act(send(`/api/columns/${c.id}`, "PATCH", { name: name.trim() }), "Колонка переименована."); setMode("view"); }}
+            className="btn-primary h-9"
+          >
+            Сохранить
+          </button>
+          <button onClick={() => setMode("view")} className="btn-ghost h-9">Отмена</button>
+        </div>
+      )}
+
+      {mode === "delete" && (
+        <div className="mt-3 rounded-md border border-status-red/30 bg-status-red/5 p-3">
+          <p className="text-[13px] text-on-surface">Удалить колонку «{c.name}»?</p>
+          <p className="mt-0.5 text-[12px] text-on-surface-variant">Она пропадёт из таблицы и карточек. Введённые значения и история изменений сохранятся.</p>
+          <div className="mt-2.5 flex gap-2">
+            <button
+              onClick={async () => { await act(send(`/api/columns/${c.id}`, "DELETE"), "Колонка удалена."); setMode("view"); }}
+              className="btn-primary h-8 bg-status-red hover:bg-status-red"
+            >
+              Да, удалить
+            </button>
+            <button onClick={() => setMode("view")} className="btn-ghost h-8">Отмена</button>
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 
