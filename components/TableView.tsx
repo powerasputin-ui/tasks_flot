@@ -438,14 +438,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 {lastUpdated && !loading && ` · обновлено ${new Date(lastUpdated).toLocaleDateString("ru-RU")}`}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
-                <button onClick={() => setEditor({ row: null })} className="btn-primary">
-                  <Plus size={16} />
-                  Добавить
-                </button>
-              )}
-            </div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -482,15 +474,23 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Сбросить
               </button>
             )}
-            {/* История изменений — иконка без контура у правого края над таблицей */}
-            <button
-              onClick={toggleHistory}
-              className={`ml-auto flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary-soft hover:text-primary ${history ? "text-primary" : "text-on-surface-variant"}`}
-              title="История изменений"
-              aria-label="История изменений"
-            >
-              <History size={20} />
-            </button>
+            {/* Правый край ряда: «+ Добавить» и иконка истории (без контура) на одной линии */}
+            <div className="ml-auto flex items-center gap-2">
+              {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
+                <button onClick={() => setEditor({ row: null })} className="btn-primary">
+                  <Plus size={16} />
+                  Добавить
+                </button>
+              )}
+              <button
+                onClick={toggleHistory}
+                className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary-soft hover:text-primary ${history ? "text-primary" : "text-on-surface-variant"}`}
+                title="История изменений"
+                aria-label="История изменений"
+              >
+                <History size={20} />
+              </button>
+            </div>
           </div>
         </div>
 
