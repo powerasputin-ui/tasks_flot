@@ -74,7 +74,7 @@ function TopSearch() {
   }, [value]);
 
   return (
-    <div className="relative hidden w-72 md:block xl:w-96">
+    <div className="relative hidden w-72 md:block lg:ml-4 xl:w-96">
       <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
       <input
         value={value}
@@ -119,7 +119,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="hidden text-[13px] font-bold tracking-tight text-on-surface lg:inline">ГШП ОПЕРАТИВКА</span>
         </Link>
 
-        <nav className="flex h-full items-stretch gap-1 lg:ml-4">
+        {SEARCH_PATHS.some((p) => pathname.startsWith(p)) && (
+          <Suspense fallback={null}>
+            <TopSearch />
+          </Suspense>
+        )}
+
+        <nav className="flex h-full items-stretch gap-1 lg:ml-2">
           {nav.map((item) => {
             const active = pathname.startsWith(item.href);
             return (
@@ -135,12 +141,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-
-        {SEARCH_PATHS.some((p) => pathname.startsWith(p)) && (
-          <Suspense fallback={null}>
-            <TopSearch />
-          </Suspense>
-        )}
 
         <div className="ml-auto flex items-center gap-1">
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
