@@ -19,6 +19,7 @@ import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSeg
 
 type Row = ItemRow & {
   createdById: string;
+  customValues: Record<string, string>;
   segmentName: string | null;
   trackName: string | null;
   attractivenessName: string | null;
@@ -37,12 +38,14 @@ type Me = { id: string; role: string } | null;
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
 
-type ColumnKey = "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "comment";
+type StdKey = "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "comment";
+/** Свои колонки куратора имеют ключ custom:<id колонки>. */
+type ColumnKey = StdKey | `custom:${string}`;
 
 /** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально. */
 type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number };
 
-const DEFAULT_LABEL: Record<ColumnKey, string> = {
+const DEFAULT_LABEL: Record<StdKey, string> = {
   track: "Трек",
   cost: "Оценка $",
   attractiveness: "Привлекательность",
@@ -55,9 +58,9 @@ const DEFAULT_LABEL: Record<ColumnKey, string> = {
   comment: "Комментарии",
 };
 
-const ALL_KEYS: ColumnKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment", "deadlineWeek"];
+const ALL_KEYS: StdKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment", "deadlineWeek"];
 
-const WIDTH: Record<ColumnKey, number> = {
+const WIDTH: Record<StdKey, number> = {
   track: 170,
   cost: 110,
   attractiveness: 130,
@@ -70,9 +73,9 @@ const WIDTH: Record<ColumnKey, number> = {
   comment: 240,
 };
 
-const DEFAULT_VISIBLE: ColumnKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
+const DEFAULT_VISIBLE: StdKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
 
-function buildColumns(visibleKeys: ColumnKey[]): ColumnConfig[] {
+function buildColumns(visibleKeys: StdKey[]): ColumnConfig[] {
   const ordered = [...visibleKeys, ...ALL_KEYS.filter((k) => !visibleKeys.includes(k))];
   return ordered.map((key) => ({ key, label: DEFAULT_LABEL[key], visible: visibleKeys.includes(key), width: WIDTH[key] }));
 }
@@ -85,15 +88,30 @@ function loadColumns(): ColumnConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_COLUMNS;
-    const parsed = (JSON.parse(raw) as ColumnConfig[]).filter((c) => ALL_KEYS.includes(c.key));
+    const parsed = (JSON.parse(raw) as ColumnConfig[]).filter((c) => ALL_KEYS.includes(c.key as StdKey) || c.key.startsWith("custom:"));
     // Старые стандартные подписи (до переименования) заменяем новыми; свои названия не трогаем.
     const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн" };
     for (const c of parsed) if (RENAMED[c.label]) c.label = RENAMED[c.label];
-    const known = new Set(parsed.map((c) => c.key));
+    const known = new Set<string>(parsed.map((c) => c.key));
     return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
   } catch {
     return DEFAULT_COLUMNS;
   }
+}
+
+type CustomCol = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
+
+/** Добавляет свои колонки к настройкам таблицы и убирает удалённые; подписи берутся из справочника. */
+function withCustomColumns(cols: ColumnConfig[], custom: CustomCol[]): ColumnConfig[] {
+  const byKey = new Map(custom.map((c) => [`custom:${c.id}`, c]));
+  const kept = cols
+    .filter((c) => !c.key.startsWith("custom:") || byKey.has(c.key))
+    .map((c) => (byKey.has(c.key) ? { ...c, label: byKey.get(c.key)!.name } : c));
+  const known = new Set<string>(kept.map((c) => c.key));
+  const added = custom
+    .filter((c) => !known.has(`custom:${c.id}`))
+    .map((c): ColumnConfig => ({ key: `custom:${c.id}`, label: c.name, visible: true, width: 140 }));
+  return [...kept, ...added];
 }
 
 const ARCHIVE_LABEL = { active: "Активные", archived: "Архив", all: "Все" } as const;
@@ -108,7 +126,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [refs, setRefs] = useState<Refs>({ segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
   const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
   const [me, setMe] = useState<Me>(null);
-  const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+  const [savedColumns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+  const [customCols, setCustomCols] = useState<CustomCol[]>([]);
+  const columns = useMemo(() => withCustomColumns(savedColumns, customCols), [savedColumns, customCols]);
   const [editor, setEditorState] = useState<{ row: Row | null } | null>(null);
   const [analytics, setAnalytics] = useState(false);
   // Экспорт живёт в шапке рядом с колокольчиком: рендерим его туда через портал.
@@ -211,6 +231,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   useEffect(() => {
     const get = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null));
+    get("/api/columns").then((d) => setCustomCols(d?.columns ?? []));
     Promise.all([
       get("/api/auth/me"),
       get("/api/segments"),
@@ -364,6 +385,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       case "comment":
         return <span className="line-clamp-2 text-[12px] leading-tight text-on-surface-variant">{row.comment ?? "—"}</span>;
+      default: {
+        // своя колонка куратора
+        const id = col.key.slice("custom:".length);
+        const v = row.customValues?.[id];
+        if (!v) return "—";
+        return customCols.find((c) => c.id === id)?.type === "DATE" ? new Date(v).toLocaleDateString("ru-RU") : v;
+      }
     }
   }
 
@@ -383,6 +411,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             {() => (
               <div>
                 <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />
+                {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && (
+                  <a href="/settings#columns" className="block border-t border-outline-variant px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-primary-soft">
+                    + Создать или удалить свою колонку →
+                  </a>
+                )}
                 {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && (
                   <a href="/settings" className="block border-t border-outline-variant px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-primary-soft">
                     {me?.role === "CURATOR" ? "Ответственные и колонки таблицы →" : "Настройки системы (пользователи, справочники) →"}
@@ -600,6 +633,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           lockResponsible={isHead}
           canEdit={editor.row ? canEditRow(editor.row) : true}
           canDelete={editor.row ? canDeleteRow(editor.row) : false}
+          customColumns={customCols}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null);
@@ -740,7 +774,7 @@ function ColumnConfigPanel({ columns, onChange, onReset }: { columns: ColumnConf
         {columns.map((col, i) => (
           <li key={col.key} className="flex items-center gap-2 py-1.5">
             <input type="checkbox" checked={col.visible} onChange={(e) => update(col.key, { visible: e.target.checked })} className="h-4 w-4 accent-primary" />
-            <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} className="input h-8 w-36" />
+            <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} readOnly={col.key.startsWith("custom:")} title={col.key.startsWith("custom:") ? "Название своей колонки меняется в настройках" : undefined} className="input h-8 w-36" />
             <span className="w-9 text-right text-[11px] text-outline">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
             <div className="ml-auto flex">
               <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" title="Выше"><ArrowUp size={14} /></button>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Users } from "lucide-react";
+import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
+import { COLUMN_TYPE_LABEL, parseOptions, type ColumnType } from "@/lib/custom-columns";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
@@ -12,7 +13,8 @@ type UserRow = { id: string; name: string; email: string; role: string; isActive
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
-type SectionKey = "users" | "segments" | "tracks" | "statuses" | "attractiveness";
+type SectionKey = "users" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
+type ColumnRow = { id: string; name: string; type: ColumnType; options: string[] };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -27,17 +29,19 @@ export default function SettingsPage() {
   const [attractiveness, setAttractiveness] = useState<Ref[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const reload = useCallback(async () => {
     const get = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
-    const [m, s, st, a, t, u] = await Promise.all([
+    const [m, s, st, a, t, u, cols] = await Promise.all([
       get("/api/auth/me"),
       get("/api/segments"),
       get("/api/statuses"),
       get("/api/attractiveness"),
       get("/api/tracks?all=1"),
       get("/api/users?all=1"),
+      get("/api/columns"),
     ]);
     setMe(m?.user ?? null);
     setSegments(s?.segments ?? []);
@@ -45,10 +49,12 @@ export default function SettingsPage() {
     setAttractiveness(a?.attractiveness ?? []);
     setTracks(t?.tracks ?? []);
     setUsers(u?.users ?? []);
+    setColumns(cols?.columns ?? []);
   }, []);
 
   useEffect(() => {
     reload();
+    if (window.location.hash === "#columns") setSection("columns");
   }, [reload]);
 
   useEffect(() => {
@@ -85,6 +91,7 @@ export default function SettingsPage() {
   // Куратор ведёт ответственных и колонки таблицы; справочники и роли — только администратор.
   const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
     { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
+    { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
     { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length, adminOnly: true },
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length, adminOnly: true },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
@@ -129,6 +136,7 @@ export default function SettingsPage() {
         )}
 
         {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
+        {section === "columns" && <ColumnsSection columns={columns} act={act} />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
           <RefSection title="Сегменты" hint="Левая колонка таблицы. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
@@ -332,6 +340,85 @@ function AddRow({ placeholder, onAdd, extra }: { placeholder: string; onAdd: (na
         Добавить
       </button>
     </div>
+  );
+}
+
+/** Свои колонки таблицы: куратор создаёт, переименовывает и удаляет; значения заполняют в карточке позиции. */
+function ColumnsSection({ columns, act }: { columns: ColumnRow[]; act: Act }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState<ColumnType>("TEXT");
+  const [options, setOptions] = useState("");
+  const opts = parseOptions(options);
+  const valid = name.trim() && (type !== "SELECT" || opts.length > 0);
+
+  return (
+    <>
+      <SectionHeader
+        title="Колонки таблицы"
+        hint="Свои колонки появляются в таблице и в карточке позиции. Удалённая колонка скрывается, введённые значения и история сохраняются."
+      />
+      <div className="surface mb-5 max-w-xl space-y-3 p-4">
+        <p className="label-caps">Новая колонка</p>
+        <div className="flex flex-wrap gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название колонки" className="input min-w-48 flex-1" />
+          <select value={type} onChange={(e) => setType(e.target.value as ColumnType)} className="select">
+            {(Object.keys(COLUMN_TYPE_LABEL) as ColumnType[]).map((t) => (
+              <option key={t} value={t}>{COLUMN_TYPE_LABEL[t]}</option>
+            ))}
+          </select>
+        </div>
+        {type === "SELECT" && (
+          <input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="Варианты через запятую: Высокий, Средний, Низкий" className="input w-full" />
+        )}
+        <button
+          disabled={!valid}
+          onClick={async () => {
+            await act(send("/api/columns", "POST", { name: name.trim(), type, options: type === "SELECT" ? opts : undefined }), "Колонка добавлена.");
+            setName("");
+            setOptions("");
+          }}
+          className="btn-primary"
+        >
+          <Plus size={16} />
+          Добавить колонку
+        </button>
+      </div>
+
+      <ListCard empty={columns.length === 0 ? "Своих колонок пока нет." : undefined}>
+        {columns.map((c) => (
+          <li key={c.id} className="flex items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-semibold text-on-surface">{c.name}</p>
+              <p className="truncate text-[12px] text-on-surface-variant">
+                {COLUMN_TYPE_LABEL[c.type]}
+                {c.type === "SELECT" && `: ${c.options.join(", ")}`}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = window.prompt("Название колонки", c.name)?.trim();
+                if (next && next !== c.name) act(send(`/api/columns/${c.id}`, "PATCH", { name: next }), "Колонка переименована.");
+              }}
+              className="btn-icon h-8 w-8"
+              title="Переименовать"
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm(`Удалить колонку «${c.name}»? Она пропадёт из таблицы, введённые значения сохранятся в истории.`)) {
+                  act(send(`/api/columns/${c.id}`, "DELETE"), "Колонка удалена.");
+                }
+              }}
+              className="btn-icon h-8 w-8 text-status-red"
+              title="Удалить"
+            >
+              <Trash2 size={15} />
+            </button>
+          </li>
+        ))}
+      </ListCard>
+    </>
   );
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { canExportWorkTable } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRows, type ArchiveMode, type TableSort } from "@/lib/table-view";
+import { prisma } from "@/lib/prisma";
 import { parseExportFormat, renderExport, exportResponse } from "@/lib/export";
 
 // Экспорт «текущей таблицы» с теми же фильтрами и сортировкой, что у /api/items.
@@ -33,7 +34,9 @@ export async function GET(request: NextRequest) {
     { sortBy: (sp.get("sortBy") as TableSort["sortBy"]) ?? undefined, sortDir: (sp.get("sortDir") as "asc" | "desc") ?? undefined }
   );
 
-  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Опер", "Комментарий"];
+  // свои колонки куратора — в конец таблицы выгрузки
+  const custom = await prisma.customColumn.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Опер", "Комментарий", ...custom.map((c) => c.name)];
   const data = rows.map((r) => [
     r.segmentName,
     r.trackName,
@@ -46,6 +49,10 @@ export async function GET(request: NextRequest) {
     r.statusName,
     r.operFlag ? "да" : "нет",
     r.comment,
+    ...custom.map((c) => {
+      const v = r.customValues[c.id];
+      return v && c.type === "DATE" ? new Date(v).toLocaleDateString("ru-RU") : v ?? null;
+    }),
   ]);
 
   const body = await renderExport(format, {

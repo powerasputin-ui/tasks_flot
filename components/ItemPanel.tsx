@@ -33,6 +33,7 @@ export type ItemRow = {
   archived: boolean;
   createdById: string;
   createdByName: string;
+  customValues?: Record<string, string>;
 };
 
 type FormState = {
@@ -46,7 +47,11 @@ type FormState = {
   statusId: string;
   comment: string;
   operFlag: boolean;
+  /** значения своих колонок: { <id колонки>: значение } */
+  custom: Record<string, string>;
 };
+
+export type CustomColumnRef = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
 
 type Event = {
   id: string;
@@ -69,6 +74,7 @@ const fromRow = (r: ItemRow | null, defaultResponsibleId: string): FormState => 
   statusId: r?.statusId ?? "",
   comment: r?.comment ?? "",
   operFlag: r?.operFlag ?? false,
+  custom: { ...(r?.customValues ?? {}) },
 });
 
 export function ItemPanel({
@@ -78,6 +84,7 @@ export function ItemPanel({
   lockResponsible,
   canEdit,
   canDelete,
+  customColumns = [],
   onClose,
   onSaved,
 }: {
@@ -87,6 +94,7 @@ export function ItemPanel({
   lockResponsible: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  customColumns?: CustomColumnRef[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -127,6 +135,7 @@ export function ItemPanel({
     statusId: nul(form.statusId),
     comment: nul(form.comment),
     operFlag: form.operFlag,
+    customValues: form.custom,
   });
 
   async function save() {
@@ -152,7 +161,7 @@ export function ItemPanel({
         if (body?.error === "ARCHIVED") setError("Позиция в архиве: сначала верните её в работу.");
         else setConflict(true);
       } else if (res.status === 403) setError("Нет прав на это действие.");
-      else if (res.status === 400) setError("Проверьте заполненные поля.");
+      else if (res.status === 400) setError((await res.json().catch(() => null))?.message ?? "Проверьте заполненные поля.");
       else setError("Не удалось сохранить. Данные не потеряны, попробуйте ещё раз.");
     } finally {
       setSaving(false);
@@ -310,6 +319,38 @@ export function ItemPanel({
             </div>
           </Section>
 
+          {customColumns.length > 0 && (
+            <Section title="Дополнительные поля">
+              <div className="grid grid-cols-2 gap-3">
+                {customColumns.map((c) => {
+                  const v = form.custom[c.id] ?? "";
+                  const setV = (val: string) => setForm((f) => ({ ...f, custom: { ...f.custom, [c.id]: val } }));
+                  return (
+                    <Field key={c.id} label={c.name}>
+                      {c.type === "SELECT" ? (
+                        <select value={v} onChange={(e) => setV(e.target.value)} disabled={disabled} className="select w-full">
+                          <option value="">—</option>
+                          {c.options.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={c.type === "DATE" ? "date" : "text"}
+                          inputMode={c.type === "NUMBER" ? "decimal" : undefined}
+                          value={v}
+                          onChange={(e) => setV(e.target.value)}
+                          disabled={disabled}
+                          className="input w-full"
+                        />
+                      )}
+                    </Field>
+                  );
+                })}
+              </div>
+            </Section>
+          )}
+
           <Section title="Комментарий">
             <textarea value={form.comment} onChange={(e) => set("comment", e.target.value)} disabled={disabled} rows={4} className="input w-full" />
           </Section>
@@ -345,7 +386,7 @@ export function ItemPanel({
                     <span className="font-semibold">{e.actor?.name ?? "Система"}</span>{" "}
                     {e.fieldName ? (
                       <>
-                        изменил(а) «{FIELD_LABEL[e.fieldName] ?? e.fieldName}»: <span className="text-outline">{showValue(e.fieldName, e.before)}</span> →{" "}
+                        изменил(а) «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»: <span className="text-outline">{showValue(e.fieldName, e.before)}</span> →{" "}
                         <span className="font-semibold">{showValue(e.fieldName, e.after)}</span>
                       </>
                     ) : e.action === "CREATE" ? (
