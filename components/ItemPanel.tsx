@@ -409,12 +409,8 @@ export function ItemPanel({
                     {e.afterSubmission && <span className="mr-1 rounded-sm bg-surface-high px-1 text-[10px] font-semibold text-on-surface-variant">после отправки</span>}
                     {e.fieldName ? (
                       <>
-                        изменил(а){" "}
-                        <AuditChange
-                          label={FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}
-                          before={showValue(e.fieldName, e.before)}
-                          after={showValue(e.fieldName, e.after)}
-                        />
+                        изменил(а) поле «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»
+                        <AuditChange before={showValue(e.fieldName, e.before)} after={showValue(e.fieldName, e.after)} />
                       </>
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"

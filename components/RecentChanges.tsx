@@ -44,18 +44,16 @@ export function RecentChanges({ segments, refreshKey, onOpen }: { segments: stri
                 <span className="font-bold">{e.actorName}</span>{" "}
                 {e.label !== null && e.before !== null ? (
                   <>
-                    изменил(а) <AuditChange label={e.label} before={e.before} after={e.after ?? "—"} />
+                    изменил(а) поле «{e.label}» в задаче{" "}
                   </>
                 ) : (
-                  e.what
+                  <>{e.what}: </>
                 )}
-              </div>
-              <div className="mt-1 text-[12px] text-on-surface-variant">
-                Задача:{" "}
                 <button onClick={() => onOpen(e.itemId)} className="text-primary hover:underline [overflow-wrap:anywhere]">
-                  {e.itemTitle.length > 80 ? `${e.itemTitle.slice(0, 80)}…` : e.itemTitle}
+                  «{e.itemTitle.length > 80 ? `${e.itemTitle.slice(0, 80)}…` : e.itemTitle}»
                 </button>
               </div>
+              {e.label !== null && e.before !== null && <AuditChange before={e.before} after={e.after ?? "—"} />}
               <p className="text-[10px] text-outline">{new Date(e.timestamp).toLocaleString("ru-RU")}</p>
             </div>
           </li>
