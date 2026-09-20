@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Pencil, Plus, RotateCcw, Settings, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Lock, Pencil, Plus, RotateCcw, Settings, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
@@ -862,7 +862,7 @@ function ColumnConfigPanel({
         <p className="label-caps">Колонки таблицы</p>
         <button onClick={onReset} className="text-[12px] font-semibold text-primary hover:underline">Сбросить</button>
       </div>
-      <p className="mb-2 text-[11px] text-on-surface-variant">Галочка — колонка показана. «Удалить» убирает колонку из таблицы; удалённые можно вернуть внизу списка.</p>
+      <p className="mb-2 text-[11px] text-on-surface-variant">Галочка — колонка показана. Корзина убирает колонку из таблицы; убранные можно вернуть внизу списка.</p>
       {error && <p className="mb-2 rounded-md bg-status-red/10 px-2.5 py-1.5 text-[12px] text-status-red">{error}</p>}
 
       <ul className="max-h-80 divide-y divide-outline-variant/60 overflow-y-auto">
@@ -878,19 +878,17 @@ function ColumnConfigPanel({
                   <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" title="Выше"><ArrowUp size={14} /></button>
                   <button onClick={() => move(col.key, 1)} disabled={i === active.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" title="Ниже"><ArrowDown size={14} /></button>
                   {col.key === "name" ? (
-                    <span className="ml-1 w-[78px] text-center text-[11px] text-outline" title="Без колонки «Задача» таблица теряет смысл">обязательная</span>
+                    <span className="ml-1 flex h-8 w-8 items-center justify-center text-outline" title="Обязательная колонка: без неё таблица теряет смысл"><Lock size={14} /></span>
                   ) : custom ? (
                     canManage &&
                     confirmKey !== col.key && (
-                      <button onClick={() => setConfirmKey(col.key)} className="ml-1 flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-status-red hover:bg-status-red/10" title="Удалить колонку">
-                        <Trash2 size={14} />
-                        Удалить
+                      <button onClick={() => setConfirmKey(col.key)} className="ml-1 flex h-8 w-8 items-center justify-center rounded-md text-status-red hover:bg-status-red/10" title="Удалить колонку">
+                        <Trash2 size={15} />
                       </button>
                     )
                   ) : (
-                    <button onClick={() => update(col.key, { removed: true, visible: false })} className="ml-1 flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-status-red hover:bg-status-red/10" title="Убрать колонку из таблицы">
-                      <Trash2 size={14} />
-                      Удалить
+                    <button onClick={() => update(col.key, { removed: true, visible: false })} className="ml-1 flex h-8 w-8 items-center justify-center rounded-md text-status-red hover:bg-status-red/10" title="Убрать колонку из таблицы">
+                      <Trash2 size={15} />
                     </button>
                   )}
                 </div>
