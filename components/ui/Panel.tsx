@@ -35,7 +35,7 @@ export function Panel({
     >
       <div className="flex items-start justify-between gap-3 border-b border-outline-variant bg-surface-low px-5 py-4">
         <div className="min-w-0">
-          <h2 className="truncate text-[16px] font-semibold leading-6 text-on-surface">{title}</h2>
+          <h2 title={typeof title === "string" ? title : undefined} className="line-clamp-2 text-[16px] font-semibold leading-6 text-on-surface [overflow-wrap:anywhere]">{title}</h2>
           {subtitle && <div className="mt-0.5 text-[12px] text-on-surface-variant">{subtitle}</div>}
         </div>
         <button onClick={onClose} className="btn-icon -mr-2 h-8 w-8 shrink-0" title="Закрыть (Esc)">

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
+import { ExpandableText } from "@/components/ui/ExpandableText";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
@@ -212,13 +213,13 @@ export function OperativkaView() {
                 <tr key={r.id} className="border-t border-outline-variant/50 align-top">
                   <td className="px-3 py-2.5">{r.segmentName ?? "—"}</td>
                   <td className="px-3 py-2.5">{r.trackName ?? "—"}</td>
-                  <td className="px-3 py-2.5 font-medium">{r.name}</td>
+                  <td className="min-w-56 px-3 py-2.5 font-medium"><ExpandableText text={r.name} lines={2} /></td>
                   <td className="px-3 py-2.5">{r.cost ?? "—"}</td>
                   <td className="px-3 py-2.5">{r.attractivenessName ?? "—"}</td>
                   <td className="px-3 py-2.5">{r.ownerName ?? "—"}</td>
                   <td className="px-3 py-2.5">{fmt(r.deadline)}</td>
                   <td className="px-3 py-2.5">{r.statusName ?? "—"}</td>
-                  <td className="px-3 py-2.5 text-on-surface-variant">{r.comment ?? "—"}</td>
+                  <td className="min-w-64 px-3 py-2.5 text-on-surface-variant">{r.comment ? <ExpandableText text={r.comment} lines={3} /> : "—"}</td>
                   {r.customFields?.map((f, i) => (
                     <td key={i} className="px-3 py-2.5">{f.value ? (f.type === "DATE" ? fmt(f.value) : f.value) : "—"}</td>
                   ))}

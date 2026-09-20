@@ -14,6 +14,7 @@ import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/co
 import { Avatar } from "@/components/ui/Avatar";
 import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
 import { RecentChanges } from "@/components/RecentChanges";
+import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
 import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
@@ -368,7 +369,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return <span className={`text-[13px] font-semibold [overflow-wrap:anywhere] ${row.archived ? "text-outline" : "text-on-surface"}`}>{row.name}</span>;
+        return <HoverText text={row.name} lines={2} className={`text-[13px] font-semibold leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
@@ -417,7 +418,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       }
       case "comment":
-        return <span className="line-clamp-3 whitespace-pre-line text-[12px] leading-tight text-on-surface-variant [overflow-wrap:anywhere]">{row.comment ?? "—"}</span>;
+        return row.comment ? <HoverText text={row.comment} lines={3} className="text-[12px] leading-snug text-on-surface-variant" /> : "—";
       default: {
         // своя колонка куратора
         const id = col.key.slice("custom:".length);
@@ -591,7 +592,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                               className={`px-4 py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
                                 col.key === "name" || col.key === "comment" ? "" : "truncate"
                               }`}
-                              title={col.key === "name" ? row.name : col.key === "comment" ? row.comment ?? undefined : undefined}
                             >
                               {renderCell(row, col)}
                             </td>

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
 import { AuditChange } from "@/components/AuditChange";
 import { ATTRACTIVENESS_LABEL } from "@/components/ui/Badge";
+import { AutoTextarea } from "@/components/ui/AutoTextarea";
+import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
 import { Popover } from "@/components/ui/Popover";
 import { FIELD_LABEL } from "@/lib/audit-format";
@@ -282,7 +284,16 @@ export function ItemPanel({
 
           <Section title="Основное">
             <Field label="Задача *">
-              <textarea value={form.title} onChange={(e) => set("title", e.target.value)} disabled={disabled} rows={3} maxLength={300} className="input w-full" />
+              {disabled ? (
+                <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
+                  <ExpandableText text={form.title || "—"} lines={4} />
+                </div>
+              ) : (
+                <>
+                  <AutoTextarea value={form.title} onChange={(e) => set("title", e.target.value)} maxLength={300} />
+                  {form.title.length > 200 && <p className="mt-1 text-right text-[11px] text-outline">{form.title.length} / 300</p>}
+                </>
+              )}
             </Field>
             <Field label="Оценка $">
               <input value={form.cost} onChange={(e) => set("cost", e.target.value)} disabled={disabled} className="input w-full" placeholder="например, 2 млн.$" />
@@ -354,8 +365,16 @@ export function ItemPanel({
           )}
 
           <Section title="Комментарий">
-            <textarea value={form.comment} onChange={(e) => set("comment", e.target.value)} disabled={disabled} rows={4} maxLength={2000} className="input w-full" />
-            <p className="mt-1 text-right text-[11px] text-outline">{form.comment.length} / 2000</p>
+            {disabled ? (
+              <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
+                <ExpandableText text={form.comment || "—"} lines={6} />
+              </div>
+            ) : (
+              <>
+                <AutoTextarea value={form.comment} onChange={(e) => set("comment", e.target.value)} maxLength={2000} minLength={0} className="min-h-[88px]" />
+                <p className="mt-1 text-right text-[11px] text-outline">{form.comment.length} / 2000</p>
+              </>
+            )}
           </Section>
 
           <div className={`rounded-lg border p-3.5 ${form.operFlag ? "border-status-emerald/40 bg-status-emerald/10" : "border-outline-variant bg-surface-low"}`}>

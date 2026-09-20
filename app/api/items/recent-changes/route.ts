@@ -5,8 +5,8 @@ import { canViewItems } from "@/lib/permissions";
 import { clipText, describeAuditAction, FIELD_LABEL, formatAuditValue, type NameMaps } from "@/lib/audit-format";
 import { CUSTOM_FIELD_PREFIX } from "@/lib/custom-columns";
 
-// Длинные значения в ленте обрезаются: полный текст остаётся в журнале позиции.
-const FEED_VALUE_MAX = 300;
+// Предохранитель для очень старых записей: лимиты ввода (2000/300) держат обычные значения намного короче.
+const FEED_VALUE_MAX = 4000;
 
 // Лента последних изменений по видимым пользователю позициям (сегмент — необязательный фильтр).
 export async function GET(request: NextRequest) {

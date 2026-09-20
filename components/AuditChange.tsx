@@ -1,19 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { ExpandableText } from "@/components/ui/ExpandableText";
 import { isLongChange } from "@/lib/audit-format";
-
-const COLLAPSE_OVER = 120;
 
 /**
  * Одно изменение поля в журнале: «Поле»: было → стало.
- * Короткие значения — в одну строку со стрелкой. Длинные (и с переводами строк) — блоками
- * «Было / Стало» с переносом любых слов, свёрнутыми до трёх строк и кнопкой «Показать полностью».
+ * Короткие значения — в одну строку со стрелкой. Длинные (и с абзацами) — двумя карточками
+ * «Было» / «Стало»: слова любой длины переносятся, каждая карточка свёрнута до 3 строк,
+ * а «Показать полностью» появляется, только если текст действительно обрезан.
  * Нужен внутри контейнера-блока (div): длинный вариант выводит блочные элементы.
  */
 export function AuditChange({ label, before, after }: { label: string; before: string; after: string }) {
-  const [open, setOpen] = useState(false);
-
   if (!isLongChange(before, after)) {
     return (
       <>
@@ -22,28 +19,23 @@ export function AuditChange({ label, before, after }: { label: string; before: s
     );
   }
 
-  const collapsible = before.length > COLLAPSE_OVER || after.length > COLLAPSE_OVER || before.split("\n").length > 3 || after.split("\n").length > 3;
   return (
     <>
       «{label}»:
-      <span className="mt-1.5 block space-y-1.5">
-        <Block tag="Было" text={before} open={open} muted />
-        <Block tag="Стало" text={after} open={open} />
-        {collapsible && (
-          <button onClick={() => setOpen((o) => !o)} className="text-[12px] font-semibold text-primary hover:underline">
-            {open ? "Свернуть" : "Показать полностью"}
-          </button>
-        )}
-      </span>
+      <div className="mt-1.5 space-y-1.5">
+        <Quote tag="Было" text={before} tone="old" />
+        <Quote tag="Стало" text={after} tone="new" />
+      </div>
     </>
   );
 }
 
-function Block({ tag, text, open, muted }: { tag: string; text: string; open: boolean; muted?: boolean }) {
+function Quote({ tag, text, tone }: { tag: string; text: string; tone: "old" | "new" }) {
+  const old = tone === "old";
   return (
-    <span className="flex gap-2">
-      <span className="w-10 shrink-0 pt-px text-[10px] font-bold uppercase tracking-wide text-outline">{tag}</span>
-      <span className={`min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere] ${open ? "" : "line-clamp-3"} ${muted ? "text-outline" : "font-medium text-on-surface"}`}>{text}</span>
-    </span>
+    <div className={`rounded-md border-l-[3px] bg-surface-low py-2 pl-3 pr-3 ${old ? "border-status-red/50" : "border-status-emerald"}`}>
+      <span className={`mb-0.5 block text-[10px] font-bold uppercase tracking-wide ${old ? "text-status-red/80" : "text-status-emerald"}`}>{tag}</span>
+      <ExpandableText text={text} lines={3} className={`text-[12px] leading-relaxed ${old ? "text-on-surface-variant" : "text-on-surface"}`} />
+    </div>
   );
 }
