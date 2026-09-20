@@ -16,6 +16,7 @@ import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/compone
 import { RecentChanges } from "@/components/RecentChanges";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
+import { COLUMN_TYPE_LABEL, parseOptions, type ColumnType } from "@/lib/custom-columns";
 import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
@@ -233,6 +234,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     }, 600);
   }, []);
 
+  const reloadCustomCols = useCallback(() => {
+    fetch("/api/columns")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCustomCols(d?.columns ?? []))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetch("/api/me/table-columns")
       .then((r) => (r.ok ? r.json() : null))
@@ -444,7 +452,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           >
             {() => (
               <div>
-                <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} />
+                <ColumnConfigPanel columns={columns} onChange={saveColumns} onReset={() => saveColumns(DEFAULT_COLUMNS)} canManage={me?.role === "CURATOR" || me?.role === "SYSTEM_ADMIN"} onColumnsChanged={reloadCustomCols} />
                 {(me?.role === "SYSTEM_ADMIN" || me?.role === "CURATOR") && (
                   <a href="/settings#columns" className="block border-t border-outline-variant px-3.5 py-2.5 text-[13px] font-semibold text-primary hover:bg-primary-soft">
                     + Создать или удалить свою колонку →
@@ -781,8 +789,29 @@ function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc
   );
 }
 
-function ColumnConfigPanel({ columns, onChange, onReset }: { columns: ColumnConfig[]; onChange: (cols: ColumnConfig[]) => void; onReset: () => void }) {
+function ColumnConfigPanel({
+  columns,
+  onChange,
+  onReset,
+  canManage,
+  onColumnsChanged,
+}: {
+  columns: ColumnConfig[];
+  onChange: (cols: ColumnConfig[]) => void;
+  onReset: () => void;
+  /** Куратор и администратор могут создавать и удалять свои колонки. */
+  canManage: boolean;
+  onColumnsChanged: () => void;
+}) {
   const visibleTotal = columns.filter((c) => c.visible).reduce((s, c) => s + c.width, 0) || 1;
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState<ColumnType>("TEXT");
+  const [newOptions, setNewOptions] = useState("");
+  const opts = parseOptions(newOptions);
+  const canAdd = newName.trim() && (newType !== "SELECT" || opts.length > 0);
 
   function update(key: ColumnKey, patch: Partial<ColumnConfig>) {
     onChange(columns.map((c) => (c.key === key ? { ...c, ...patch } : c)));
@@ -797,25 +826,99 @@ function ColumnConfigPanel({ columns, onChange, onReset }: { columns: ColumnConf
     onChange(next);
   }
 
+  async function removeCustom(key: string) {
+    setError(null);
+    const res = await fetch(`/api/columns/${key.slice("custom:".length)}`, { method: "DELETE" });
+    setConfirmKey(null);
+    if (res.ok) onColumnsChanged();
+    else setError("Не удалось удалить колонку.");
+  }
+
+  async function addCustom() {
+    setError(null);
+    const res = await fetch("/api/columns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim(), type: newType, options: newType === "SELECT" ? opts : undefined }),
+    });
+    if (res.ok) {
+      setNewName("");
+      setNewOptions("");
+      setNewType("TEXT");
+      setAdding(false);
+      onColumnsChanged();
+    } else setError("Не удалось добавить колонку.");
+  }
+
   return (
     <div className="p-3.5">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <p className="label-caps">Колонки таблицы</p>
         <button onClick={onReset} className="text-[12px] font-semibold text-primary hover:underline">Сбросить</button>
       </div>
+      <p className="mb-2 text-[11px] text-on-surface-variant">Галочка — колонка показана в таблице. Стандартные колонки можно скрыть, свои — удалить.</p>
+      {error && <p className="mb-2 rounded-md bg-status-red/10 px-2.5 py-1.5 text-[12px] text-status-red">{error}</p>}
+
       <ul className="max-h-80 divide-y divide-outline-variant/60 overflow-y-auto">
-        {columns.map((col, i) => (
-          <li key={col.key} className="flex items-center gap-2 py-1.5">
-            <input type="checkbox" checked={col.visible} onChange={(e) => update(col.key, { visible: e.target.checked })} className="h-4 w-4 accent-primary" />
-            <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} readOnly={col.key.startsWith("custom:")} title={col.key.startsWith("custom:") ? "Название своей колонки меняется в настройках" : undefined} className="input h-8 w-36" />
-            <span className="w-9 text-right text-[11px] text-outline">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
-            <div className="ml-auto flex">
-              <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" title="Выше"><ArrowUp size={14} /></button>
-              <button onClick={() => move(col.key, 1)} disabled={i === columns.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" title="Ниже"><ArrowDown size={14} /></button>
-            </div>
-          </li>
-        ))}
+        {columns.map((col, i) => {
+          const custom = col.key.startsWith("custom:");
+          return (
+            <li key={col.key} className="py-1.5">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" checked={col.visible} onChange={(e) => update(col.key, { visible: e.target.checked })} className="h-4 w-4 accent-primary" title={col.visible ? "Скрыть колонку" : "Показать колонку"} />
+                <input value={col.label} onChange={(e) => update(col.key, { label: e.target.value })} readOnly={custom} title={custom ? "Название своей колонки меняется в настройках" : undefined} className="input h-8 w-36" />
+                <span className="w-9 text-right text-[11px] text-outline">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
+                <div className="ml-auto flex items-center">
+                  <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" title="Выше"><ArrowUp size={14} /></button>
+                  <button onClick={() => move(col.key, 1)} disabled={i === columns.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" title="Ниже"><ArrowDown size={14} /></button>
+                  {custom && canManage && confirmKey !== col.key && (
+                    <button onClick={() => setConfirmKey(col.key)} className="ml-1 flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-status-red hover:bg-status-red/10" title="Удалить колонку">
+                      <Trash2 size={14} />
+                      Удалить
+                    </button>
+                  )}
+                </div>
+              </div>
+              {custom && confirmKey === col.key && (
+                <div className="mt-1.5 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/5 px-2.5 py-2">
+                  <span className="flex-1 text-[12px] text-on-surface">Удалить колонку «{col.label}»? Значения сохранятся в истории.</span>
+                  <button onClick={() => removeCustom(col.key)} className="btn-primary h-7 bg-status-red px-2.5 text-[12px] hover:bg-status-red">Да, удалить</button>
+                  <button onClick={() => setConfirmKey(null)} className="btn-ghost h-7 px-2.5 text-[12px]">Нет</button>
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
+
+      {canManage && (
+        <div className="mt-3 border-t border-outline-variant pt-3">
+          {!adding ? (
+            <button onClick={() => setAdding(true)} className="btn-ghost h-8 w-full justify-center">
+              <Plus size={14} />
+              Добавить свою колонку
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <p className="label-caps">Новая колонка</p>
+              <div className="flex gap-2">
+                <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Название" autoFocus className="input h-8 min-w-0 flex-1" />
+                <select value={newType} onChange={(e) => setNewType(e.target.value as ColumnType)} className="select h-8">
+                  {(Object.keys(COLUMN_TYPE_LABEL) as ColumnType[]).map((t) => (
+                    <option key={t} value={t}>{COLUMN_TYPE_LABEL[t]}</option>
+                  ))}
+                </select>
+              </div>
+              {newType === "SELECT" && <input value={newOptions} onChange={(e) => setNewOptions(e.target.value)} placeholder="Варианты через запятую" className="input h-8 w-full" />}
+              <div className="flex gap-2">
+                <button disabled={!canAdd} onClick={addCustom} className="btn-primary h-8">Добавить</button>
+                <button onClick={() => setAdding(false)} className="btn-ghost h-8">Отмена</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <p className="mt-2 text-[11px] text-outline">Настройки колонок сохраняются в вашей учётной записи и одинаковы на любом устройстве. Ширину можно менять перетаскиванием границы в шапке.</p>
     </div>
   );
