@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Columns3, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
@@ -110,6 +111,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [editor, setEditorState] = useState<{ row: Row | null } | null>(null);
   const [analytics, setAnalytics] = useState(false);
+  // Экспорт живёт в шапке рядом с колокольчиком: рендерим его туда через портал.
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setHeaderSlot(document.getElementById("header-actions"));
+  }, []);
   // Выбранные сегменты (можно несколько); пусто = все.
   const [segments, setSegments] = useState<string[]>([]);
 
@@ -359,6 +365,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   return (
     <div className="flex h-full min-h-0">
+      {headerSlot && me && me.role !== "SYSTEM_ADMIN" && createPortal(<ExportMenu endpoint="/api/export/table" params={exportParams} iconOnly />, headerSlot)}
       <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
 
       <section className="flex min-w-0 flex-1 flex-col">
@@ -392,7 +399,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 <BarChart3 size={15} />
                 Аналитика
               </button>
-              {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} />}
               {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
                 <button onClick={() => setEditor({ row: null })} className="btn-primary">
                   <Plus size={16} />

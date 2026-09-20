@@ -11,17 +11,23 @@ const FORMATS = [
 ] as const;
 
 /** Кнопка «Экспорт ▾»: ссылки на GET-эндпоинты, браузер сам скачивает файл (Content-Disposition). */
-export function ExportMenu({ endpoint, params, withPptx = false }: { endpoint: string; params?: URLSearchParams; withPptx?: boolean }) {
+export function ExportMenu({ endpoint, params, withPptx = false, iconOnly = false }: { endpoint: string; params?: URLSearchParams; withPptx?: boolean; iconOnly?: boolean }) {
   const formats = withPptx ? FORMATS : FORMATS.filter((f) => f.key !== "pptx");
   return (
     <Popover
       align="right"
       width={220}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className="btn-ghost">
-          <Download size={15} />
-          Экспорт
-        </button>
+        iconOnly ? (
+          <button onClick={toggle} className="btn-icon" title="Экспорт" aria-label="Экспорт">
+            <Download size={18} />
+          </button>
+        ) : (
+          <button onClick={toggle} className="btn-ghost">
+            <Download size={15} />
+            Экспорт
+          </button>
+        )
       )}
     >
       {(close) => (
