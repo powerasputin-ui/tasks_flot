@@ -430,9 +430,6 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={toggleHistory} className={`btn-ghost w-9 px-0 ${history ? "border-primary bg-primary-soft text-primary" : ""}`} title="История изменений" aria-label="История изменений">
-                <History size={16} />
-              </button>
               <button onClick={toggleAnalytics} className={`btn-ghost ${analytics ? "border-primary bg-primary-soft text-primary" : ""}`} title="Аналитика выборки">
                 <BarChart3 size={15} />
                 Аналитика
@@ -480,6 +477,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 Сбросить
               </button>
             )}
+            {/* История изменений — иконка без контура у правого края над таблицей */}
+            <button
+              onClick={toggleHistory}
+              className={`ml-auto flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-primary-soft hover:text-primary ${history ? "text-primary" : "text-on-surface-variant"}`}
+              title="История изменений"
+              aria-label="История изменений"
+            >
+              <History size={20} />
+            </button>
           </div>
         </div>
 
