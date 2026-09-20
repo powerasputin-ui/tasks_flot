@@ -52,7 +52,7 @@ export function RecentChanges({ segments, refreshKey, onOpen }: { segments: stri
               </div>
               <div className="mt-1 text-[12px] text-on-surface-variant">
                 Задача:{" "}
-                <button onClick={() => onOpen(e.itemId)} className="font-semibold text-primary hover:underline [overflow-wrap:anywhere]">
+                <button onClick={() => onOpen(e.itemId)} className="text-primary hover:underline [overflow-wrap:anywhere]">
                   {e.itemTitle.length > 80 ? `${e.itemTitle.slice(0, 80)}…` : e.itemTitle}
                 </button>
               </div>
