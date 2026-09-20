@@ -11,6 +11,7 @@ const schema = z.object({
         label: z.string().max(60),
         visible: z.boolean(),
         width: z.number().min(20).max(2000),
+        removed: z.boolean().optional(),
       })
     )
     .max(80),

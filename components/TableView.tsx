@@ -46,7 +46,8 @@ type StdKey = "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadl
 type ColumnKey = StdKey | `custom:${string}`;
 
 /** width — не пиксели, а относительный вес: колонки растягиваются на 100% пропорционально. */
-type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number };
+/** removed — колонка «удалена» из таблицы этим пользователем (её можно вернуть в настройках). */
+type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; width: number; removed?: boolean };
 
 const DEFAULT_LABEL: Record<StdKey, string> = {
   track: "Трек",
@@ -365,7 +366,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
 
-  const visibleColumns = columns.filter((c) => c.visible);
+  const visibleColumns = columns.filter((c) => c.visible && !c.removed);
   const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
 
   function renderCell(row: Row, col: ColumnConfig) {
@@ -803,7 +804,9 @@ function ColumnConfigPanel({
   canManage: boolean;
   onColumnsChanged: () => void;
 }) {
-  const visibleTotal = columns.filter((c) => c.visible).reduce((s, c) => s + c.width, 0) || 1;
+  const active = columns.filter((c) => !c.removed);
+  const removed = columns.filter((c) => c.removed);
+  const visibleTotal = active.filter((c) => c.visible).reduce((s, c) => s + c.width, 0) || 1;
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -818,11 +821,14 @@ function ColumnConfigPanel({
   }
 
   function move(key: ColumnKey, dir: -1 | 1) {
-    const idx = columns.findIndex((c) => c.key === key);
-    const swapWith = idx + dir;
-    if (swapWith < 0 || swapWith >= columns.length) return;
+    // двигаем среди оставшихся колонок, удалённые пропускаем
+    const idx = active.findIndex((c) => c.key === key);
+    const other = active[idx + dir];
+    if (idx < 0 || !other) return;
     const next = [...columns];
-    [next[idx], next[swapWith]] = [next[swapWith], next[idx]];
+    const a = next.findIndex((c) => c.key === key);
+    const b = next.findIndex((c) => c.key === other.key);
+    [next[a], next[b]] = [next[b], next[a]];
     onChange(next);
   }
 
@@ -856,11 +862,11 @@ function ColumnConfigPanel({
         <p className="label-caps">Колонки таблицы</p>
         <button onClick={onReset} className="text-[12px] font-semibold text-primary hover:underline">Сбросить</button>
       </div>
-      <p className="mb-2 text-[11px] text-on-surface-variant">Галочка — колонка показана в таблице. Стандартные колонки можно скрыть, свои — удалить.</p>
+      <p className="mb-2 text-[11px] text-on-surface-variant">Галочка — колонка показана. «Удалить» убирает колонку из таблицы; удалённые можно вернуть внизу списка.</p>
       {error && <p className="mb-2 rounded-md bg-status-red/10 px-2.5 py-1.5 text-[12px] text-status-red">{error}</p>}
 
       <ul className="max-h-80 divide-y divide-outline-variant/60 overflow-y-auto">
-        {columns.map((col, i) => {
+        {active.map((col, i) => {
           const custom = col.key.startsWith("custom:");
           return (
             <li key={col.key} className="py-1.5">
@@ -870,9 +876,19 @@ function ColumnConfigPanel({
                 <span className="w-9 text-right text-[11px] text-outline">{col.visible ? Math.round((col.width / visibleTotal) * 100) : 0}%</span>
                 <div className="ml-auto flex items-center">
                   <button onClick={() => move(col.key, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" title="Выше"><ArrowUp size={14} /></button>
-                  <button onClick={() => move(col.key, 1)} disabled={i === columns.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" title="Ниже"><ArrowDown size={14} /></button>
-                  {custom && canManage && confirmKey !== col.key && (
-                    <button onClick={() => setConfirmKey(col.key)} className="ml-1 flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-status-red hover:bg-status-red/10" title="Удалить колонку">
+                  <button onClick={() => move(col.key, 1)} disabled={i === active.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" title="Ниже"><ArrowDown size={14} /></button>
+                  {col.key === "name" ? (
+                    <span className="ml-1 w-[78px] text-center text-[11px] text-outline" title="Без колонки «Задача» таблица теряет смысл">обязательная</span>
+                  ) : custom ? (
+                    canManage &&
+                    confirmKey !== col.key && (
+                      <button onClick={() => setConfirmKey(col.key)} className="ml-1 flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-status-red hover:bg-status-red/10" title="Удалить колонку">
+                        <Trash2 size={14} />
+                        Удалить
+                      </button>
+                    )
+                  ) : (
+                    <button onClick={() => update(col.key, { removed: true, visible: false })} className="ml-1 flex h-8 items-center gap-1 rounded-md px-2 text-[12px] font-semibold text-status-red hover:bg-status-red/10" title="Убрать колонку из таблицы">
                       <Trash2 size={14} />
                       Удалить
                     </button>
@@ -890,6 +906,23 @@ function ColumnConfigPanel({
           );
         })}
       </ul>
+
+      {removed.length > 0 && (
+        <div className="mt-3 border-t border-outline-variant pt-3">
+          <p className="label-caps mb-1">Удалённые колонки</p>
+          <ul className="divide-y divide-outline-variant/60">
+            {removed.map((col) => (
+              <li key={col.key} className="flex items-center gap-2 py-1.5">
+                <span className="flex-1 truncate text-[13px] text-on-surface-variant">{col.label}</span>
+                <button onClick={() => update(col.key, { removed: false, visible: true })} className="btn-ghost h-7 px-2.5 text-[12px]">
+                  <RotateCcw size={13} />
+                  Вернуть
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {canManage && (
         <div className="mt-3 border-t border-outline-variant pt-3">
