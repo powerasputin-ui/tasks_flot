@@ -41,6 +41,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
   }
   const result = await createItem(actor, parsed.data);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: ITEM_ERROR_STATUS[result.error] });
+  if (!result.ok) return NextResponse.json({ error: result.error, message: result.message }, { status: ITEM_ERROR_STATUS[result.error] });
   return NextResponse.json({ row: await loadTableRow(result.id) }, { status: 201 });
 }

@@ -26,6 +26,8 @@ export const createItemSchema = z.object({
   statusId: idOrNull,
   comment: textOrNull,
   operFlag: z.boolean().optional(),
+  // значения своих колонок: { <id колонки>: значение } (проверка типа — на сервере, lib/custom-columns)
+  customValues: z.record(z.string(), z.string()).optional(),
 });
 
 // version обязателен: оптимистическая блокировка (409 при конфликте).

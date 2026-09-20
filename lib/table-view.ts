@@ -31,6 +31,8 @@ export type TableRow = {
   comment: string | null;
   version: number;
   createdById: string;
+  /** Значения своих колонок: { <id колонки>: значение }. */
+  customValues: Record<string, string>;
   createdByName: string;
   updatedAt: Date;
   /** Недель с последнего обновления — подсветка «давно не трогали». */
@@ -99,6 +101,7 @@ export function toTableRow(i: ItemWithRelations): TableRow {
     comment: i.comment,
     version: i.version,
     createdById: i.createdById,
+    customValues: (i.customValues ?? {}) as Record<string, string>,
     createdByName: i.createdBy.name,
     updatedAt: i.updatedAt,
     staleWeeks: weeksSince(i.updatedAt),

@@ -24,7 +24,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   const result = await updateItem(actor, id, parsed.data);
   if (!result.ok) {
-    return NextResponse.json({ error: result.error, currentVersion: result.currentVersion }, { status: ITEM_ERROR_STATUS[result.error] });
+    return NextResponse.json({ error: result.error, currentVersion: result.currentVersion, message: result.message }, { status: ITEM_ERROR_STATUS[result.error] });
   }
   return NextResponse.json({ row: await loadTableRow(id) });
 }

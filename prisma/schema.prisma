@@ -125,6 +125,7 @@ model OperationalItem {
   updatedAt        DateTime        @updatedAt
   archivedAt       DateTime?
   version          Int             @default(1)
+  customValues     Json            @default("{}") // значения своих колонок: { <id колонки>: "значение" }
 
   notes ItemNote[]
 
@@ -228,4 +229,26 @@ model Cycle {
 
   @@index([status])
   @@map("cycles")
+}
+
+enum CustomColumnType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+}
+
+/// Свои колонки таблицы: создаёт куратор, значения заполняют те, кто правит позицию.
+/// Значения хранятся в OperationalItem.customValues по ключу id колонки.
+/// Удаление мягкое (isActive=false): значения остаются в истории, колонка скрывается.
+model CustomColumn {
+  id        String           @id @default(cuid())
+  name      String
+  type      CustomColumnType @default(TEXT)
+  options   String[] // для SELECT
+  sortOrder Int              @default(0)
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+
+  @@map("custom_columns")
 }
