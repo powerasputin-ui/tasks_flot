@@ -270,7 +270,7 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                       </>
                     ) : (
                       <>
-                        {isAdmin && u.role === "HEAD" && (
+                        {isAdmin && (u.role === "HEAD" ? (
                           <button
                             onClick={() => patch(u.id, { memoEditor: !u.memoEditor }, u.memoEditor ? "Снят с составления справки." : "Назначен составителем справки.")}
                             className={`btn-icon h-8 w-8 ${u.memoEditor ? "bg-primary-soft text-primary" : ""}`}
@@ -279,7 +279,11 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                           >
                             <FileText size={15} />
                           </button>
-                        )}
+                        ) : u.role === "DIRECTOR" || u.role === "ADMIN" ? (
+                          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-soft text-primary opacity-70" title="Составляет справку по должности — отдельно назначать не нужно">
+                            <FileText size={15} />
+                          </span>
+                        ) : null)}
                         <button
                           onClick={() => {
                             const name = window.prompt("Имя (Фамилия И.О.)", u.name)?.trim();
