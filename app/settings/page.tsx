@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Building2, Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { Building2, ArrowDown, ArrowUp, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -15,7 +15,7 @@ type Directorate = { id: string; name: string; isActive: boolean };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
-type SectionKey = "users" | "directorates" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
+type SectionKey = "users" | "directorates" | "memo" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
 type ColumnRow = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
@@ -34,11 +34,12 @@ export default function SettingsPage() {
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [directorates, setDirectorates] = useState<Directorate[]>([]);
   const [currentDirectorate, setCurrentDirectorate] = useState<string | null>(null);
+  const [memoCount, setMemoCount] = useState(0);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const reload = useCallback(async () => {
     const get = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
-    const [m, s, st, a, t, u, cols, dirs] = await Promise.all([
+    const [m, s, st, a, t, u, cols, dirs, memo] = await Promise.all([
       get("/api/auth/me"),
       get("/api/segments"),
       get("/api/statuses"),
@@ -47,6 +48,7 @@ export default function SettingsPage() {
       get("/api/users?all=1"),
       get("/api/columns"),
       get("/api/directorates"),
+      get("/api/memo-sections"),
     ]);
     setMe(m?.user ?? null);
     setSegments(s?.segments ?? []);
@@ -57,6 +59,7 @@ export default function SettingsPage() {
     setColumns(cols?.columns ?? []);
     setDirectorates(dirs?.directorates ?? []);
     setCurrentDirectorate(dirs?.current ?? null);
+    setMemoCount(memo?.sections?.length ?? 0);
   }, []);
 
   useEffect(() => {
@@ -103,6 +106,7 @@ export default function SettingsPage() {
   const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
     { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
     { key: "directorates", label: "Дирекции", icon: <Building2 size={16} />, count: directorates.length, adminOnly: true },
+    { key: "memo", label: "Структура справки", icon: <FileText size={16} />, count: memoCount },
     { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
     { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length },
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
@@ -150,6 +154,7 @@ export default function SettingsPage() {
 
         {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} />}
         {section === "directorates" && <DirectoratesSection directorates={directorates} act={act} />}
+        {section === "memo" && <MemoStructureSection act={act} />}
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
@@ -349,6 +354,127 @@ function CreateUserPanel({ act, isAdmin, directorates, currentDirectorate, onClo
         )}
       </div>
     </Panel>
+  );
+}
+
+type MemoTrack = { id: string; name: string; segmentName: string | null };
+type SectionDraft = { key: string; id?: string; title: string };
+
+/** Структура справки: разделы (как в образце «1. Кабелеукладочное направление») и какие треки в них входят. */
+function MemoStructureSection({ act }: { act: Act }) {
+  const [shortName, setShortName] = useState("");
+  const [sections, setSections] = useState<SectionDraft[]>([]);
+  const [tracks, setTracks] = useState<MemoTrack[]>([]);
+  const [assign, setAssign] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/memo-sections")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setShortName(d.shortName ?? "");
+        setTracks(d.tracks);
+        setSections(d.sections.map((x: { id: string; title: string }) => ({ key: x.id, id: x.id, title: x.title })));
+        const a: Record<string, string> = {};
+        for (const sec of d.sections as Array<{ id: string; trackIds: string[] }>) for (const t of sec.trackIds) a[t] = sec.id;
+        setAssign(a);
+        setLoaded(true);
+      });
+  }, []);
+
+  const move = (i: number, d: -1 | 1) =>
+    setSections((s) => {
+      const j = i + d;
+      if (j < 0 || j >= s.length) return s;
+      const n = [...s];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
+
+  const save = () =>
+    act(
+      send("/api/memo-sections", "PUT", {
+        shortName: shortName.trim() || null,
+        sections: sections.map((x) => ({ id: x.id, title: x.title.trim() || "Раздел", trackIds: tracks.filter((t) => assign[t.id] === x.key).map((t) => t.id) })),
+      }),
+      "Структура справки сохранена."
+    );
+
+  if (!loaded) return <div className="skeleton h-40 rounded-lg" />;
+  const unassigned = tracks.filter((t) => !assign[t.id] || !sections.some((x) => x.key === assign[t.id]));
+
+  return (
+    <>
+      <SectionHeader
+        title="Структура справки"
+        hint="Разделы справки для ЗГД («1. Кабелеукладочное направление» …) и какие треки в них входят. Строки, чьи треки не попали ни в один раздел, идут в «Прочие направления»."
+        action={
+          <button onClick={save} className="btn-primary">
+            Сохранить
+          </button>
+        }
+      />
+      <div className="mb-5 max-w-md">
+        <label className="mb-1 block text-[12px] font-medium text-on-surface-variant">Короткое название дирекции для заголовка</label>
+        <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Например: РФ и КЭ" className="input w-full" maxLength={60} />
+        <p className="mt-1 text-[12px] text-on-surface-variant">Заголовок: «Статус текущих задач по дирекции {shortName.trim() || "…"} к ОС 21.09.2026».</p>
+      </div>
+
+      <h3 className="label-caps mb-2">Разделы</h3>
+      <ul className="mb-3 max-w-xl space-y-1.5">
+        {sections.map((x, i) => (
+          <li key={x.key} className="flex items-center gap-2">
+            <span className="w-6 text-right text-[13px] font-semibold text-on-surface-variant">{i + 1}.</span>
+            <input value={x.title} onChange={(e) => setSections((s) => s.map((y) => (y.key === x.key ? { ...y, title: e.target.value } : y)))} className="input flex-1" maxLength={200} />
+            <button onClick={() => move(i, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" aria-label="Выше"><ArrowUp size={15} /></button>
+            <button onClick={() => move(i, 1)} disabled={i === sections.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" aria-label="Ниже"><ArrowDown size={15} /></button>
+            <button
+              onClick={() => {
+                setSections((s) => s.filter((y) => y.key !== x.key));
+                setAssign((a) => Object.fromEntries(Object.entries(a).filter(([, v]) => v !== x.key)));
+              }}
+              className="btn-icon h-8 w-8"
+              title="Удалить раздел"
+              aria-label="Удалить раздел"
+            >
+              <Trash2 size={15} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button onClick={() => setSections((s) => [...s, { key: `n${Date.now()}`, title: "Новый раздел" }])} className="btn-ghost mb-6 h-8">
+        <Plus size={14} /> Добавить раздел
+      </button>
+
+      <h3 className="label-caps mb-2">В какой раздел входит каждый трек</h3>
+      <div className="max-w-2xl overflow-hidden rounded-lg border border-outline-variant bg-surface">
+        <table className="w-full table-fixed border-collapse text-[13px]">
+          <tbody>
+            {tracks.map((t) => (
+              <tr key={t.id} className="border-t border-outline-variant/50 first:border-t-0">
+                <td className="px-4 py-2">
+                  <p className="font-medium text-on-surface">{t.name}</p>
+                  {t.segmentName && <p className="text-[11px] text-on-surface-variant">{t.segmentName}</p>}
+                </td>
+                <td className="w-64 px-4 py-2">
+                  <select value={sections.some((x) => x.key === assign[t.id]) ? assign[t.id] : ""} onChange={(e) => setAssign((a) => ({ ...a, [t.id]: e.target.value }))} className="select w-full">
+                    <option value="">— Прочие направления —</option>
+                    {sections.map((x, i) => (
+                      <option key={x.key} value={x.key}>{i + 1}. {x.title}</option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {tracks.length === 0 && (
+              <tr><td className="px-4 py-6 text-center text-outline">Треков пока нет.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {unassigned.length > 0 && sections.length > 0 && <p className="mt-2 text-[12px] text-on-surface-variant">Без раздела: {unassigned.length} — их строки попадут в «Прочие направления».</p>}
+    </>
   );
 }
 

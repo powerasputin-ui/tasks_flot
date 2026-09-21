@@ -29,6 +29,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     title: state.title,
     directorate: dir,
     unmappedTracks: unmapped,
+    defs: state.defs,
   });
 }
 

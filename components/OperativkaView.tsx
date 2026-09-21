@@ -4,16 +4,17 @@ import { useCallback, useEffect, useState } from "react";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { ReportSection } from "@/components/ReportSection";
+import { MemoEditor } from "@/components/MemoEditor";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
 import type { ReportModel } from "@/lib/report";
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Lock, Play } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
 type Final = { id: string; number: number; deadline: string; finalizedAt: string | null; directorate?: string | null };
-type Tab = "current" | "finals" | "control";
+type Tab = "memo" | "data" | "finals";
 
 const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка директором", FINAL: "Зафиксирована" } as const;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
@@ -70,14 +71,16 @@ export function OperativkaView() {
     if (!role) return;
     const q = new URLSearchParams(window.location.search);
     const t = q.get("tab");
-    const wanted: Tab = t === "finals" || t === "control" || t === "current" ? t : "current";
-    setTabState(role === "EXECUTIVE" ? "finals" : wanted);
+    // директор и админ открывают «Справку»; остальным (тех. администратору) доступны «Данные»
+    const home: Tab = isDirectorial(role) ? "memo" : "data";
+    const wanted: Tab = t === "finals" || t === "data" || t === "memo" ? t : t === "current" ? "data" : home;
+    setTabState(role === "EXECUTIVE" ? "finals" : wanted === "memo" && !isDirectorial(role) ? "data" : wanted);
     setFinalIdState(q.get("final"));
   }, [role]);
 
   function syncUrl(nextTab: Tab, nextFinal: string | null) {
     const q = new URLSearchParams();
-    if (nextTab !== "current") q.set("tab", nextTab);
+    q.set("tab", nextTab);
     if (nextTab === "finals" && nextFinal) q.set("final", nextFinal);
     const s = q.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
@@ -112,12 +115,13 @@ export function OperativkaView() {
   if (loading || !tab) return <p className="p-6 text-[13px] text-on-surface-variant">Загрузка…</p>;
 
   const hint = cycle && cycle.status === "OPEN" ? deadlineHint(cycle.deadline) : null;
+  const directorial = !!role && isDirectorial(role);
   const tabs: Array<{ id: Tab; label: string; badge?: string; warn?: boolean }> = isManagement
-    ? [{ id: "finals", label: "Финальные", badge: String(finals.length) }]
+    ? [{ id: "finals", label: "Отправленные", badge: String(finals.length) }]
     : [
-        { id: "current", label: "Текущая" },
-        { id: "finals", label: "Финальные", badge: String(finals.length) },
-        ...(isCurator ? [{ id: "control" as const, label: "Контроль подачи", badge: missing.length > 0 ? `не подали: ${missing.length}` : undefined, warn: missing.length > 0 }] : []),
+        ...(directorial ? [{ id: "memo" as const, label: "Справка", badge: missing.length > 0 ? `не подали: ${missing.length}` : undefined, warn: missing.length > 0 }] : []),
+        { id: "finals", label: "Отправленные", badge: String(finals.length) },
+        { id: "data", label: "Данные" },
       ];
 
   return (
@@ -234,45 +238,19 @@ export function OperativkaView() {
         )}
 
         {!isManagement && (
-          <div className={tab === "current" ? "" : "hidden"}>
+          <div className={tab === "data" ? "" : "hidden"}>
             <ReportSection onModel={setModel} refreshKey={`${cycle?.id ?? ""}:${cycle?.status ?? ""}`} />
           </div>
         )}
 
-        {tab === "control" && isCurator && (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Kpi icon={<Send size={16} />} label="Отправлено директору" value={sentTotal} />
-              <Kpi icon={<CheckCircle2 size={16} />} label="Подали" value={summary.length - missing.length} />
-              <Kpi icon={<AlertTriangle size={16} />} label="Ничего не подали" value={missing.length} warn={missing.length > 0} />
-            </div>
-            <div className="surface overflow-hidden">
-              <table className="w-full border-collapse text-[13px]">
-                <thead className="bg-surface-high">
-                  <tr>
-                    <th className="label-caps px-4 py-3 text-left">Сотрудник</th>
-                    <th className="label-caps px-4 py-3 text-center">Позиций</th>
-                    <th className="label-caps px-4 py-3 text-center">Отправлено</th>
-                    <th className="label-caps px-4 py-3 text-left">Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...summary].sort((a, b) => Number(a.sent > 0) - Number(b.sent > 0) || a.name.localeCompare(b.name, "ru")).map((p) => (
-                    <tr key={p.id} className="border-t border-outline-variant/50">
-                      <td className="px-4 py-3">
-                        {p.name}
-                        {(p.role === "ADMIN" || p.role === "DIRECTOR") && <span title={p.role === "DIRECTOR" ? "Директор" : "Админ"} className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">{p.role === "DIRECTOR" ? "Д" : "А"}</span>}
-                      </td>
-                      <td className="px-4 py-3 text-center">{p.total}</td>
-                      <td className="px-4 py-3 text-center">{p.sent}</td>
-                      <td className="px-4 py-3">{p.sent > 0 ? <span className="font-semibold text-status-emerald">подал</span> : <span className="font-semibold text-status-red">не подал</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        {tab === "memo" && directorial &&
+          (cycle && cycle.status !== "FINAL" ? (
+            <MemoEditor key={cycle.id} cycleId={cycle.id} readOnly={!!previewUser} />
+          ) : (
+            <p className="surface p-6 text-center text-[13px] text-on-surface-variant">
+              {isCurator ? "Активной оперативки нет. Нажмите «Начать оперативку» — справка соберётся из поданных позиций." : "Активной оперативки нет."}
+            </p>
+          ))}
 
         {tab === "finals" &&
           (finals.length === 0 ? (
@@ -310,14 +288,3 @@ export function OperativkaView() {
   );
 }
 
-function Kpi({ icon, label, value, warn }: { icon: React.ReactNode; label: string; value: number; warn?: boolean }) {
-  return (
-    <div className="surface flex items-center gap-3 p-3">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${warn ? "bg-status-red/10 text-status-red" : "bg-primary-soft text-primary"}`}>{icon}</span>
-      <div>
-        <p className="text-[12px] text-on-surface-variant">{label}</p>
-        <p className={`text-[24px] font-bold leading-none tracking-tight ${warn ? "text-status-red" : "text-on-surface"}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
