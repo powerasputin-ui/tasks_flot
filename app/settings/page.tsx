@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, ShieldCheck, ShieldOff, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -23,7 +23,7 @@ async function send(url: string, method: string, body?: unknown): Promise<Result
 }
 
 export default function SettingsPage() {
-  const [me, setMe] = useState<{ role: string } | null | undefined>(undefined);
+  const [me, setMe] = useState<{ id?: string; role: string } | null | undefined>(undefined);
   const [section, setSection] = useState<SectionKey>("users");
   const [segments, setSegments] = useState<Ref[]>([]);
   const [statuses, setStatuses] = useState<Ref[]>([]);
@@ -77,7 +77,8 @@ export default function SettingsPage() {
         text:
           e === "NAME_TAKEN" ? "Такое название уже есть."
           : e === "EMAIL_TAKEN" ? "Такой e-mail уже зарегистрирован."
-          : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль администратора."
+          : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль: это может сделать другой куратор или администратор."
+          : e === "LAST_CURATOR" ? "Нельзя снять последнего куратора: в системе должен остаться хотя бы один."
           : r.status === 403 ? "Недостаточно прав."
           : "Не удалось выполнить действие.",
       });
@@ -138,7 +139,7 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
+        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} meId={me?.id} />}
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
@@ -173,13 +174,52 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isAdmin: boolean }) {
+function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Act; isAdmin: boolean; meId?: string }) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
   const patch = (id: string, body: Record<string, unknown>, okText?: string) => act(send(`/api/users/${id}`, "PATCH", body), okText);
+
+  // Назначение и снятие кураторов (для куратора; у администратора для этого есть выбор роли в строке)
+  const [roleConfirm, setRoleConfirm] = useState<{ id: string; to: "CURATOR" | "HEAD" } | null>(null);
+  const activeCurators = users.filter((x) => x.role === "CURATOR" && x.isActive).length;
+  const confirmBlock = (u: UserRow) => {
+    const to = roleConfirm!.to;
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="max-w-xs text-right text-[12px] text-on-surface">
+          {to === "CURATOR" ? "Назначить куратором? Получит доступ ко всему, что есть у куратора." : "Снять с кураторства? Останется руководителем."}
+        </span>
+        <button
+          onClick={async () => {
+            await patch(u.id, { role: to }, to === "CURATOR" ? "Назначен куратором." : "Снят с кураторства.");
+            setRoleConfirm(null);
+          }}
+          className="btn-primary h-8"
+        >
+          {to === "CURATOR" ? "Да, назначить" : "Да, снять"}
+        </button>
+        <button onClick={() => setRoleConfirm(null)} className="btn-ghost h-8">Отмена</button>
+      </div>
+    );
+  };
+  const promoteButton = (u: UserRow) => (
+    <button onClick={() => setRoleConfirm({ id: u.id, to: "CURATOR" })} className="btn-ghost h-8" title="Дать доступ ко всему, что есть у куратора">
+      <ShieldCheck size={14} />
+      Назначить куратором
+    </button>
+  );
+  const demoteButton = (u: UserRow) => {
+    const blocked = u.id === meId ? "Нельзя снять себя" : activeCurators <= 1 ? "Это последний куратор" : "";
+    return (
+      <button onClick={() => setRoleConfirm({ id: u.id, to: "HEAD" })} disabled={!!blocked} className="btn-ghost h-8 disabled:opacity-50" title={blocked || "Оставить руководителем, без прав куратора"}>
+        <ShieldOff size={14} />
+        Снять с кураторства
+      </button>
+    );
+  };
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)) : users;
@@ -238,7 +278,9 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
                 <td className="px-4 py-3">
                   {isAdmin || u.role === "HEAD" ? (
                   <div className="flex items-center justify-end gap-1.5">
-                    {resetFor === u.id ? (
+                    {roleConfirm?.id === u.id ? (
+                      confirmBlock(u)
+                    ) : resetFor === u.id ? (
                       <>
                         <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Новый пароль (8+)" className="input h-8 w-36" />
                         <button
@@ -263,11 +305,19 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
                         </button>
                         <button onClick={() => { setResetFor(u.id); setNewPassword(""); }} className="btn-icon h-8 w-8" title="Сменить пароль"><KeyRound size={15} /></button>
                         <button onClick={() => patch(u.id, { isActive: !u.isActive })} className="btn-ghost h-8">{u.isActive ? "Отключить" : "Включить"}</button>
+                        {!isAdmin && u.role === "HEAD" && u.isActive && promoteButton(u)}
                       </>
                     )}
                   </div>
                   ) : (
-                    <p className="text-right text-[12px] text-outline">Управляет администратор</p>
+                    roleConfirm?.id === u.id ? (
+                      confirmBlock(u)
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className="text-[12px] text-outline">Остальное — у администратора</span>
+                        {u.role === "CURATOR" && demoteButton(u)}
+                      </div>
+                    )
                   )}
                 </td>
               </tr>

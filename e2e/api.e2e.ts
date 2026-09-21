@@ -17,6 +17,11 @@ vi.mock("@/lib/session", () => {
       if (!state.actor) throw new AuthError("UNAUTHENTICATED");
       return state.actor;
     },
+    requireFreshSession: async () => {
+      if (!state.actor) throw new AuthError("UNAUTHENTICATED");
+      return { userId: state.actor.id, role: state.actor.role };
+    },
+    invalidateActor: () => {},
   };
 });
 
@@ -378,6 +383,28 @@ describe("пользователи", () => {
     expect((await call(curator, users.POST, "/api/users", { method: "POST", body: { name: "x", email: `${TAG}@e2e.local`, password: "longpassword1", role: "CURATOR" } })).status).toBe(403);
     expect((await call(curator, user.PATCH, `/api/users/${curator.id}`, { method: "PATCH", id: curator.id, body: { isActive: false } })).status).toBe(403);
     expect(await prisma.user.findUnique({ where: { email: `${TAG}@e2e.local` } })).toBeNull();
+  });
+
+  it("смена ролей куратором: запреты работают (ничего в базе не меняется)", async () => {
+    // себя куратор снять не может
+    const self = await call(curator, user.PATCH, `/api/users/${curator.id}`, { method: "PATCH", id: curator.id, body: { role: "HEAD" } });
+    expect(self.status).toBe(400);
+    expect(self.data.error).toBe("CANNOT_DEMOTE_SELF");
+    // администратором или руководством куратор назначать не может
+    const toAdmin = await call(curator, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "SYSTEM_ADMIN" } });
+    expect(toAdmin.status).toBe(403);
+    // руководитель не меняет чужие роли
+    const byHead = await call(head, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "CURATOR" } });
+    expect(byHead.status).toBe(403);
+    // имя/пароль/отключение другого куратора — по-прежнему только у администратора
+    const other = await prisma.user.findFirst({ where: { role: "CURATOR", isActive: true, id: { not: curator.id } }, select: { id: true } });
+    if (other) {
+      const rename = await call(curator, user.PATCH, `/api/users/${other.id}`, { method: "PATCH", id: other.id, body: { name: "взлом" } });
+      expect(rename.status).toBe(403);
+    }
+    // в базе роль не изменилась
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: curator.id } })).role).toBe("CURATOR");
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: head.id } })).role).toBe("HEAD");
   });
 
   it("куратор видит в списке ответственных руководителей и кураторов (но не администратора и руководство), e-mail виден ему, руководителю — нет", async () => {

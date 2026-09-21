@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidateDicts } from "@/lib/dictionaries";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { requireFreshSession, requireSession } from "@/lib/session";
 import { canManageDirectory } from "@/lib/permissions";
 import { referenceItemSchema } from "@/lib/validation";
 
@@ -15,7 +15,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireSession();
+  const session = await requireFreshSession();
   if (!canManageDirectory(session.role)) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }

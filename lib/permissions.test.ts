@@ -6,6 +6,7 @@ import {
   canEditItem,
   canExportWorkTable,
   canManageDirectory,
+  checkRoleChange,
   canManageTracks,
   canManageUser,
   canManageUsers,
@@ -122,5 +123,40 @@ describe("треки", () => {
     expect(canManageTracks("SYSTEM_ADMIN")).toBe(true);
     expect(canManageTracks("HEAD")).toBe(false);
     expect(canManageTracks("MANAGEMENT")).toBe(false);
+  });
+});
+
+describe("смена роли (назначить куратором / снять с кураторства)", () => {
+  const cur: Actor = { id: "c1", role: "CURATOR" };
+  const admin: Actor = { id: "a1", role: "SYSTEM_ADMIN" };
+  const headT = { id: "h1", role: "HEAD" as const, isActive: true };
+  const curT = { id: "c2", role: "CURATOR" as const, isActive: true };
+
+  it("куратор назначает руководителя куратором", () => {
+    expect(checkRoleChange(cur, headT, "CURATOR", 2)).toBeNull();
+  });
+
+  it("куратор снимает другого куратора, если останется хотя бы один", () => {
+    expect(checkRoleChange(cur, curT, "HEAD", 2)).toBeNull();
+  });
+
+  it("нельзя снять себя и последнего активного куратора", () => {
+    expect(checkRoleChange(cur, { id: "c1", role: "CURATOR", isActive: true }, "HEAD", 3)).toBe("CANNOT_DEMOTE_SELF");
+    expect(checkRoleChange(cur, curT, "HEAD", 1)).toBe("LAST_CURATOR");
+    // отключённого куратора снять можно: активных от этого не убавится
+    expect(checkRoleChange(cur, { ...curT, isActive: false }, "HEAD", 1)).toBeNull();
+  });
+
+  it("куратор не назначает и не снимает администратора и руководство, руководитель и руководство ничего не меняют", () => {
+    expect(checkRoleChange(cur, headT, "SYSTEM_ADMIN", 2)).toBe("FORBIDDEN");
+    expect(checkRoleChange(cur, headT, "MANAGEMENT", 2)).toBe("FORBIDDEN");
+    expect(checkRoleChange(cur, { id: "a", role: "SYSTEM_ADMIN", isActive: true }, "HEAD", 2)).toBe("FORBIDDEN");
+    expect(checkRoleChange({ id: "u", role: "HEAD" }, headT, "CURATOR", 2)).toBe("FORBIDDEN");
+    expect(checkRoleChange({ id: "m", role: "MANAGEMENT" }, headT, "CURATOR", 2)).toBe("FORBIDDEN");
+  });
+
+  it("администратор может любую смену роли", () => {
+    expect(checkRoleChange(admin, headT, "SYSTEM_ADMIN", 1)).toBeNull();
+    expect(checkRoleChange(admin, curT, "HEAD", 1)).toBeNull();
   });
 });

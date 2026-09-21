@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidateDicts } from "@/lib/dictionaries";
-import { invalidateActor } from "@/lib/session";
+import { invalidateActor, requireFreshSession } from "@/lib/session";
+import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
-import { canManageUser, canManageUsers } from "@/lib/permissions";
+import { canManageUser, canManageUsers, checkRoleChange } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
 
@@ -15,19 +15,31 @@ const patchSchema = z.object({
   password: z.string().min(8, "Минимум 8 символов").optional(),
 });
 
-/** Админ назначает роль, отключает пользователя, сбрасывает пароль. */
+/**
+ * Админ назначает любую роль, отключает пользователя, сбрасывает пароль. Куратор ведёт руководителей и, кроме того,
+ * назначает руководителя куратором и снимает других кураторов (роль «руководитель ↔ куратор»).
+ */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSession();
+  const session = await requireFreshSession(); // роль из базы: назначение и снятие действуют сразу
   if (!canManageUsers(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
   const actor = { id: session.userId, role: session.role };
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
-  const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true, isActive: true } });
   if (!target) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  // Куратор правит только ответственных (HEAD) и не назначает роли.
-  if (!canManageUser(actor, target.role) || (parsed.data.role && !canManageUser(actor, parsed.data.role))) {
+
+  // Смена роли: правила — в checkRoleChange (куратор: только руководитель ↔ куратор, не себя, не последнего).
+  const newRole = parsed.data.role && parsed.data.role !== target.role ? parsed.data.role : undefined;
+  if (newRole) {
+    const activeCurators = await prisma.user.count({ where: { role: "CURATOR", isActive: true } });
+    const err = checkRoleChange(actor, { id, role: target.role, isActive: target.isActive }, newRole, activeCurators);
+    if (err) return NextResponse.json({ error: err }, { status: err === "FORBIDDEN" ? 403 : err === "LAST_CURATOR" ? 409 : 400 });
+  }
+  // Имя, пароль и отключение куратор может менять только у руководителей.
+  const otherFields = parsed.data.name !== undefined || parsed.data.isActive !== undefined || parsed.data.password !== undefined;
+  if (otherFields && !canManageUser(actor, target.role)) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
@@ -44,5 +56,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   });
   invalidateDicts();
   invalidateActor(id);
+  if (newRole && (newRole === "CURATOR" || target.role === "CURATOR")) {
+    await createNotification({
+      userId: id,
+      type: "ROLE_CHANGED",
+      message:
+        newRole === "CURATOR"
+          ? "Вас назначили куратором: теперь вам доступны функции куратора. Обновите страницу, чтобы увидеть новое меню."
+          : "Вас сняли с кураторства: вы снова руководитель. Обновите страницу.",
+      link: "/table",
+    });
+  }
   return NextResponse.json({ user });
 }

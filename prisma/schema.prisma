@@ -191,6 +191,7 @@ enum NotificationType {
   EDIT_REQUEST
   SUBMISSION_MISSING // «ФИО ничего не заполнил и не подал» (этап 3)
   ITEM_RETURNED // куратор вернул позицию на доработку
+  ROLE_CHANGED // назначен куратором / снят с кураторства
 }
 
 model Notification {

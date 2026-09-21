@@ -49,6 +49,16 @@ export async function requireActor(): Promise<Actor & { name: string }> {
   return actor;
 }
 
+/**
+ * Как requireSession, но роль берётся из базы (через requireActor, кэш 30 с), а не из токена входа.
+ * Токен выдаётся при входе и не обновляется, поэтому для решений «кто что может» нужна эта функция:
+ * тогда назначение куратором и снятие действуют сразу, без перевхода.
+ */
+export async function requireFreshSession(): Promise<{ userId: string; role: Actor["role"] }> {
+  const actor = await requireActor();
+  return { userId: actor.id, role: actor.role };
+}
+
 export class AuthError extends Error {
   constructor(message: string) {
     super(message);

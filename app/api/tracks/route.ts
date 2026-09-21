@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidateDicts } from "@/lib/dictionaries";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { requireFreshSession } from "@/lib/session";
 import { canManageTracks } from "@/lib/permissions";
 import { trackSchema } from "@/lib/validation";
 
 // Трек — справочник (TZ_v4, раздел 3): читают все, ведут куратор и администратор.
 export async function GET(request: NextRequest) {
-  const session = await requireSession();
+  const session = await requireFreshSession();
   const all = new URL(request.url).searchParams.get("all") === "1" && canManageTracks(session.role);
   const tracks = await prisma.track.findMany({
     where: all ? {} : { isActive: true },
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireSession();
+  const session = await requireFreshSession();
   if (!canManageTracks(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const parsed = trackSchema.safeParse(await request.json().catch(() => null));

@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { invalidateDicts } from "@/lib/dictionaries";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/session";
+import { requireFreshSession } from "@/lib/session";
 import { canManageDirectory, canManageUser, canManageUsers } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
 
 // Читают все (списки ответственных); e-mail и неактивные — только админу.
 export async function GET(request: NextRequest) {
-  const session = await requireSession();
+  const session = await requireFreshSession();
   const admin = canManageDirectory(session.role);
   const manager = canManageUsers(session.role);
   const all = manager && new URL(request.url).searchParams.get("all") === "1";
@@ -31,7 +31,7 @@ const createUserSchema = z.object({
 
 /** Самостоятельной регистрации нет: пользователей создаёт SYSTEM_ADMIN и назначает роль. */
 export async function POST(request: NextRequest) {
-  const session = await requireSession();
+  const session = await requireFreshSession();
   if (!canManageUsers(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const parsed = createUserSchema.safeParse(await request.json().catch(() => null));

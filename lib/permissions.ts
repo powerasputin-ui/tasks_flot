@@ -64,6 +64,31 @@ export function canManageUser(actor: Actor, targetRole: UserRole): boolean {
   return actor.role === "CURATOR" && targetRole === "HEAD";
 }
 
+export type RoleChangeError = "FORBIDDEN" | "CANNOT_DEMOTE_SELF" | "LAST_CURATOR";
+
+/**
+ * Смена роли пользователя. Администратор — любая. Куратор — только пара «руководитель ↔ куратор»:
+ * назначить руководителя куратором или снять другого куратора (остаться руководителем). Нельзя снять себя
+ * и нельзя снять последнего активного куратора, чтобы система не осталась без куратора.
+ * Возвращает код ошибки или null, если можно.
+ */
+export function checkRoleChange(
+  actor: Actor,
+  target: { id: string; role: UserRole; isActive: boolean },
+  newRole: UserRole,
+  activeCuratorCount: number
+): RoleChangeError | null {
+  if (actor.role === "SYSTEM_ADMIN") return null;
+  if (actor.role !== "CURATOR") return "FORBIDDEN";
+  if (target.role === "HEAD" && newRole === "CURATOR") return null; // назначить куратором
+  if (target.role === "CURATOR" && newRole === "HEAD") {
+    if (target.id === actor.id) return "CANNOT_DEMOTE_SELF";
+    if (target.isActive && activeCuratorCount <= 1) return "LAST_CURATOR";
+    return null; // снять с кураторства
+  }
+  return "FORBIDDEN"; // остальные роли куратор не назначает и не снимает
+}
+
 /** Колонки таблицы (свои поля): создаёт и удаляет куратор; администратор — тоже. */
 export function canManageColumns(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN" || role === "CURATOR";
