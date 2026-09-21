@@ -102,7 +102,9 @@ model Track {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  items OperationalItem[]
+  items         OperationalItem[]
+  memoSection   MemoSection?      @relation(fields: [memoSectionId], references: [id], onDelete: SetNull)
+  memoSectionId String?
 
   @@unique([segmentId, name])
   @@map("tracks")
@@ -242,6 +244,9 @@ model Cycle {
   finalizedById   String?
   remindersSentAt DateTime?
   snapshot        Json?
+  meetingDate     DateTime? // дата оперативного совещания («к ОС …» в заголовке справки)
+  memoDraft       Json? // черновик справки директора (см. lib/memo.ts)
+  memoVersion     Int          @default(0) // растёт при каждом сохранении черновика (защита от одновременной правки)
 
   @@unique([directorateId, number])
   @@index([status])
@@ -308,6 +313,7 @@ model ReportTemplate {
 model Directorate {
   id        String   @id @default(cuid())
   name      String   @unique
+  shortName String? // короткое название для заголовка справки («РФ и КЭ»)
   isActive  Boolean  @default(true)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
@@ -319,6 +325,21 @@ model Directorate {
   cycles          Cycle[]
   customColumns   CustomColumn[]
   reportTemplates ReportTemplate[]
+  memoSections    MemoSection[]
 
   @@map("directorates")
+}
+
+/// Раздел справки («1. Кабелеукладочное направление»): у каждой дирекции свой набор; в него входят треки.
+model MemoSection {
+  id            String      @id @default(cuid())
+  directorateId String
+  directorate   Directorate @relation(fields: [directorateId], references: [id], onDelete: Cascade)
+  title         String
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  tracks        Track[]
+
+  @@index([directorateId])
+  @@map("memo_sections")
 }
