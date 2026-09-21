@@ -194,14 +194,12 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
 
   const rows = sortRows(applyFilters(allRows, cfg.filters, now), cfg.sort);
 
-  // Колонки: убираем те, что уже стали группами. Комментарии управляются только режимом («колонкой / под задачей / не показывать»):
-  // при режиме «колонкой» колонка стоит на своём месте из настроек (если её там нет — последней), в остальных режимах в колонках её нет.
+  // Комментарии показываются, только если «Комментарий» выбран в списке колонок и режим не «Не показывать».
+  // Режим решает как: отдельной колонкой (на своём месте в списке) или строкой под задачей.
   const commentsMode = cfg.options.comments;
+  const commentOn = cfg.columns.includes("comment") && commentsMode !== "hide";
   const keys = cfg.columns.filter((k) => k !== "comment");
-  if (commentsMode === "column") {
-    const at = cfg.columns.indexOf("comment");
-    keys.splice(at < 0 ? keys.length : cfg.columns.slice(0, at).filter((k) => k !== "comment").length, 0, "comment");
-  }
+  if (commentOn && commentsMode === "column") keys.splice(cfg.columns.slice(0, cfg.columns.indexOf("comment")).filter((k) => k !== "comment").length, 0, "comment");
   const columns = keys
     .filter((k) => !(cfg.groupBy as string[]).includes(k))
     .filter((k) => (k.startsWith("custom:") ? custom.has(k.slice("custom:".length)) : k in COLUMN_LABEL))
@@ -210,7 +208,7 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
   const toReportRow = (r: TableRow): ReportRow => ({
     id: r.id,
     cells: Object.fromEntries(columns.map((c) => [c.key, cellValue(r, c.key, custom)])),
-    comment: commentsMode === "underTask" ? r.comment : null,
+    comment: commentOn && commentsMode === "underTask" ? r.comment : null,
     overdue: isOverdue(r, now),
     archived: r.archived,
     statusColor: r.statusColor,
