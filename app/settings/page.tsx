@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { Building2, Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -10,11 +10,12 @@ import { clearBootstrap } from "@/lib/client-bootstrap";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
-type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean };
+type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null };
+type Directorate = { id: string; name: string; isActive: boolean };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
-type SectionKey = "users" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
+type SectionKey = "users" | "directorates" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
 type ColumnRow = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
@@ -31,11 +32,13 @@ export default function SettingsPage() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [columns, setColumns] = useState<ColumnRow[]>([]);
+  const [directorates, setDirectorates] = useState<Directorate[]>([]);
+  const [currentDirectorate, setCurrentDirectorate] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const reload = useCallback(async () => {
     const get = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
-    const [m, s, st, a, t, u, cols] = await Promise.all([
+    const [m, s, st, a, t, u, cols, dirs] = await Promise.all([
       get("/api/auth/me"),
       get("/api/segments"),
       get("/api/statuses"),
@@ -43,6 +46,7 @@ export default function SettingsPage() {
       get("/api/tracks?all=1"),
       get("/api/users?all=1"),
       get("/api/columns"),
+      get("/api/directorates"),
     ]);
     setMe(m?.user ?? null);
     setSegments(s?.segments ?? []);
@@ -51,6 +55,8 @@ export default function SettingsPage() {
     setTracks(t?.tracks ?? []);
     setUsers(u?.users ?? []);
     setColumns(cols?.columns ?? []);
+    setDirectorates(dirs?.directorates ?? []);
+    setCurrentDirectorate(dirs?.current ?? null);
   }, []);
 
   useEffect(() => {
@@ -76,6 +82,8 @@ export default function SettingsPage() {
         tone: "error",
         text:
           e === "NAME_TAKEN" ? "Такое название уже есть."
+          : e === "HAS_ITEMS" ? "За человеком закреплены позиции: сначала передайте их другому."
+          : e === "LAST_DIRECTORATE" ? "Нельзя отключить последнюю активную дирекцию."
           : e === "EMAIL_TAKEN" ? "Такой e-mail уже зарегистрирован."
           : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль: это может сделать другой админ."
           : e === "LAST_ADMIN" ? "Нельзя снять последнего админа: в системе должен остаться хотя бы один."
@@ -94,8 +102,9 @@ export default function SettingsPage() {
   // Директор ведёт руководителей, треки и колонки таблицы; остальные справочники и роли — админ.
   const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
     { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
+    { key: "directorates", label: "Дирекции", icon: <Building2 size={16} />, count: directorates.length, adminOnly: true },
     { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
-    { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length, adminOnly: true },
+    { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length },
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
     { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
@@ -139,11 +148,12 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
+        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} />}
+        {section === "directorates" && <DirectoratesSection directorates={directorates} act={act} />}
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
-          <RefSection title="Сегменты" hint="Левая колонка таблицы. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
+          <RefSection title="Сегменты" hint="Левая колонка таблицы вашей дирекции. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
         )}
         {section === "statuses" && <RefSection title="Статусы" hint="Значения колонки «Статус»." items={statuses} onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")} />}
         {section === "attractiveness" && (
@@ -174,7 +184,8 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isAdmin: boolean }) {
+function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }: { users: UserRow[]; act: Act; isAdmin: boolean; directorates: Directorate[]; currentDirectorate: string | null }) {
+  const dirName = (id: string | null) => directorates.find((d) => d.id === id)?.name;
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
@@ -221,7 +232,7 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
                     <Avatar name={u.name} size={30} />
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-on-surface">{u.name}</p>
-                      <p className="truncate text-[12px] text-on-surface-variant">{u.email}</p>
+                      <p className="truncate text-[12px] text-on-surface-variant">{u.email}{isAdmin && directorates.length > 1 && ` · ${dirName(u.directorateId) ?? "без дирекции"}`}</p>
                     </div>
                   </div>
                 </td>
@@ -283,12 +294,13 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
         </table>
       </div>
 
-      {creating && <CreateUserPanel act={act} isAdmin={isAdmin} onClose={() => setCreating(false)} />}
+      {creating && <CreateUserPanel act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} onClose={() => setCreating(false)} />}
     </>
   );
 }
 
-function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean; onClose: () => void }) {
+function CreateUserPanel({ act, isAdmin, directorates, currentDirectorate, onClose }: { act: Act; isAdmin: boolean; directorates: Directorate[]; currentDirectorate: string | null; onClose: () => void }) {
+  const [directorateId, setDirectorateId] = useState(currentDirectorate ?? "");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -304,7 +316,7 @@ function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean
         <div className="flex gap-2">
           <button
             disabled={!valid}
-            onClick={async () => { await act(send("/api/users", "POST", { name: name.trim(), email, password, role }), "Пользователь создан."); onClose(); }}
+            onClick={async () => { await act(send("/api/users", "POST", { name: name.trim(), email, password, role, ...(isAdmin && role !== "EXECUTIVE" ? { directorateId: directorateId || null } : {}) }), "Пользователь создан."); onClose(); }}
             className="btn-primary"
           >
             Создать
@@ -326,8 +338,69 @@ function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean
           </select>
         </FormField>
         )}
+        {isAdmin && role !== "EXECUTIVE" && directorates.length > 0 && (
+          <FormField label="Дирекция">
+            <select value={directorateId} onChange={(e) => setDirectorateId(e.target.value)} className="select w-full">
+              {directorates.filter((d) => d.isActive).map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </FormField>
+        )}
       </div>
     </Panel>
+  );
+}
+
+function DirectoratesSection({ directorates, act }: { directorates: Directorate[]; act: Act }) {
+  const [name, setName] = useState("");
+  return (
+    <>
+      <SectionHeader title="Дирекции" hint="У каждой дирекции свои люди, сегменты, треки, колонки и оперативки. Отключённая дирекция не удаляется: данные сохраняются." />
+      <div className="mb-4 flex max-w-xl gap-2">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название новой дирекции" className="input flex-1" maxLength={120} />
+        <button
+          disabled={name.trim().length < 2}
+          onClick={async () => {
+            await act(send("/api/directorates", "POST", { name: name.trim() }), "Дирекция добавлена.");
+            setName("");
+          }}
+          className="btn-primary"
+        >
+          <Plus size={16} />
+          Добавить
+        </button>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
+        <table className="w-full table-fixed border-collapse text-[13px]">
+          <tbody>
+            {directorates.map((d) => (
+              <tr key={d.id} className={`border-t border-outline-variant/50 first:border-t-0 ${d.isActive ? "" : "opacity-60"}`}>
+                <td className="px-4 py-3 font-semibold text-on-surface">{d.name}</td>
+                <td className="w-28 px-4 py-3"><ActiveBadge active={d.isActive} /></td>
+                <td className="w-56 px-4 py-3">
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      onClick={() => {
+                        const next = window.prompt("Название дирекции", d.name)?.trim();
+                        if (next && next !== d.name) act(send(`/api/directorates/${d.id}`, "PATCH", { name: next }), "Название изменено.");
+                      }}
+                      className="btn-icon h-8 w-8"
+                      title="Переименовать"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button onClick={() => act(send(`/api/directorates/${d.id}`, "PATCH", { isActive: !d.isActive }))} className="btn-ghost h-8">
+                      {d.isActive ? "Отключить" : "Включить"}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

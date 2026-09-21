@@ -12,6 +12,10 @@ export type Bootstrap = {
   users: Array<{ id: string; name: string; role: string }>;
   columns: Array<{ id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] }>;
   tableColumns: unknown;
+  /** Дирекция, в которой человек работает (у ЗГД нет). */
+  directorate?: { id: string; name: string } | null;
+  /** Только админу: дирекции для переключателя. */
+  directorates?: Array<{ id: string; name: string }>;
 };
 
 const TTL_MS = 60_000;

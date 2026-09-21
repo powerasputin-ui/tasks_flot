@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Eye, LogOut, Search, Settings, X } from "lucide-react";
+import { Check, ChevronDown, Eye, LogOut, Search, Settings, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { setPreview, usePreviewAs } from "@/lib/preview-as";
@@ -108,6 +108,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me>(null);
   // руководители, глазами которых куратор может посмотреть систему
   const [heads, setHeads] = useState<Array<{ id: string; name: string }>>([]);
+  const [directorate, setDirectorate] = useState<{ id: string; name: string } | null>(null);
+  const [directorates, setDirectorates] = useState<Array<{ id: string; name: string }>>([]);
   const preview = usePreviewAs();
 
   useEffect(() => {
@@ -118,8 +120,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     loadBootstrap().then((b) => {
       setMe((b?.user as Me) ?? null);
       setHeads((b?.users ?? []).filter((u) => u.role === "HEAD").map((u) => ({ id: u.id, name: u.name })));
+      setDirectorate(b?.directorate ?? null);
+      setDirectorates(b?.directorates ?? []);
     });
   }, [pathname]);
+
+  // Админ выбирает дирекцию, в которой работает: выбор хранится на сервере (кука), после него страница загружается заново.
+  async function chooseDirectorate(id: string) {
+    await fetch("/api/directorates/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    clearBootstrap();
+    window.location.reload();
+  }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -146,6 +157,41 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Image src="/logo.svg" alt="" width={36} height={36} className="shrink-0" priority />
           <span className="hidden text-[13px] font-bold tracking-tight text-on-surface lg:inline">ГШП ОПЕРАТИВКА</span>
         </Link>
+
+        {directorate &&
+          (directorates.length > 1 ? (
+            <Popover
+              width={340}
+              trigger={({ toggle }) => (
+                <button onClick={toggle} className="hidden max-w-64 items-center gap-1.5 rounded-md border border-outline-variant px-2.5 py-1.5 text-left transition-colors hover:bg-surface-high xl:flex" title="Сменить дирекцию">
+                  <span className="truncate text-[12px] font-semibold text-on-surface">{directorate.name}</span>
+                  <ChevronDown size={14} className="shrink-0 text-outline" />
+                </button>
+              )}
+            >
+              {(close) => (
+                <div className="py-1">
+                  <p className="label-caps px-3.5 pb-1 pt-1.5">Дирекция</p>
+                  {directorates.map((d) => (
+                    <MenuItem
+                      key={d.id}
+                      onClick={() => {
+                        close();
+                        if (d.id !== directorate.id) chooseDirectorate(d.id);
+                      }}
+                      icon={d.id === directorate.id ? <Check size={15} className="text-primary" /> : <span className="w-[15px]" />}
+                    >
+                      {d.name}
+                    </MenuItem>
+                  ))}
+                </div>
+              )}
+            </Popover>
+          ) : (
+            <span className="hidden max-w-64 truncate text-[12px] text-on-surface-variant xl:inline" title={directorate.name}>
+              {directorate.name}
+            </span>
+          ))}
 
         {SEARCH_PATHS.some((p) => pathname.startsWith(p)) && (
           <Suspense fallback={null}>

@@ -12,7 +12,7 @@ import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "l
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
-type Final = { id: string; number: number; deadline: string; finalizedAt: string | null };
+type Final = { id: string; number: number; deadline: string; finalizedAt: string | null; directorate?: string | null };
 type Tab = "current" | "finals" | "control";
 
 const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка директором", FINAL: "Зафиксирована" } as const;
@@ -39,6 +39,7 @@ export function OperativkaView() {
   const [cycle, setCycle] = useState<Cycle | null>(null);
   const [summary, setSummary] = useState<Person[]>([]);
   const [finals, setFinals] = useState<Final[]>([]);
+  const [directorateName, setDirectorateName] = useState<string | null>(null);
   // отчёт по живым данным нужен шапке (название дирекции); руководству он недоступен — у него финалы
   const [model, setModel] = useState<ReportModel | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,7 @@ export function OperativkaView() {
     setCycle(cur.cycle);
     setSummary(cur.summary ?? []);
     setFinals(cur.finals ?? []);
+    setDirectorateName(cur.directorate ?? null);
     setLoading(false);
   }, []);
 
@@ -121,7 +123,7 @@ export function OperativkaView() {
   return (
     <div className="h-full overflow-y-auto">
       <header className="sticky top-0 z-20 border-b border-outline-variant bg-surface px-6 pt-4">
-        <p className="text-[12px] text-on-surface-variant">{model?.directorate ?? DEFAULT_DIRECTORATE}</p>
+        <p className="text-[12px] text-on-surface-variant">{isManagement ? "Итоги дирекций" : directorateName ?? model?.directorate ?? DEFAULT_DIRECTORATE}</p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle && !isManagement ? `Оперативка №${cycle.number}` : "Оперативка"}</h1>
           {cycle && !isManagement && (
@@ -288,6 +290,7 @@ export function OperativkaView() {
                     >
                       <span className={`block text-[13px] font-semibold ${selectedFinal?.id === f.id ? "text-primary" : "text-on-surface"}`}>№{f.number}</span>
                       <span className="block text-[12px] text-on-surface-variant">{fmt(f.finalizedAt)}</span>
+                      {isManagement && f.directorate && <span className="mt-0.5 block text-[11px] leading-tight text-on-surface-variant">{f.directorate}</span>}
                     </button>
                   </li>
                 ))}
@@ -295,7 +298,7 @@ export function OperativkaView() {
               {selectedFinal && (
                 <div className="min-w-0">
                   <p className="mb-3 text-[13px] text-on-surface-variant">
-                    <span className="font-semibold text-on-surface">Оперативка №{selectedFinal.number}</span> · зафиксирована {fmt(selectedFinal.finalizedAt)}
+                    <span className="font-semibold text-on-surface">Оперативка №{selectedFinal.number}</span>{selectedFinal.directorate ? ` · ${selectedFinal.directorate}` : ""} · зафиксирована {fmt(selectedFinal.finalizedAt)}
                   </p>
                   <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} />
                 </div>
