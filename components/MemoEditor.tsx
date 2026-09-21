@@ -21,6 +21,11 @@ type Payload = {
   unmappedTracks: string[];
 };
 
+/** Плавающая панель действий: появляется при наведении/фокусе поверх поля и не сдвигает текст. */
+const PILL = "absolute right-0 z-10 flex items-center gap-0.5 rounded-md border border-outline-variant bg-surface px-0.5 py-0.5 shadow-md opacity-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100";
+const ICON = "flex h-6 w-6 items-center justify-center rounded text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface disabled:opacity-30 disabled:hover:bg-transparent";
+const DANGER = "flex h-6 w-6 items-center justify-center rounded text-on-surface-variant transition-colors hover:bg-status-red/10 hover:text-status-red";
+
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
 const isoDay = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
@@ -293,8 +298,8 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
           {doc.sections.map((section, si) => {
             const visible = section.bullets.filter((b) => !b.hidden).length;
             return (
-              <section key={section.id} className="group/section mb-7">
-                <div className="mb-1.5 flex items-center gap-2">
+              <section key={section.id} className="mb-7">
+                <div className="group/item relative mb-1.5 flex items-center gap-2">
                   <span className="text-[15px] font-bold text-on-surface">{si + 1}.</span>
                   <input
                     value={section.title}
@@ -304,10 +309,10 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                     aria-label="Название раздела"
                   />
                   {editable && (
-                    <span className="flex opacity-0 transition-opacity group-hover/section:opacity-100">
-                      <button onClick={() => moveSection(si, -1)} disabled={si === 0} className="btn-icon h-6 w-6 disabled:opacity-30" title="Раздел выше"><ArrowUp size={14} /></button>
-                      <button onClick={() => moveSection(si, 1)} disabled={si === doc.sections.length - 1} className="btn-icon h-6 w-6 disabled:opacity-30" title="Раздел ниже"><ArrowDown size={14} /></button>
-                      <button onClick={() => removeSection(section.id)} className="btn-icon h-6 w-6" title="Удалить раздел" aria-label="Удалить раздел"><Trash2 size={14} /></button>
+                    <span className={`${PILL} -top-3`}>
+                      <button onClick={() => moveSection(si, -1)} disabled={si === 0} className={ICON} title="Раздел выше"><ArrowUp size={14} /></button>
+                      <button onClick={() => moveSection(si, 1)} disabled={si === doc.sections.length - 1} className={ICON} title="Раздел ниже"><ArrowDown size={14} /></button>
+                      <button onClick={() => removeSection(section.id)} className={DANGER} title="Удалить раздел" aria-label="Удалить раздел"><Trash2 size={14} /></button>
                     </span>
                   )}
                 </div>
@@ -334,18 +339,18 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                   ))}
                 </ul>
                 {editable && (
-                  <button onClick={() => addBullet(section.id)} className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-primary opacity-0 transition-opacity hover:underline group-hover/section:opacity-100">
+                  <button onClick={() => addBullet(section.id)} className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline">
                     <Plus size={13} /> Добавить пункт
                   </button>
                 )}
-                {visible === 0 && <p className="text-[12px] text-outline">Раздел пуст и в файл не попадёт.</p>}
+                {visible === 0 && <p className="text-[12px] text-outline">Пока пусто: добавьте пункт. Пустой раздел в файл не попадёт.</p>}
               </section>
             );
           })}
 
           {editable && (
             <button
-              onClick={() => change({ sections: [...doc.sections, { id: `s_${Date.now().toString(36)}`, title: "Новый раздел", kind: "section", bullets: [manualBullet("")] }] })}
+              onClick={() => change({ sections: [...doc.sections, { id: `s_${Date.now().toString(36)}`, title: "Новый раздел", kind: "section", bullets: [] }] })}
               className="mt-2 flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline"
             >
               <Plus size={14} /> Добавить раздел
@@ -416,7 +421,7 @@ function BulletRow({
   }, [bullet.text]);
 
   return (
-    <li className={`group/b relative flex items-start gap-2 rounded-md px-1 ${bullet.hidden ? "opacity-45" : ""}`}>
+    <li className={`group/item relative flex items-start gap-2 rounded-md px-1 ${bullet.hidden ? "opacity-45" : ""}`}>
       <span className="mt-[3px] select-none text-[15px] leading-[1.55] text-on-surface">•</span>
       <div className="min-w-0 flex-1">
         <textarea
@@ -425,11 +430,14 @@ function BulletRow({
           disabled={!editable}
           rows={1}
           onChange={(e) => onText(e.target.value)}
+          onBlur={() => {
+            if (onRemove && !bullet.text.trim()) onRemove(); // пустой пункт без источников убирается сам
+          }}
           className="block w-full resize-none rounded-sm bg-transparent text-[15px] leading-[1.55] text-on-surface outline-none hover:bg-surface-low focus:bg-surface-low"
           aria-label="Текст пункта"
           placeholder="Текст пункта"
         />
-        {(flags?.sourceChanged || flags?.sourceMissing || bullet.hidden || bullet.origin === "manual") && (
+        {(flags?.sourceChanged || flags?.sourceMissing || bullet.hidden || (bullet.origin === "manual" && bullet.itemIds.length === 0 && bullet.text.trim())) && (
           <p className="mb-1 flex flex-wrap items-center gap-x-3 text-[11px] text-on-surface-variant">
             {bullet.hidden && <span>скрыт — в файл не идёт</span>}
             {bullet.origin === "manual" && bullet.itemIds.length === 0 && <span>написан вручную</span>}
@@ -447,51 +455,53 @@ function BulletRow({
           </p>
         )}
       </div>
-      <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/b:opacity-100 focus-within:opacity-100">
-        {sources.length > 0 && (
-          <Popover
-            align="right"
-            width={340}
-            trigger={({ toggle }) => (
-              <button onClick={toggle} className="btn-icon h-6 w-6" title="Источник: строки данных" aria-label="Источник">
-                <Info size={14} />
+      {(sources.length > 0 || editable) && (
+        <span className={`${PILL} -top-3`}>
+          {sources.length > 0 && (
+            <Popover
+              align="right"
+              width={340}
+              trigger={({ toggle }) => (
+                <button onClick={toggle} className={ICON} title="Источник: строки данных" aria-label="Источник">
+                  <Info size={14} />
+                </button>
+              )}
+            >
+              {() => (
+                <div className="max-h-80 space-y-3 overflow-y-auto p-3">
+                  {sources.map((s) => (
+                    <div key={s.id} className="text-[12px] leading-snug">
+                      <p className="font-semibold text-on-surface">{s.title}</p>
+                      <p className="text-on-surface-variant">
+                        {[s.ownerName, s.statusName, s.deadline ? `срок ${fmtDate(s.deadline)}` : null, s.trackName].filter(Boolean).join(" · ")}
+                      </p>
+                      {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface">{s.comment}</p>}
+                      <a href={`/table?item=${s.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-primary hover:underline">
+                        Открыть строку в таблице
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Popover>
+          )}
+          {editable && (
+            <>
+              <button onClick={onUp} disabled={isFirst} className={ICON} title="Выше" aria-label="Выше"><ArrowUp size={14} /></button>
+              <button onClick={onDown} disabled={isLast} className={ICON} title="Ниже" aria-label="Ниже"><ArrowDown size={14} /></button>
+              {canMergeNext && (
+                <button onClick={onMerge} className={ICON} title="Объединить со следующим пунктом" aria-label="Объединить"><Merge size={14} /></button>
+              )}
+              <button onClick={onHide} className={ICON} title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
+                {bullet.hidden ? <Undo2 size={14} /> : <EyeOff size={14} />}
               </button>
-            )}
-          >
-            {() => (
-              <div className="max-h-80 space-y-3 overflow-y-auto p-3">
-                {sources.map((s) => (
-                  <div key={s.id} className="text-[12px] leading-snug">
-                    <p className="font-semibold text-on-surface">{s.title}</p>
-                    <p className="text-on-surface-variant">
-                      {[s.ownerName, s.statusName, s.deadline ? `срок ${fmtDate(s.deadline)}` : null, s.trackName].filter(Boolean).join(" · ")}
-                    </p>
-                    {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface">{s.comment}</p>}
-                    <a href={`/table?item=${s.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-primary hover:underline">
-                      Открыть строку в таблице
-                    </a>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Popover>
-        )}
-        {editable && (
-          <>
-            <button onClick={onUp} disabled={isFirst} className="btn-icon h-6 w-6 disabled:opacity-30" title="Выше" aria-label="Выше"><ArrowUp size={14} /></button>
-            <button onClick={onDown} disabled={isLast} className="btn-icon h-6 w-6 disabled:opacity-30" title="Ниже" aria-label="Ниже"><ArrowDown size={14} /></button>
-            {canMergeNext && (
-              <button onClick={onMerge} className="btn-icon h-6 w-6" title="Объединить со следующим пунктом" aria-label="Объединить"><Merge size={14} /></button>
-            )}
-            {onRemove && (
-              <button onClick={onRemove} className="btn-icon h-6 w-6" title="Удалить пункт" aria-label="Удалить пункт"><Trash2 size={14} /></button>
-            )}
-            <button onClick={onHide} className="btn-icon h-6 w-6" title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
-              {bullet.hidden ? <Undo2 size={14} /> : <EyeOff size={14} />}
-            </button>
-          </>
-        )}
-      </span>
+              {onRemove && (
+                <button onClick={onRemove} className={DANGER} title="Удалить пункт" aria-label="Удалить пункт"><Trash2 size={14} /></button>
+              )}
+            </>
+          )}
+        </span>
+      )}
     </li>
   );
 }

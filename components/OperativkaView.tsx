@@ -8,13 +8,12 @@ import { MemoEditor } from "@/components/MemoEditor";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
-import type { ReportModel } from "@/lib/report";
 import { AlertTriangle, ClipboardCheck, Lock, Play } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
 type Final = { id: string; number: number; deadline: string; finalizedAt: string | null; directorate?: string | null };
-type Tab = "memo" | "data" | "finals";
+type Tab = "memo" | "finals";
 
 const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка директором", FINAL: "Зафиксирована" } as const;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
@@ -41,8 +40,6 @@ export function OperativkaView() {
   const [summary, setSummary] = useState<Person[]>([]);
   const [finals, setFinals] = useState<Final[]>([]);
   const [directorateName, setDirectorateName] = useState<string | null>(null);
-  // отчёт по живым данным нужен шапке (название дирекции); руководству он недоступен — у него финалы
-  const [model, setModel] = useState<ReportModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
@@ -72,9 +69,9 @@ export function OperativkaView() {
     const q = new URLSearchParams(window.location.search);
     const t = q.get("tab");
     // директор и админ открывают «Справку»; остальным (тех. администратору) доступны «Данные»
-    const home: Tab = isDirectorial(role) ? "memo" : "data";
-    const wanted: Tab = t === "finals" || t === "data" || t === "memo" ? t : t === "current" ? "data" : home;
-    setTabState(role === "EXECUTIVE" ? "finals" : wanted === "memo" && !isDirectorial(role) ? "data" : wanted);
+    const home: Tab = isDirectorial(role) ? "memo" : "finals";
+    const wanted: Tab = t === "finals" ? "finals" : t === "memo" ? "memo" : home;
+    setTabState(role === "EXECUTIVE" || (wanted === "memo" && !isDirectorial(role)) ? "finals" : wanted);
     setFinalIdState(q.get("final"));
   }, [role]);
 
@@ -117,17 +114,16 @@ export function OperativkaView() {
   const hint = cycle && cycle.status === "OPEN" ? deadlineHint(cycle.deadline) : null;
   const directorial = !!role && isDirectorial(role);
   const tabs: Array<{ id: Tab; label: string; badge?: string; warn?: boolean }> = isManagement
-    ? [{ id: "finals", label: "Отправленные", badge: String(finals.length) }]
+    ? [{ id: "finals", label: "Архив", badge: String(finals.length) }]
     : [
         ...(directorial ? [{ id: "memo" as const, label: "Справка", badge: missing.length > 0 ? `не подали: ${missing.length}` : undefined, warn: missing.length > 0 }] : []),
-        { id: "finals", label: "Отправленные", badge: String(finals.length) },
-        { id: "data", label: "Данные" },
+        { id: "finals", label: "Архив", badge: String(finals.length) },
       ];
 
   return (
     <div className="h-full overflow-y-auto">
       <header className="sticky top-0 z-20 border-b border-outline-variant bg-surface px-6 pt-4">
-        <p className="text-[12px] text-on-surface-variant">{isManagement ? "Итоги дирекций" : directorateName ?? model?.directorate ?? DEFAULT_DIRECTORATE}</p>
+        <p className="text-[12px] text-on-surface-variant">{isManagement ? "Итоги дирекций" : directorateName ?? DEFAULT_DIRECTORATE}</p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle && !isManagement ? `Оперативка №${cycle.number}` : "Оперативка"}</h1>
           {cycle && !isManagement && (
@@ -234,12 +230,6 @@ export function OperativkaView() {
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
             <AlertTriangle size={15} /> {error}
-          </div>
-        )}
-
-        {!isManagement && (
-          <div className={tab === "data" ? "" : "hidden"}>
-            <ReportSection onModel={setModel} refreshKey={`${cycle?.id ?? ""}:${cycle?.status ?? ""}`} />
           </div>
         )}
 

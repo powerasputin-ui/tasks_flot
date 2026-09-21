@@ -443,7 +443,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
               <BarChart3 size={18} />
             </button>
-            {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} reports={isDirectorial(me.role)} />}
+            {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} />}
           </>,
           headerSlot
         )}
