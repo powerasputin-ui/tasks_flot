@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, isOverdue, type ReportContext } from "@/lib/report";
+import { buildFinalModel, buildReport, isOverdue, snapshotToRows, type ReportContext } from "@/lib/report";
 import { SYSTEM_TEMPLATES, reportConfigSchema, type ReportConfig } from "@/lib/report-config";
 import type { TableRow } from "@/lib/table-view";
 
@@ -170,5 +170,33 @@ describe("конфигурация и шаблоны из коробки", () =>
     expect(reportConfigSchema.safeParse({ columns: [], groupBy: [] }).success).toBe(false);
     expect(reportConfigSchema.safeParse({ columns: ["name"], groupBy: ["nope"] }).success).toBe(false);
     expect(reportConfigSchema.safeParse({ columns: ["name"], groupBy: ["segment", "track", "owner", "status"] }).success).toBe(false);
+  });
+});
+
+describe("отчёт по финальному снимку", () => {
+  const snapshot = [
+    { ...row({ id: "1", segmentName: "Балкеры", comment: "ждём" }), deadline: "2026-10-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z", customFields: [{ name: "Приоритет", type: "SELECT", value: "Срочно" }] },
+    { ...row({ id: "2", segmentName: "Балкеры", trackName: "Ледокол" }), deadline: null, updatedAt: "2026-09-02T00:00:00.000Z", customFields: [{ name: "Приоритет", type: "SELECT", value: null }] },
+  ];
+  const cycle = { snapshot, finalizedAt: new Date("2026-09-20T10:00:00Z"), number: 3 };
+
+  it("строки снимка (даты строками) строятся в отчёт; заголовок по умолчанию — «Оперативка №N»", () => {
+    const m = buildFinalModel(cycle, base, "Дирекция X");
+    expect(m.title).toBe("Оперативка №3");
+    expect(m.summary.total).toBe(2);
+    expect(m.generatedAt).toBe("2026-09-20T10:00:00.000Z");
+    expect(m.groups![0].label).toBe("Балкеры");
+  });
+
+  it("свои колонки берутся из снимка под их названиями, а не из текущего справочника", () => {
+    const m = buildFinalModel(cycle, { ...base, groupBy: [], columns: ["name", "custom:qq-удалена"] }, "Дирекция X");
+    expect(m.columns.map((c) => c.label)).toEqual(["Задача", "Приоритет"]);
+    expect(m.rows![0].cells["custom:f0"]).toBe("Срочно");
+    expect(m.rows![1].cells["custom:f0"]).toBe("—");
+  });
+
+  it("пустой или повреждённый снимок не ломает отчёт", () => {
+    expect(buildFinalModel({ snapshot: null, finalizedAt: null, number: 1 }, base, "Д").summary.total).toBe(0);
+    expect(snapshotToRows("мусор").rows).toEqual([]);
   });
 });

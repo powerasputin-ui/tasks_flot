@@ -35,7 +35,7 @@ const SORT_LABEL: Record<string, string> = { deadline: "Дедлайн", name: "
  * Отчёт «Оперативки»: выбор шаблона, конструктор (колонки, группировка, фильтры), сохранение шаблона, экспорт.
  * Экран и файлы строятся из одной конфигурации, поэтому совпадают.
  */
-export function ReportSection({ onModel, refreshKey }: { onModel: (m: ReportModel | null) => void; refreshKey: string }) {
+export function ReportSection({ onModel, refreshKey, cycleId }: { onModel?: (m: ReportModel | null) => void; refreshKey?: string; /** Если задан — отчёт строится по финальному снимку этого цикла, а не по живым данным. */ cycleId?: string }) {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [saved, setSaved] = useState<ApiTemplate[]>([]);
   const [activeId, setActiveId] = useState<string>(DEFAULT_TEMPLATE_ID);
@@ -56,6 +56,7 @@ export function ReportSection({ onModel, refreshKey }: { onModel: (m: ReportMode
   const dirty = !same(config, active.config);
   const role = boot?.user?.role;
   const canShare = role === "CURATOR" || role === "SYSTEM_ADMIN";
+  const canSave = role !== "MANAGEMENT"; // руководство шаблонов не хранит: у него только финалы
 
   const reloadTemplates = useCallback(async () => {
     const d = await fetch("/api/report-templates").then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -85,11 +86,11 @@ export function ReportSection({ onModel, refreshKey }: { onModel: (m: ReportMode
   useEffect(() => {
     setLoading(true);
     const t = setTimeout(() => {
-      fetch("/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) })
+      fetch(cycleId ? `/api/cycles/${cycleId}/report` : "/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) })
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((d) => {
           setModel(d.model);
-          onModel(d.model);
+          onModel?.(d.model);
           setError(null);
         })
         .catch(() => setError("Не удалось построить отчёт. Проверьте соединение и повторите."))
@@ -98,7 +99,7 @@ export function ReportSection({ onModel, refreshKey }: { onModel: (m: ReportMode
     return () => clearTimeout(t);
     // onModel из родителя стабилен (setState)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, refreshKey]);
+  }, [config, refreshKey, cycleId]);
 
   function pick(t: Template) {
     setActiveId(t.id);
@@ -165,7 +166,7 @@ export function ReportSection({ onModel, refreshKey }: { onModel: (m: ReportMode
           </button>
         )}
         <div className="ml-auto">
-          <ExportMenu endpoint="/api/export/report" params={exportParams} withPptx />
+          <ExportMenu endpoint={cycleId ? `/api/cycles/${cycleId}/export` : "/api/export/report"} params={exportParams} withPptx />
         </div>
       </div>
 
@@ -190,6 +191,7 @@ export function ReportSection({ onModel, refreshKey }: { onModel: (m: ReportMode
             onChange={setConfig}
             active={active}
             canShare={canShare}
+            canSave={canSave}
             onSaved={async (id) => {
               await reloadTemplates();
               setActiveId(id);
@@ -216,6 +218,7 @@ function Builder({
   onChange,
   active,
   canShare,
+  canSave,
   onSaved,
   onDeleted,
 }: {
@@ -224,6 +227,7 @@ function Builder({
   onChange: (c: ReportConfig) => void;
   active: Template;
   canShare: boolean;
+  canSave: boolean;
   onSaved: (id: string) => Promise<void>;
   onDeleted: () => Promise<void>;
 }) {
@@ -392,6 +396,7 @@ function Builder({
         </div>
       </Block>
 
+      {canSave && (
       <Block title="Сохранить как шаблон" hint="Шаблон можно выбрать в любой момент и использовать для выгрузки.">
         {msg && (
           <p className={`mb-2 rounded-md border px-3 py-2 text-[12px] ${msg.tone === "ok" ? "border-status-emerald/30 bg-status-emerald/10 text-emerald-800" : "border-status-red/30 bg-status-red/10 text-status-red"}`}>{msg.text}</p>
@@ -425,6 +430,7 @@ function Builder({
           </div>
         )}
       </Block>
+      )}
     </div>
   );
 }

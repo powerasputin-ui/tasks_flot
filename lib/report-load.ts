@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getDicts } from "@/lib/dictionaries";
 import { loadTableRows } from "@/lib/table-view";
-import { buildReport, type ReportModel } from "@/lib/report";
+import { buildFinalModel, buildReport, type ReportModel } from "@/lib/report";
 import { DEFAULT_DIRECTORATE, DEFAULT_TEMPLATE_ID, reportConfigSchema, systemTemplate, type ReportConfig } from "@/lib/report-config";
 import { canViewTemplate } from "@/lib/report-templates";
 import type { Actor } from "@/lib/permissions";
@@ -37,4 +37,9 @@ export async function buildLiveReport(config: ReportConfig): Promise<ReportModel
   const [rows, dicts, directorate] = await Promise.all([loadTableRows("active"), getDicts(), loadDirectorateName()]);
   const customColumns = dicts.customColumns.map((c) => ({ id: c.id, name: c.name, type: c.type }));
   return buildReport(rows, config, { directorate, generatedAt: new Date(), customColumns });
+}
+
+/** Отчёт по финальной оперативке (доступен и руководству). */
+export async function buildFinalReport(cycle: { snapshot: unknown; finalizedAt: Date | null; number: number }, config: ReportConfig): Promise<ReportModel> {
+  return buildFinalModel(cycle, config, await loadDirectorateName());
 }

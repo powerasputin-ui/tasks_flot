@@ -249,3 +249,27 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
 
 /** Подпись уровня группировки для заголовков («Сегмент: …»). */
 export const groupLevelLabel = (level: GroupKey): string => GROUP_LABEL[level];
+
+type SnapshotRow = Record<string, unknown> & { customFields?: Array<{ name: string; type: string; value: string | null }> };
+
+/**
+ * Финальный снимок цикла → строки для движка отчёта. Свои колонки в снимке сохранены под названиями (на момент фиксации),
+ * поэтому им выдаются временные id f0, f1… — так отчёт по финалу не зависит от того, что потом переименовали или удалили.
+ */
+export function snapshotToRows(snapshot: unknown): { rows: TableRow[]; customColumns: CustomColumnInfo[] } {
+  const list = (Array.isArray(snapshot) ? snapshot : []) as SnapshotRow[];
+  const customColumns = (list[0]?.customFields ?? []).map((f, i) => ({ id: `f${i}`, name: f.name, type: f.type }));
+  const rows = list.map((r) => ({
+    ...(r as unknown as TableRow),
+    customValues: Object.fromEntries((r.customFields ?? []).flatMap((f, i) => (f.value ? [[`f${i}`, f.value]] : []))),
+  }));
+  return { rows, customColumns };
+}
+
+/** Модель отчёта по финалу. Если в настройках есть «свои» колонки, они заменяются колонками из снимка. */
+export function buildFinalModel(cycle: { snapshot: unknown; finalizedAt: Date | null; number: number }, config: ReportConfig, directorate: string): ReportModel {
+  const { rows, customColumns } = snapshotToRows(cycle.snapshot);
+  const hasCustom = config.columns.some((c) => c.startsWith("custom:"));
+  const columns = hasCustom ? [...config.columns.filter((c) => !c.startsWith("custom:")), ...customColumns.map((c) => `custom:${c.id}`)] : config.columns;
+  return buildReport(rows, { ...config, columns, title: config.title || `Оперативка №${cycle.number}` }, { directorate, generatedAt: cycle.finalizedAt ?? new Date(), customColumns });
+}

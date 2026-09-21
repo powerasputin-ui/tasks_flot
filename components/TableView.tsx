@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Highlight } from "@/components/ui/Highlight";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
-import { ExportMenu } from "@/components/ExportMenu";
+import { TableExportMenu } from "@/components/TableExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem } from "@/lib/permissions";
@@ -428,7 +428,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
               <BarChart3 size={18} />
             </button>
-            {me && me.role !== "SYSTEM_ADMIN" && <ExportMenu endpoint="/api/export/table" params={exportParams} iconOnly />}
+            {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} />}
           </>,
           headerSlot
         )}

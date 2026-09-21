@@ -1,31 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExportMenu } from "@/components/ExportMenu";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { ReportHeader } from "@/components/ReportView";
 import { ReportSection } from "@/components/ReportSection";
 import type { ReportModel } from "@/lib/report";
-import { ExpandableText } from "@/components/ui/ExpandableText";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
 type Final = { id: string; number: number; deadline: string; finalizedAt: string | null };
-type SnapRow = {
-  id: string;
-  segmentName: string | null;
-  trackName: string | null;
-  name: string;
-  cost: string | null;
-  attractivenessName: string | null;
-  ownerName: string | null;
-  deadline: string | null;
-  statusName: string | null;
-  comment: string | null;
-  customFields?: Array<{ name: string; type: string; value: string | null }>;
-};
 
 const STATUS_LABEL = { OPEN: "Сбор", IN_REVIEW: "Сборка куратором", FINAL: "Финал" } as const;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
@@ -47,7 +32,7 @@ export function OperativkaView() {
   const [error, setError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
   const [confirmFinal, setConfirmFinal] = useState(false);
-  const [view, setView] = useState<{ cycle: Final; rows: SnapRow[] } | null>(null);
+  const [finalId, setFinalId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
@@ -76,16 +61,12 @@ export function OperativkaView() {
     await load();
   }
 
-  async function openFinal(f: Final) {
-    const res = await fetch(`/api/cycles/${f.id}`);
-    if (!res.ok) return setError("Не удалось открыть оперативку.");
-    const d = await res.json();
-    setView({ cycle: f, rows: (d.cycle.snapshot ?? []) as SnapRow[] });
-  }
 
   // Режим «Посмотреть как руководитель»: кнопки куратора скрыты, как у руководителя
   const previewUser = usePreviewAs();
   const isCurator = role === "CURATOR" && !previewUser;
+  // у руководства финал открывается сразу (последний), остальные выбирают сами
+  const selectedFinal = finals.find((x) => x.id === finalId) ?? (role === "MANAGEMENT" ? finals[0] : undefined);
   const sentTotal = summary.reduce((s, p) => s + p.sent, 0);
   const missing = summary.filter((p) => p.sent === 0);
 
@@ -219,7 +200,7 @@ export function OperativkaView() {
           <h2 className="label-caps mb-3">Финальные оперативки</h2>
           <div className="flex flex-wrap gap-2">
             {finals.map((f) => (
-              <button key={f.id} onClick={() => openFinal(f)} className={`btn-ghost ${view?.cycle.id === f.id ? "border-primary bg-primary-soft text-primary" : ""}`}>
+              <button key={f.id} onClick={() => setFinalId(f.id)} className={`btn-ghost ${selectedFinal?.id === f.id ? "border-primary bg-primary-soft text-primary" : ""}`}>
                 №{f.number} · {fmt(f.finalizedAt)}
               </button>
             ))}
@@ -227,41 +208,12 @@ export function OperativkaView() {
         </div>
       )}
 
-      {view && (
-        <div className="surface mt-4 overflow-x-auto">
-          <div className="flex items-center justify-between gap-3 border-b border-outline-variant px-4 py-3">
-            <p className="text-[13px] font-semibold">
-              Оперативка №{view.cycle.number} — зафиксирована {fmt(view.cycle.finalizedAt)}, позиций: {view.rows.length}
-            </p>
-            <ExportMenu endpoint={`/api/cycles/${view.cycle.id}/export`} withPptx />
-          </div>
-          <table className="w-full min-w-[900px] border-collapse text-[13px]">
-            <thead className="bg-surface-high">
-              <tr>
-                {["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Статус", "Комментарии", ...(view.rows[0]?.customFields?.map((f) => f.name) ?? [])].map((h) => (
-                  <th key={h} className="label-caps px-3 py-3 text-left">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {view.rows.map((r) => (
-                <tr key={r.id} className="border-t border-outline-variant/50 align-top">
-                  <td className="px-3 py-2.5">{r.segmentName ?? "—"}</td>
-                  <td className="px-3 py-2.5">{r.trackName ?? "—"}</td>
-                  <td className="min-w-56 px-3 py-2.5"><ExpandableText text={r.name} lines={2} /></td>
-                  <td className="px-3 py-2.5">{r.cost ?? "—"}</td>
-                  <td className="px-3 py-2.5">{r.attractivenessName ?? "—"}</td>
-                  <td className="px-3 py-2.5">{r.ownerName ?? "—"}</td>
-                  <td className="px-3 py-2.5">{fmt(r.deadline)}</td>
-                  <td className="px-3 py-2.5">{r.statusName ?? "—"}</td>
-                  <td className="min-w-64 px-3 py-2.5">{r.comment ? <ExpandableText text={r.comment} lines={3} /> : "—"}</td>
-                  {r.customFields?.map((f, i) => (
-                    <td key={i} className="px-3 py-2.5">{f.value ? (f.type === "DATE" ? fmt(f.value) : f.value) : "—"}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {selectedFinal && (
+        <div className="mt-4 space-y-3">
+          <p className="text-[13px] font-semibold text-on-surface">
+            Оперативка №{selectedFinal.number} — зафиксирована {fmt(selectedFinal.finalizedAt)}
+          </p>
+          <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} />
         </div>
       )}
 
