@@ -3,6 +3,8 @@ import { getDicts } from "@/lib/dictionaries";
 import { loadTableRows } from "@/lib/table-view";
 import { buildReport, type ReportModel } from "@/lib/report";
 import { DEFAULT_DIRECTORATE, DEFAULT_TEMPLATE_ID, reportConfigSchema, systemTemplate, type ReportConfig } from "@/lib/report-config";
+import { canViewTemplate } from "@/lib/report-templates";
+import type { Actor } from "@/lib/permissions";
 
 /** Название дирекции из общей настройки (позже — из выбранной при входе дирекции). */
 export async function loadDirectorateName(): Promise<string> {
@@ -12,14 +14,22 @@ export async function loadDirectorateName(): Promise<string> {
 
 export type ConfigInput = { templateId?: string; config?: unknown };
 
-/** Конфиг из запроса: свой (проверяется схемой) или шаблон из коробки; по умолчанию — «Оперативка по дирекции». */
-export function configFromInput(input: ConfigInput): { ok: true; config: ReportConfig } | { ok: false } {
+/**
+ * Конфиг из запроса: свой (проверяется схемой), шаблон из коробки (sys:…) или сохранённый шаблон из базы
+ * (виден владельцу и всем, если общий). По умолчанию — «Оперативка по дирекции».
+ */
+export async function resolveReportConfig(actor: Actor, input: ConfigInput): Promise<{ ok: true; config: ReportConfig } | { ok: false; status: number }> {
   if (input.config !== undefined) {
     const parsed = reportConfigSchema.safeParse(input.config);
-    return parsed.success ? { ok: true, config: parsed.data } : { ok: false };
+    return parsed.success ? { ok: true, config: parsed.data } : { ok: false, status: 400 };
   }
-  const sys = systemTemplate(input.templateId ?? DEFAULT_TEMPLATE_ID);
-  return sys ? { ok: true, config: sys.config } : { ok: false };
+  const id = input.templateId ?? DEFAULT_TEMPLATE_ID;
+  const sys = systemTemplate(id);
+  if (sys) return { ok: true, config: sys.config };
+  const tpl = await prisma.reportTemplate.findUnique({ where: { id } });
+  if (!tpl || !canViewTemplate(actor, tpl)) return { ok: false, status: 404 };
+  const parsed = reportConfigSchema.safeParse(tpl.config);
+  return parsed.success ? { ok: true, config: parsed.data } : { ok: false, status: 400 };
 }
 
 /** Отчёт по живым данным (текущие неархивные позиции). */

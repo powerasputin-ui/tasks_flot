@@ -35,6 +35,7 @@ model User {
   notes            ItemNote[]
   auditEvents      AuditEvent[]
   notifications    Notification[]
+  reportTemplates  ReportTemplate[]
 
   @@map("users")
 }
@@ -263,4 +264,24 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 
   @@map("app_settings")
+}
+
+enum ReportScope {
+  PERSONAL // виден только владельцу
+  SHARED // виден всем (создаёт куратор или администратор)
+}
+
+/// Сохранённая настройка отчёта «Оперативки»: колонки, группировка, фильтры (см. lib/report-config.ts).
+model ReportTemplate {
+  id        String      @id @default(cuid())
+  name      String
+  config    Json
+  scope     ReportScope @default(PERSONAL)
+  ownerId   String
+  owner     User        @relation(fields: [ownerId], references: [id])
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([ownerId])
+  @@map("report_templates")
 }
