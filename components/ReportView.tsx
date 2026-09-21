@@ -6,28 +6,13 @@ import { ExpandableText } from "@/components/ui/ExpandableText";
 import { StatusPill } from "@/components/ui/Badge";
 import { groupLevelLabel, type ReportGroup, type ReportModel, type ReportRow, type StatusCount } from "@/lib/report";
 
-const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-
-/** Заголовок отчёта: название дирекции и когда сформирован. */
-export function ReportHeader({ model }: { model: ReportModel }) {
-  return (
-    <div>
-      <p className="label-caps">{model.title}</p>
-      <h1 className="text-2xl font-semibold leading-8 text-on-surface">{model.directorate}</h1>
-      <p className="mt-0.5 text-[12px] text-on-surface-variant">
-        Сформировано {fmtDateTime(model.generatedAt)} · позиций: {model.summary.total}
-      </p>
-    </div>
-  );
-}
-
 /** «Статус текущих задач»: общая сводка плитками — всего, по каждому статусу (в его цвете), просрочено, отправлено. */
 export function SummaryTiles({ model }: { model: ReportModel }) {
   const s = model.summary;
   return (
     <div>
       <h2 className="label-caps mb-2">Статус текущих задач</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         <Tile label="Всего задач" value={s.total} />
         {s.byStatus.map((st) => (
           <Tile key={st.name} label={st.name} value={st.count} color={st.color} />
@@ -53,12 +38,12 @@ export function SummaryTiles({ model }: { model: ReportModel }) {
 
 function Tile({ label, value, color, tone, icon }: { label: string; value: number; color?: string | null; tone?: "red"; icon?: React.ReactNode }) {
   return (
-    <div className="surface p-4">
+    <div className="surface min-w-[120px] shrink-0 px-3.5 py-2.5">
       <div className="flex items-center gap-1.5 text-[12px] text-on-surface-variant">
         {color ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} /> : icon}
         <span className="truncate">{label}</span>
       </div>
-      <p className={`mt-1 text-[32px] font-bold leading-none tracking-tight ${tone === "red" ? "text-status-red" : "text-on-surface"}`}>{value}</p>
+      <p className={`mt-1 text-[24px] font-bold leading-none tracking-tight ${tone === "red" ? "text-status-red" : "text-on-surface"}`}>{value}</p>
     </div>
   );
 }
@@ -79,13 +64,24 @@ function StatusBar({ items, total }: { items: StatusCount[]; total: number }) {
 
 /** Дерево отчёта: разворачиваемые группы (Сегмент → Трек …) и задачи. */
 export function ReportTree({ model }: { model: ReportModel }) {
+  // «Свернуть/развернуть всё»: меняем ключ блоков, чтобы они пересоздались с нужным начальным состоянием
+  const [expand, setExpand] = useState({ open: true, n: 0 });
   if (model.groups) {
     if (model.groups.length === 0) return <Empty />;
     return (
-      <div className="space-y-3">
-        {model.groups.map((g) => (
-          <GroupBlock key={g.key} group={g} model={model} depth={0} />
-        ))}
+      <div>
+        <div className="mb-2 flex items-center justify-between text-[12px] text-on-surface-variant">
+          <span>Позиций: {model.summary.total}</span>
+          <span className="flex gap-3">
+            <button onClick={() => setExpand((e) => ({ open: true, n: e.n + 1 }))} className="font-semibold text-primary hover:underline">Развернуть всё</button>
+            <button onClick={() => setExpand((e) => ({ open: false, n: e.n + 1 }))} className="font-semibold text-primary hover:underline">Свернуть всё</button>
+          </span>
+        </div>
+        <div className="space-y-3">
+          {model.groups.map((g) => (
+            <GroupBlock key={`${g.key}:${expand.n}`} group={g} model={model} depth={0} defaultOpen={expand.open} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -101,8 +97,8 @@ function Empty() {
   return <p className="surface p-6 text-center text-[13px] text-on-surface-variant">По выбранным условиям задач нет.</p>;
 }
 
-function GroupBlock({ group, model, depth }: { group: ReportGroup; model: ReportModel; depth: number }) {
-  const [open, setOpen] = useState(true);
+function GroupBlock({ group, model, depth, defaultOpen }: { group: ReportGroup; model: ReportModel; depth: number; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const top = depth === 0;
   return (
     <section className={top ? "surface overflow-hidden" : "border-t border-outline-variant/60"}>
@@ -123,7 +119,7 @@ function GroupBlock({ group, model, depth }: { group: ReportGroup; model: Report
         <div className={depth > 0 || top ? "pl-0" : ""}>
           {group.groups?.map((g) => (
             <div key={g.key} className="pl-4">
-              <GroupBlock group={g} model={model} depth={depth + 1} />
+              <GroupBlock group={g} model={model} depth={depth + 1} defaultOpen={defaultOpen} />
             </div>
           ))}
           {group.rows && (

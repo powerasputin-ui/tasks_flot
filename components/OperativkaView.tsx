@@ -3,16 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
-import { ReportHeader } from "@/components/ReportView";
 import { ReportSection } from "@/components/ReportSection";
+import { Popover } from "@/components/ui/Popover";
+import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
 import type { ReportModel } from "@/lib/report";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
 type Final = { id: string; number: number; deadline: string; finalizedAt: string | null };
+type Tab = "current" | "finals" | "control";
 
-const STATUS_LABEL = { OPEN: "Сбор", IN_REVIEW: "Сборка куратором", FINAL: "Финал" } as const;
+const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка куратором", FINAL: "Зафиксирована" } as const;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
 const ERRORS: Record<string, string> = {
   CYCLE_EXISTS: "Активный цикл уже есть.",
@@ -21,18 +23,28 @@ const ERRORS: Record<string, string> = {
   INVALID_INPUT: "Проверьте введённые данные.",
 };
 
+/** «через 3 дн.» / «сегодня» / «просрочен на 2 дн.» */
+function deadlineHint(iso: string): { text: string; late: boolean } {
+  const d = new Date(iso);
+  const today = new Date();
+  const days = Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+  if (days === 0) return { text: "сегодня", late: false };
+  if (days > 0) return { text: `через ${days} дн.`, late: false };
+  return { text: `просрочен на ${-days} дн.`, late: true };
+}
+
 export function OperativkaView() {
   const [role, setRole] = useState<string | null>(null);
   const [cycle, setCycle] = useState<Cycle | null>(null);
   const [summary, setSummary] = useState<Person[]>([]);
   const [finals, setFinals] = useState<Final[]>([]);
-  // отчёт по живым данным (сводка по дирекции + дерево Сегмент → Трек); руководству он недоступен — у него финалы
+  // отчёт по живым данным нужен шапке (название дирекции); руководству он недоступен — у него финалы
   const [model, setModel] = useState<ReportModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
-  const [confirmFinal, setConfirmFinal] = useState(false);
-  const [finalId, setFinalId] = useState<string | null>(null);
+  const [tab, setTabState] = useState<Tab | null>(null);
+  const [finalId, setFinalIdState] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
@@ -50,6 +62,32 @@ export function OperativkaView() {
     });
   }, [load]);
 
+  // вкладка и выбранный финал живут в адресе (?tab=&final=), чтобы можно было поделиться ссылкой
+  useEffect(() => {
+    if (!role) return;
+    const q = new URLSearchParams(window.location.search);
+    const t = q.get("tab");
+    const wanted: Tab = t === "finals" || t === "control" || t === "current" ? t : "current";
+    setTabState(role === "MANAGEMENT" ? "finals" : wanted);
+    setFinalIdState(q.get("final"));
+  }, [role]);
+
+  function syncUrl(nextTab: Tab, nextFinal: string | null) {
+    const q = new URLSearchParams();
+    if (nextTab !== "current") q.set("tab", nextTab);
+    if (nextTab === "finals" && nextFinal) q.set("final", nextFinal);
+    const s = q.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
+  }
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    syncUrl(t, finalId);
+  };
+  const setFinalId = (id: string) => {
+    setFinalIdState(id);
+    syncUrl("finals", id);
+  };
+
   async function act(url: string, body?: unknown) {
     setError(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -57,177 +95,225 @@ export function OperativkaView() {
       const d = await res.json().catch(() => null);
       setError(ERRORS[d?.error] ?? "Не удалось выполнить действие.");
     }
-    setConfirmFinal(false);
     await load();
   }
-
 
   // Режим «Посмотреть как руководитель»: кнопки куратора скрыты, как у руководителя
   const previewUser = usePreviewAs();
   const isCurator = role === "CURATOR" && !previewUser;
-  // у руководства финал открывается сразу (последний), остальные выбирают сами
-  const selectedFinal = finals.find((x) => x.id === finalId) ?? (role === "MANAGEMENT" ? finals[0] : undefined);
+  const isManagement = role === "MANAGEMENT";
+  const selectedFinal = finals.find((x) => x.id === finalId) ?? finals[0];
   const sentTotal = summary.reduce((s, p) => s + p.sent, 0);
   const missing = summary.filter((p) => p.sent === 0);
 
-  if (loading) return <p className="p-6 text-[13px] text-on-surface-variant">Загрузка…</p>;
+  if (loading || !tab) return <p className="p-6 text-[13px] text-on-surface-variant">Загрузка…</p>;
+
+  const hint = cycle && cycle.status === "OPEN" ? deadlineHint(cycle.deadline) : null;
+  const tabs: Array<{ id: Tab; label: string; badge?: string; warn?: boolean }> = isManagement
+    ? [{ id: "finals", label: "Финальные", badge: String(finals.length) }]
+    : [
+        { id: "current", label: "Текущая" },
+        { id: "finals", label: "Финальные", badge: String(finals.length) },
+        ...(isCurator ? [{ id: "control" as const, label: "Контроль подачи", badge: missing.length > 0 ? `не подали: ${missing.length}` : undefined, warn: missing.length > 0 }] : []),
+      ];
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      {model ? (
-        <ReportHeader model={{ ...model, title: cycle ? `Оперативка №${cycle.number}` : "Оперативка" }} />
-      ) : (
-        <>
-          <p className="label-caps">Оперативка</p>
-          <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle ? `Оперативка №${cycle.number}` : role === "MANAGEMENT" ? "Финальные оперативки" : "Цикл оперативки"}</h1>
-        </>
-      )}
-
-      {error && (
-        <div className="mt-3 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
-          <AlertTriangle size={15} /> {error}
-        </div>
-      )}
-
-      {role !== "MANAGEMENT" && !cycle && (
-        <div className="surface mt-5 max-w-xl p-5">
-          <p className="text-[14px] font-semibold text-on-surface">Активного цикла нет</p>
-          {isCurator ? (
+    <div className="h-full overflow-y-auto">
+      <header className="sticky top-0 z-20 border-b border-outline-variant bg-surface px-6 pt-4">
+        <p className="text-[12px] text-on-surface-variant">{model?.directorate ?? DEFAULT_DIRECTORATE}</p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle && !isManagement ? `Оперативка №${cycle.number}` : "Оперативка"}</h1>
+          {cycle && !isManagement && (
             <>
-              <p className="mt-1 text-[13px] text-on-surface-variant">Укажите срок подачи. За 2 дня до него куратору придёт напоминание, кто ничего не подал.</p>
-              <div className="mt-3 flex items-center gap-2">
-                <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input" />
-                <button onClick={() => act("/api/cycles", { deadline })} disabled={!deadline} className="btn-primary">
-                  <Play size={15} /> Начать оперативку
-                </button>
-              </div>
+              <span className="rounded-full bg-primary-soft px-3 py-1 text-[12px] font-semibold text-primary">{STATUS_LABEL[cycle.status]}</span>
+              <span className="text-[13px] text-on-surface-variant">
+                Срок подачи: {fmt(cycle.deadline)}
+                {hint && <span className={hint.late ? "ml-1 font-semibold text-status-red" : "ml-1"}>({hint.text})</span>}
+              </span>
             </>
-          ) : (
-            <p className="mt-1 text-[13px] text-on-surface-variant">Куратор ещё не начал новую оперативку.</p>
           )}
-        </div>
-      )}
+          {!isManagement && !cycle && <span className="text-[13px] text-on-surface-variant">Активного цикла нет</span>}
 
-      {cycle && (
-        <>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <span className="rounded-full bg-primary-soft px-3 py-1 text-[12px] font-semibold text-primary">{STATUS_LABEL[cycle.status]}</span>
-            <span className="text-[13px] text-on-surface-variant">Срок подачи: {fmt(cycle.deadline)}</span>
-            {isCurator && cycle.status === "OPEN" && (
-              <button onClick={() => act(`/api/cycles/${cycle.id}/review`)} className="btn-primary ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {isCurator && !cycle && (
+              <Popover
+                align="right"
+                width={300}
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="btn-primary">
+                    <Play size={15} /> Начать оперативку
+                  </button>
+                )}
+              >
+                {(close) => (
+                  <div className="p-3">
+                    <p className="text-[13px] font-semibold text-on-surface">Срок подачи</p>
+                    <p className="mt-1 text-[12px] text-on-surface-variant">За 2 дня до срока куратору придёт напоминание, кто ничего не подал.</p>
+                    <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input mt-2 w-full" />
+                    <button
+                      onClick={() => {
+                        close();
+                        act("/api/cycles", { deadline });
+                      }}
+                      disabled={!deadline}
+                      className="btn-primary mt-3 w-full justify-center"
+                    >
+                      Начать
+                    </button>
+                  </div>
+                )}
+              </Popover>
+            )}
+            {isCurator && cycle?.status === "OPEN" && (
+              <button onClick={() => act(`/api/cycles/${cycle.id}/review`)} className="btn-primary">
                 <ClipboardCheck size={15} /> Начать сборку
               </button>
             )}
-            {isCurator && cycle.status === "IN_REVIEW" && !confirmFinal && (
-              <button onClick={() => setConfirmFinal(true)} className="btn-primary ml-auto">
-                <Lock size={15} /> Финализировать
-              </button>
+            {isCurator && cycle?.status === "IN_REVIEW" && (
+              <Popover
+                align="right"
+                width={340}
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="btn-primary">
+                    <Lock size={15} /> Финализировать
+                  </button>
+                )}
+              >
+                {(close) => (
+                  <div className="p-3">
+                    <p className="text-[13px] font-semibold text-on-surface">Зафиксировать оперативку №{cycle.number}?</p>
+                    <p className="mt-1 text-[12px] text-on-surface-variant">
+                      В снимок войдут отправленные позиции ({sentTotal}). После этого снимок нельзя изменить, галки «Опер» сбросятся.
+                      {missing.length > 0 && ` Ничего не подали: ${missing.map((p) => p.name).join(", ")}.`}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => {
+                          close();
+                          act(`/api/cycles/${cycle.id}/finalize`);
+                        }}
+                        className="btn-primary h-8"
+                      >
+                        Да, финализировать
+                      </button>
+                      <button onClick={close} className="btn-ghost h-8">Отмена</button>
+                    </div>
+                  </div>
+                )}
+              </Popover>
             )}
           </div>
-
-          {confirmFinal && (
-            <div className="surface mt-3 max-w-xl border-status-amber/40 p-4">
-              <p className="text-[13px] font-semibold text-on-surface">Зафиксировать оперативку №{cycle.number}?</p>
-              <p className="mt-1 text-[12px] text-on-surface-variant">
-                В снимок войдут отправленные позиции ({sentTotal}). После этого снимок нельзя изменить, галки «Опер» сбросятся.
-                {missing.length > 0 && ` Ничего не подали: ${missing.map((p) => p.name).join(", ")}.`}
-              </p>
-              <div className="mt-3 flex gap-2">
-                <button onClick={() => act(`/api/cycles/${cycle.id}/finalize`)} className="btn-primary h-8">Да, финализировать</button>
-                <button onClick={() => setConfirmFinal(false)} className="btn-ghost h-8">Отмена</button>
-              </div>
-            </div>
-          )}
-
-          {isCurator && (
-            <details className="surface mt-6 group">
-              <summary className="cursor-pointer select-none px-4 py-3 text-[13px] font-semibold text-on-surface">
-                Контроль подачи: кто сколько подал
-                <span className="ml-2 text-[12px] font-normal text-on-surface-variant">
-                  подали {summary.length - missing.length} из {summary.length}
-                  {missing.length > 0 && ` · не подали: ${missing.length}`}
-                </span>
-              </summary>
-              <div className="border-t border-outline-variant p-4">
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <Kpi icon={<Send size={18} />} label="Отправлено куратору" value={sentTotal} />
-                <Kpi icon={<CheckCircle2 size={18} />} label="Подали" value={summary.length - missing.length} />
-                <Kpi icon={<AlertTriangle size={18} />} label="Ничего не подали" value={missing.length} warn={missing.length > 0} />
-              </div>
-
-              <div className="surface mt-5 overflow-hidden">
-                <table className="w-full border-collapse text-[13px]">
-                  <thead className="bg-surface-high">
-                    <tr>
-                      <th className="label-caps px-4 py-3 text-left">Сотрудник</th>
-                      <th className="label-caps px-4 py-3 text-center">Позиций</th>
-                      <th className="label-caps px-4 py-3 text-center">Отправлено</th>
-                      <th className="label-caps px-4 py-3 text-left">Статус</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.map((p) => (
-                      <tr key={p.id} className="border-t border-outline-variant/50">
-                        <td className="px-4 py-3">
-                          {p.name}
-                          {p.role === "CURATOR" && <span title="Куратор" className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">К</span>}
-                        </td>
-                        <td className="px-4 py-3 text-center">{p.total}</td>
-                        <td className="px-4 py-3 text-center">{p.sent}</td>
-                        <td className="px-4 py-3">
-                          {p.sent > 0 ? <span className="font-semibold text-status-emerald">подал</span> : <span className="font-semibold text-status-red">не подал</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              </div>
-            </details>
-          )}
-        </>
-      )}
-
-      {role && role !== "MANAGEMENT" && (
-        <div className="mt-6">
-          <ReportSection onModel={setModel} refreshKey={`${cycle?.id ?? ""}:${cycle?.status ?? ""}`} />
         </div>
-      )}
 
-      {finals.length > 0 && (
-        <div className="mt-8">
-          <h2 className="label-caps mb-3">Финальные оперативки</h2>
-          <div className="flex flex-wrap gap-2">
-            {finals.map((f) => (
-              <button key={f.id} onClick={() => setFinalId(f.id)} className={`btn-ghost ${selectedFinal?.id === f.id ? "border-primary bg-primary-soft text-primary" : ""}`}>
-                №{f.number} · {fmt(f.finalizedAt)}
-              </button>
-            ))}
+        <nav className="mt-3 flex gap-1 overflow-x-auto" role="tablist">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 pb-2.5 pt-1 text-[13px] font-semibold transition-colors ${
+                tab === t.id ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              {t.label}
+              {t.badge && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${t.warn ? "bg-status-red/10 text-status-red" : "bg-surface-high text-on-surface-variant"}`}>{t.badge}</span>}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <div className="p-6">
+        {error && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
+            <AlertTriangle size={15} /> {error}
           </div>
-        </div>
-      )}
+        )}
 
-      {selectedFinal && (
-        <div className="mt-4 space-y-3">
-          <p className="text-[13px] font-semibold text-on-surface">
-            Оперативка №{selectedFinal.number} — зафиксирована {fmt(selectedFinal.finalizedAt)}
-          </p>
-          <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} />
-        </div>
-      )}
+        {!isManagement && (
+          <div className={tab === "current" ? "" : "hidden"}>
+            <ReportSection onModel={setModel} refreshKey={`${cycle?.id ?? ""}:${cycle?.status ?? ""}`} />
+          </div>
+        )}
 
-      {role === "MANAGEMENT" && finals.length === 0 && <p className="mt-4 text-[13px] text-on-surface-variant">Финальных оперативок пока нет.</p>}
+        {tab === "control" && isCurator && (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Kpi icon={<Send size={16} />} label="Отправлено куратору" value={sentTotal} />
+              <Kpi icon={<CheckCircle2 size={16} />} label="Подали" value={summary.length - missing.length} />
+              <Kpi icon={<AlertTriangle size={16} />} label="Ничего не подали" value={missing.length} warn={missing.length > 0} />
+            </div>
+            <div className="surface overflow-hidden">
+              <table className="w-full border-collapse text-[13px]">
+                <thead className="bg-surface-high">
+                  <tr>
+                    <th className="label-caps px-4 py-3 text-left">Сотрудник</th>
+                    <th className="label-caps px-4 py-3 text-center">Позиций</th>
+                    <th className="label-caps px-4 py-3 text-center">Отправлено</th>
+                    <th className="label-caps px-4 py-3 text-left">Статус</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...summary].sort((a, b) => Number(a.sent > 0) - Number(b.sent > 0) || a.name.localeCompare(b.name, "ru")).map((p) => (
+                    <tr key={p.id} className="border-t border-outline-variant/50">
+                      <td className="px-4 py-3">
+                        {p.name}
+                        {p.role === "CURATOR" && <span title="Куратор" className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">К</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">{p.total}</td>
+                      <td className="px-4 py-3 text-center">{p.sent}</td>
+                      <td className="px-4 py-3">{p.sent > 0 ? <span className="font-semibold text-status-emerald">подал</span> : <span className="font-semibold text-status-red">не подал</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab === "finals" &&
+          (finals.length === 0 ? (
+            <p className="surface p-6 text-center text-[13px] text-on-surface-variant">Финальных оперативок пока нет.</p>
+          ) : (
+            <div className="grid gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
+              <ul className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
+                {finals.map((f) => (
+                  <li key={f.id} className="shrink-0">
+                    <button
+                      onClick={() => setFinalId(f.id)}
+                      className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
+                        selectedFinal?.id === f.id ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"
+                      }`}
+                    >
+                      <span className={`block text-[13px] font-semibold ${selectedFinal?.id === f.id ? "text-primary" : "text-on-surface"}`}>№{f.number}</span>
+                      <span className="block text-[12px] text-on-surface-variant">{fmt(f.finalizedAt)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {selectedFinal && (
+                <div className="min-w-0">
+                  <p className="mb-3 text-[13px] text-on-surface-variant">
+                    <span className="font-semibold text-on-surface">Оперативка №{selectedFinal.number}</span> · зафиксирована {fmt(selectedFinal.finalizedAt)}
+                  </p>
+                  <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} />
+                </div>
+              )}
+            </div>
+          ))}
+      </div>
     </div>
   );
 }
 
 function Kpi({ icon, label, value, warn }: { icon: React.ReactNode; label: string; value: number; warn?: boolean }) {
   return (
-    <div className="surface p-5">
-      <span className={`flex h-9 w-9 items-center justify-center rounded-md ${warn ? "bg-status-red/10 text-status-red" : "bg-primary-soft text-primary"}`}>{icon}</span>
-      <p className="mt-3 text-[12px] text-on-surface-variant">{label}</p>
-      <p className={`text-[48px] font-bold leading-[1.1] tracking-tight ${warn ? "text-status-red" : "text-on-surface"}`}>{value}</p>
+    <div className="surface flex items-center gap-3 p-3">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${warn ? "bg-status-red/10 text-status-red" : "bg-primary-soft text-primary"}`}>{icon}</span>
+      <div>
+        <p className="text-[12px] text-on-surface-variant">{label}</p>
+        <p className={`text-[24px] font-bold leading-none tracking-tight ${warn ? "text-status-red" : "text-on-surface"}`}>{value}</p>
+      </div>
     </div>
   );
 }
