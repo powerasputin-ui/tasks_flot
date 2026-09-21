@@ -27,7 +27,7 @@ export type ItemFields = {
 /** ok-результат несёт сохранённую позицию, чтобы вызывающий вернул строку без повторного чтения из базы. */
 export type ItemResult =
   | { ok: true; id: string; record: ItemRecord }
-  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM"; currentVersion?: number; message?: string };
+  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM" | "LOCKED"; currentVersion?: number; message?: string };
 
 function isForeignKeyError(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003";
@@ -36,6 +36,15 @@ function isForeignKeyError(e: unknown): boolean {
 // Активные свои колонки берём из кэша справочников (lib/dictionaries), а не отдельным запросом.
 async function activeColumnDefs(directorateId: string): Promise<ColumnDef[]> {
   return (await getDicts()).customColumns.filter((c) => c.directorateId === directorateId);
+}
+
+/**
+ * Пока директор собирает оперативку («Сборка»), руководитель не меняет уже поданные позиции: иначе итог расходится с тем,
+ * что директор видит и утверждает. Вернувшуюся с замечанием (галка снята) и новые позиции править можно.
+ */
+async function lockedForHead(actor: Actor, existing: { operFlag: boolean }): Promise<boolean> {
+  if (actor.role !== "HEAD" || !existing.operFlag || !actor.directorateId) return false;
+  return !!(await prisma.cycle.findFirst({ where: { directorateId: actor.directorateId, status: "IN_REVIEW" }, select: { id: true } }));
 }
 
 /** Сегмент, трек и ответственный должны быть из дирекции актора: иначе через чужой id можно «привязаться» к чужой дирекции. */
@@ -84,6 +93,7 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
   if (!canEditItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   if (existing.archivedAt) return { ok: false, error: "ARCHIVED" };
+  if (await lockedForHead(actor, existing)) return { ok: false, error: "LOCKED", message: "Идёт сборка директором: поданные позиции сейчас не меняются. Дождитесь возврата с замечанием." };
   // Сменить ответственного на другого может только куратор.
   if (fields.responsibleId !== undefined && !canAssignResponsible(actor, fields.responsibleId)) {
     return { ok: false, error: "FORBIDDEN" };
@@ -142,6 +152,7 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
   if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
   if (!(archived ? canDeleteItem(actor, existing) : canRestoreItem(actor, existing))) return { ok: false, error: "FORBIDDEN" };
   if (archived === (existing.archivedAt !== null)) return { ok: true, id, record: existing }; // уже в нужном состоянии
+  if (await lockedForHead(actor, existing)) return { ok: false, error: "LOCKED", message: "Идёт сборка директором: поданные позиции сейчас не меняются." };
 
   const record = await prisma.$transaction(async (tx) => {
     const row = await tx.operationalItem.update({
@@ -161,4 +172,5 @@ export const ITEM_ERROR_STATUS: Record<Exclude<ItemResult, { ok: true }>["error"
   ARCHIVED: 409,
   INVALID_REFERENCE: 400,
   INVALID_CUSTOM: 400,
+  LOCKED: 409,
 };

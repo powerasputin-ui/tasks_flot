@@ -30,7 +30,8 @@ export function isInScope(actor: Actor, record: { directorateId: string | null }
   return !!actor.directorateId && record.directorateId === actor.directorateId;
 }
 
-/** Финальный итог доступен ЗГД (всех дирекций) и участникам своей дирекции. */
+/** Отправленный итог доступен ЗГД (всех дирекций) и директору, админу и тех. администратору своей дирекции; руководителю, который заполняет таблицу, — нет. */
 export function canViewFinalCycle(actor: Actor, cycle: { directorateId: string | null }): boolean {
-  return actor.role === "EXECUTIVE" || isInScope(actor, cycle);
+  if (actor.role === "EXECUTIVE") return true;
+  return actor.role !== "HEAD" && isInScope(actor, cycle);
 }

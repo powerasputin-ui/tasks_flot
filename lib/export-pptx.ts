@@ -84,7 +84,7 @@ export async function renderReportPptx(model: import("@/lib/report").ReportModel
         [cell("Всего задач"), cell(String(s.total))],
         ...s.byStatus.map((st) => [cell(st.name), cell(String(st.count))]),
         [cell("Просрочено"), cell(String(s.overdue))],
-        [cell("Отправлено куратору"), cell(String(s.sent))],
+        [cell("Отправлено директору"), cell(String(s.sent))],
       ],
       { x: 0.5, y: 1.1, w: 6, autoPage: false }
     );

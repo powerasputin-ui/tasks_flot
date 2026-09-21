@@ -381,7 +381,7 @@ function Builder({
         <div className="mt-3 space-y-1.5">
           <label className="flex items-center gap-2 text-[13px] text-on-surface">
             <input type="checkbox" checked={!!cfg.filters.sentOnly} onChange={(e) => setFilter("sentOnly", e.target.checked)} className="h-4 w-4 accent-primary" />
-            Только отправленные куратору («Опер»)
+            Только отправленные директору («Опер»)
           </label>
           <label className="flex items-center gap-2 text-[13px] text-on-surface">
             <input type="checkbox" checked={!!cfg.filters.overdueOnly} onChange={(e) => setFilter("overdueOnly", e.target.checked)} className="h-4 w-4 accent-primary" />

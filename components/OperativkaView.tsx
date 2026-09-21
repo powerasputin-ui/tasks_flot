@@ -242,7 +242,7 @@ export function OperativkaView() {
         {tab === "control" && isCurator && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Kpi icon={<Send size={16} />} label="Отправлено куратору" value={sentTotal} />
+              <Kpi icon={<Send size={16} />} label="Отправлено директору" value={sentTotal} />
               <Kpi icon={<CheckCircle2 size={16} />} label="Подали" value={summary.length - missing.length} />
               <Kpi icon={<AlertTriangle size={16} />} label="Ничего не подали" value={missing.length} warn={missing.length > 0} />
             </div>

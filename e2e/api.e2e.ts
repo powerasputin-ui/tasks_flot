@@ -537,7 +537,7 @@ describe("отчёт «Оперативки» и шаблоны", () => {
   let sharedId = "";
 
   it("отчёт по живым данным: сводка, дерево групп; руководство не строит рабочий отчёт", async () => {
-    const r1 = await call(head, report.POST, "/api/report", { method: "POST", body: {} });
+    const r1 = await call(director, report.POST, "/api/report", { method: "POST", body: {} });
     expect(r1.status).toBe(200);
     expect(r1.data.model.summary.total).toBeGreaterThan(0);
     expect(Array.isArray(r1.data.model.groups)).toBe(true);
@@ -548,72 +548,72 @@ describe("отчёт «Оперативки» и шаблоны", () => {
   it("свои колонки/группировка/фильтры меняют отчёт; задача из теста попадает в него", async () => {
     if (!headItem) {
       // блок запускают и отдельно от остальных: тогда создаём свою тестовую позицию (она удалится в afterAll)
-      const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для отчёта`, comment: "тест" } });
+      const c = await call(director, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для отчёта`, comment: "тест" } });
       expect(c.status).toBe(201);
       headItem = c.data.row.id;
       created.items.push(headItem);
     }
-    const flat = await call(head, report.POST, "/api/report", { method: "POST", body: { config: { columns: ["name", "status"], groupBy: [], filters: { ownerIds: [head.id] } } } });
+    const flat = await call(director, report.POST, "/api/report", { method: "POST", body: { config: { columns: ["name", "status"], groupBy: [], filters: { ownerIds: [head.id] } } } });
     expect(flat.status).toBe(200);
     expect(flat.data.model.groups).toBeNull();
     expect(JSON.stringify(flat.data.model.rows)).toContain(TAG);
     expect(flat.data.model.columns.map((c: { key: string }) => c.key)).toEqual(["name", "status"]);
-    const bad = await call(head, report.POST, "/api/report", { method: "POST", body: { config: { columns: [], groupBy: [] } } });
+    const bad = await call(director, report.POST, "/api/report", { method: "POST", body: { config: { columns: [], groupBy: [] } } });
     expect(bad.status).toBe(400);
   });
 
-  it("шаблоны: личный создаёт любой, «для всех» — только куратор", async () => {
-    const mine = await call(head, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} мой`, scope: "PERSONAL", config: cfgAll } });
+  it("шаблоны: строят директор и админ (личные и общие); руководитель, который заполняет таблицу, и ЗГД — нет", async () => {
+    const mine = await call(director, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} мой`, scope: "PERSONAL", config: cfgAll } });
     expect(mine.status).toBe(201);
     personalId = mine.data.template.id;
     created.templates.push(personalId);
-    expect((await call(head, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} общий`, scope: "SHARED", config: cfgAll } })).status).toBe(403);
-    const shared = await call(curator, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} общий`, scope: "SHARED", config: cfgAll } });
+    const shared = await call(director, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} общий`, scope: "SHARED", config: cfgAll } });
     expect(shared.status).toBe(201);
     sharedId = shared.data.template.id;
     created.templates.push(sharedId);
-    expect((await call(head, templates.POST, "/api/report-templates", { method: "POST", body: { name: "x", scope: "PERSONAL", config: { columns: [], groupBy: [] } } })).status).toBe(400);
-    expect((await call(management, templates.POST, "/api/report-templates", { method: "POST", body: { name: "x", scope: "PERSONAL", config: cfgAll } })).status).toBe(403);
+    expect((await call(director, templates.POST, "/api/report-templates", { method: "POST", body: { name: "x", scope: "PERSONAL", config: { columns: [], groupBy: [] } } })).status).toBe(400);
+    for (const who of [head, management]) {
+      expect((await call(who, templates.POST, "/api/report-templates", { method: "POST", body: { name: "x", scope: "PERSONAL", config: cfgAll } })).status).toBe(403);
+    }
   });
 
-  it("видимость: общий видят все, личный — только владелец (даже куратор чужой личный не видит)", async () => {
-    const forHead = (await call(head, templates.GET, "/api/report-templates")).data.templates as Array<{ id: string }>;
-    expect(forHead.some((t) => t.id === personalId)).toBe(true);
-    expect(forHead.some((t) => t.id === sharedId)).toBe(true);
-    const forCurator = (await call(curator, templates.GET, "/api/report-templates")).data.templates as Array<{ id: string }>;
-    expect(forCurator.some((t) => t.id === sharedId)).toBe(true);
-    expect(forCurator.some((t) => t.id === personalId)).toBe(false);
+  it("видимость: общий видят директор и админ своей дирекции, личный — только владелец (даже админ чужой личный не видит)", async () => {
+    const forDirector = (await call(director, templates.GET, "/api/report-templates")).data.templates as Array<{ id: string }>;
+    expect(forDirector.some((t) => t.id === personalId)).toBe(true);
+    expect(forDirector.some((t) => t.id === sharedId)).toBe(true);
+    const forAdmin = (await call(curator, templates.GET, "/api/report-templates")).data.templates as Array<{ id: string }>;
+    expect(forAdmin.some((t) => t.id === sharedId)).toBe(true);
+    expect(forAdmin.some((t) => t.id === personalId)).toBe(false);
+    expect((await call(head, templates.GET, "/api/report-templates")).data.templates).toEqual([]);
     // чужой личный шаблон нельзя ни открыть, ни построить по нему отчёт
     expect((await call(curator, report.POST, "/api/report", { method: "POST", body: { templateId: personalId } })).status).toBe(404);
-    expect((await call(head, report.POST, "/api/report", { method: "POST", body: { templateId: personalId } })).status).toBe(200);
+    expect((await call(director, report.POST, "/api/report", { method: "POST", body: { templateId: personalId } })).status).toBe(200);
     expect((await call(curator, template.DELETE, `/api/report-templates/${personalId}`, { method: "DELETE", id: personalId })).status).toBe(404);
   });
 
-  it("правка: общий меняет куратор, руководитель — нет; свой личный можно править и удалять", async () => {
+  it("правка: общий меняют директор и админ, руководитель — нет; свой личный можно править, в том числе сделать общим", async () => {
     expect((await call(head, template.PATCH, `/api/report-templates/${sharedId}`, { method: "PATCH", id: sharedId, body: { name: "взлом" } })).status).toBe(403);
     expect((await call(curator, template.PATCH, `/api/report-templates/${sharedId}`, { method: "PATCH", id: sharedId, body: { name: `${TAG} общий 2` } })).status).toBe(200);
-    // сделать свой шаблон «для всех» руководитель не может
-    expect((await call(head, template.PATCH, `/api/report-templates/${personalId}`, { method: "PATCH", id: personalId, body: { scope: "SHARED" } })).status).toBe(403);
-    expect((await call(head, template.PATCH, `/api/report-templates/${personalId}`, { method: "PATCH", id: personalId, body: { name: `${TAG} мой 2` } })).status).toBe(200);
+    expect((await call(director, template.PATCH, `/api/report-templates/${personalId}`, { method: "PATCH", id: personalId, body: { name: `${TAG} мой 2` } })).status).toBe(200);
   });
 
   it("выгрузка отчёта: Excel, PDF, CSV, PowerPoint по шаблону и по своей конфигурации", async () => {
     for (const f of ["xlsx", "pdf", "csv", "pptx"]) {
-      const r = await call(head, exportReport.GET, `/api/export/report?format=${f}&templateId=${sharedId}`);
+      const r = await call(director, exportReport.GET, `/api/export/report?format=${f}&templateId=${sharedId}`);
       expect(r.status).toBe(200);
       expect((await r.res.arrayBuffer()).byteLength).toBeGreaterThan(500);
     }
-    const csv = await call(head, exportReport.GET, `/api/export/report?format=csv&config=${q(JSON.stringify({ columns: ["name"], groupBy: [], filters: { ownerIds: [head.id] } }))}`);
+    const csv = await call(director, exportReport.GET, `/api/export/report?format=csv&config=${q(JSON.stringify({ columns: ["name"], groupBy: [], filters: { ownerIds: [head.id] } }))}`);
     expect(await csv.res.text()).toContain(TAG);
-    expect((await call(head, exportReport.GET, "/api/export/report?format=doc")).status).toBe(400);
-    expect((await call(head, exportReport.GET, "/api/export/report?format=csv&config=не-json")).status).toBe(400);
-    expect((await call(head, exportReport.GET, "/api/export/report?format=csv&templateId=nope")).status).toBe(404);
-    expect((await call(management, exportReport.GET, "/api/export/report?format=csv")).status).toBe(403);
+    expect((await call(director, exportReport.GET, "/api/export/report?format=doc")).status).toBe(400);
+    expect((await call(director, exportReport.GET, "/api/export/report?format=csv&config=не-json")).status).toBe(400);
+    expect((await call(director, exportReport.GET, "/api/export/report?format=csv&templateId=nope")).status).toBe(404);
+    for (const who of [head, management]) expect((await call(who, exportReport.GET, "/api/export/report?format=csv")).status).toBe(403);
   });
 
-  it("удаление шаблонов", async () => {
-    expect((await call(head, template.DELETE, `/api/report-templates/${personalId}`, { method: "DELETE", id: personalId })).status).toBe(200);
+  it("удаление шаблонов: чужой и общий шаблон руководитель не удалит, владелец и директор — удалят", async () => {
     expect((await call(head, template.DELETE, `/api/report-templates/${sharedId}`, { method: "DELETE", id: sharedId })).status).toBe(403);
+    expect((await call(director, template.DELETE, `/api/report-templates/${personalId}`, { method: "DELETE", id: personalId })).status).toBe(200);
     expect((await call(curator, template.DELETE, `/api/report-templates/${sharedId}`, { method: "DELETE", id: sharedId })).status).toBe(200);
   });
 });
@@ -719,13 +719,13 @@ describe("изоляция дирекций", () => {
     created.templates.push(c.data.template.id);
     const listA = await call(director, templates.GET, "/api/report-templates");
     expect(listA.data.templates.some((t: { id: string }) => t.id === c.data.template.id)).toBe(false);
-    const listB = await call(headB, templates.GET, "/api/report-templates");
+    const listB = await call(directorB, templates.GET, "/api/report-templates");
     expect(listB.data.templates.some((t: { id: string }) => t.id === c.data.template.id)).toBe(true);
     const viaA = await call(director, report.POST, "/api/report", { method: "POST", body: { templateId: c.data.template.id } });
     expect(viaA.status).toBe(404);
   });
 
-  it("цикл у каждой дирекции свой; итог видит ЗГД (всех дирекций) и участники своей дирекции", async () => {
+  it("цикл у каждой дирекции свой; итог видит ЗГД (всех дирекций) и директор своей дирекции", async () => {
     const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 5 * 864e5).toISOString() } });
     expect(start.status).toBe(201);
     const cycleB = start.data.id ?? start.data.cycle?.id;
@@ -745,7 +745,7 @@ describe("изоляция дирекций", () => {
     expect(other.data.finals.some((f: { id: string }) => f.id === cycleB)).toBe(false);
     expect((await call(management, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(200);
     expect((await call(director, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(404);
-    expect((await call(headB, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(200);
+    expect((await call(headB, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(404);
   });
 
   it("дирекции заводит только админ; ЗГД живых данных не видит", async () => {
@@ -754,5 +754,69 @@ describe("изоляция дирекций", () => {
     const boot = await call(management, bootstrap.GET, "/api/bootstrap");
     expect(boot.data.segments).toEqual([]);
     expect(boot.data.users).toEqual([]);
+  });
+});
+
+describe("руководитель, который заполняет таблицу: без «Оперативки», полоса цикла, заморозка при сборке", () => {
+  let cycleId = "";
+  let itemId = "";
+
+  it("подготовка: цикл дирекции B, у руководителя подана позиция", async () => {
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    cycleId = start.data.id;
+    created.cycles.push(cycleId);
+    const it1 = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для заморозки`, operFlag: true } });
+    expect(it1.status).toBe(201);
+    itemId = it1.data.row.id;
+    created.items.push(itemId);
+  });
+
+  it("сервер отдаёт руководителю только полосу цикла и его цифры (без чужих подач и итогов)", async () => {
+    const r = await call(headB, cyclesCurrent.GET, "/api/cycles/current");
+    expect(r.status).toBe(200);
+    expect(r.data.cycle.id).toBe(cycleId);
+    const total = await prisma.operationalItem.count({ where: { responsibleId: headB.id, archivedAt: null } });
+    expect(r.data.mine).toEqual({ total, sent: 1 });
+    expect(r.data.summary).toEqual([]);
+    expect(r.data.finals).toEqual([]);
+    // директору те же данные приходят полностью
+    const d = await call(directorB, cyclesCurrent.GET, "/api/cycles/current");
+    expect(d.data.summary.length).toBeGreaterThan(0);
+  });
+
+  it("отчёты, шаблоны и итоги руководителю закрыты", async () => {
+    expect((await call(headB, report.POST, "/api/report", { method: "POST", body: {} })).status).toBe(403);
+    expect((await call(headB, templates.GET, "/api/report-templates")).data.templates).toEqual([]);
+    expect((await call(headB, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} нельзя`, scope: "PERSONAL", config: { columns: ["name"], groupBy: [] } } })).status).toBe(403);
+    expect((await call(headB, exportReport.GET, "/api/export/report?format=csv")).status).toBe(403);
+  });
+
+  it("во время сборки руководитель не меняет поданную позицию; после возврата с замечанием — снова может", async () => {
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    const cur = (await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemId } })).version;
+    const blocked = await call(headB, item.PATCH, `/api/items/${itemId}`, { method: "PATCH", id: itemId, body: { version: cur, comment: "правка во время сборки" } });
+    expect(blocked.status).toBe(409);
+    expect(blocked.data.error).toBe("LOCKED");
+    expect((await call(headB, item.DELETE, `/api/items/${itemId}`, { method: "DELETE", id: itemId })).status).toBe(409);
+    // директор правит свободно
+    const byDirector = await call(directorB, item.PATCH, `/api/items/${itemId}`, { method: "PATCH", id: itemId, body: { version: cur, comment: "поправил директор" } });
+    expect(byDirector.status).toBe(200);
+    // возврат с замечанием снимает «Опер» — позицию снова можно править
+    expect((await call(directorB, ret.POST, `/api/items/${itemId}/return`, { method: "POST", id: itemId, body: { comment: "уточните срок" } })).status).toBe(200);
+    const v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemId } })).version;
+    const ok = await call(headB, item.PATCH, `/api/items/${itemId}`, { method: "PATCH", id: itemId, body: { version: v, comment: "исправил" } });
+    expect(ok.status).toBe(200);
+    // новую позицию руководитель создаёт и во время сборки
+    const fresh = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} новая во время сборки` } });
+    expect(fresh.status).toBe(201);
+    created.items.push(fresh.data.row.id);
+  });
+
+  it("итог, отправленный директором, руководитель открыть не может, ЗГД — может", async () => {
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+    expect((await call(headB, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(404);
+    expect((await call(management, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
+    expect((await call(directorB, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
   });
 });

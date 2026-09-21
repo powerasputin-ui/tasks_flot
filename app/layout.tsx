@@ -4,7 +4,7 @@ import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "ГШП Оперативка",
-  description: "Подготовка оперативной информации: руководители, кураторы, руководство",
+  description: "Подготовка оперативной информации: руководители, директора, ЗГД",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -18,7 +18,7 @@ export function SummaryTiles({ model }: { model: ReportModel }) {
           <Tile key={st.name} label={st.name} value={st.count} color={st.color} />
         ))}
         <Tile label="Просрочено" value={s.overdue} tone={s.overdue > 0 ? "red" : undefined} icon={<AlertTriangle size={14} />} />
-        <Tile label="Отправлено куратору" value={s.sent} icon={<Send size={14} />} />
+        <Tile label="Отправлено директору" value={s.sent} icon={<Send size={14} />} />
       </div>
       {s.byAttractiveness.length > 0 && (
         <p className="mt-2 text-[12px] text-on-surface-variant">

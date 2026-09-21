@@ -50,7 +50,7 @@ export function AnalyticsPanel({ rows, title, onClose }: { rows: AnalyticsRow[];
       <div className="space-y-5 p-5">
         <div className="grid grid-cols-2 gap-3">
           <Kpi label="Всего позиций" value={stats.total} />
-          <Kpi label="Отправлено куратору" value={stats.sent} tone="emerald" />
+          <Kpi label="Отправлено директору" value={stats.sent} tone="emerald" />
           <Kpi label="Просрочено" value={stats.overdue} tone={stats.overdue > 0 ? "red" : undefined} />
           <Kpi label="Без ответственного" value={stats.noOwner} tone={stats.noOwner > 0 ? "amber" : undefined} />
         </div>

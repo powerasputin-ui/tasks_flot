@@ -74,7 +74,7 @@ export function SegmentList({
             <h3 className="text-[13px] font-bold text-on-surface">Все сегменты</h3>
             <CountBadge color="#64748b" value={total} />
           </div>
-          <p className="mt-1 text-[11px] text-on-surface-variant">{totalOper > 0 ? `${totalOper} отправлено куратору` : "нет отправленных"}</p>
+          <p className="mt-1 text-[11px] text-on-surface-variant">{totalOper > 0 ? `${totalOper} отправлено директору` : "нет отправленных"}</p>
         </button>
 
         {items.map((it) => {
@@ -98,7 +98,7 @@ export function SegmentList({
                 <h3 className="truncate text-[13px] font-bold text-on-surface">{it.name}</h3>
                 <CountBadge color={color} value={it.count.total} />
               </div>
-              <p className="mt-1 text-[11px] text-on-surface-variant">{it.count.oper > 0 ? `${it.count.oper} отправлено куратору` : "нет отправленных"}</p>
+              <p className="mt-1 text-[11px] text-on-surface-variant">{it.count.oper > 0 ? `${it.count.oper} отправлено директору` : "нет отправленных"}</p>
             </button>
           );
         })}

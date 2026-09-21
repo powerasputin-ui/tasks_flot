@@ -391,7 +391,7 @@ export function ItemPanel({
               <div className="flex items-center gap-2.5">
                 <Send size={16} className={form.operFlag ? "text-status-emerald" : "text-outline"} />
                 <div>
-                  <p className="text-[13px] font-semibold text-on-surface">Отправить куратору</p>
+                  <p className="text-[13px] font-semibold text-on-surface">Отправить директору</p>
                   <p className="text-[12px] text-on-surface-variant">{form.operFlag ? "Отправлено — позиция попадёт в оперативку" : "Черновик — в оперативку пока не попадёт"}</p>
                 </div>
               </div>

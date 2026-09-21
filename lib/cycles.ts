@@ -157,6 +157,15 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
   const curators = await prisma.user.findMany({ where: { directorateId: cycle.directorateId, role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } });
   const names = missing.map((p) => p.name).join(", ");
   const due = cycle.deadline.toLocaleDateString("ru-RU");
+  // сам не подавший руководитель получает личное напоминание
+  for (const p of missing.filter((m) => m.role === "HEAD")) {
+    await createNotification({
+      userId: p.id,
+      type: "SUBMISSION_MISSING",
+      message: `Оперативка №${cycle.number}: срок подачи ${due}. Вы ещё ничего не отправили директору — отметьте позиции галкой «Опер».`,
+      link: "/table",
+    });
+  }
   for (const c of curators) {
     await createNotification({
       userId: c.id,

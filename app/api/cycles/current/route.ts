@@ -10,6 +10,21 @@ import { listDirectorates } from "@/lib/directorates";
 // Руководство видит только финальные — активный цикл и рабочие цифры для него не отдаются.
 export async function GET() {
   const actor = await requireActor();
+
+  // Руководителю, который заполняет таблицу: только номер, срок, статус цикла и его собственные цифры.
+  // Чужих подач, «Контроля подачи» и отправленных итогов он не получает.
+  if (actor.role === "HEAD") {
+    const directorateId = requireDirectorate(actor);
+    const cycle = await activeCycle(directorateId);
+    if (cycle) await sendMissingReminders(cycle);
+    const mine = cycle ? (await cycleSummary(directorateId)).find((p) => p.id === actor.id) : undefined;
+    return NextResponse.json({
+      cycle: cycle ? { id: cycle.id, number: cycle.number, deadline: cycle.deadline, status: cycle.status } : null,
+      mine: mine ? { total: mine.total, sent: mine.sent } : { total: 0, sent: 0 },
+      summary: [],
+      finals: [],
+    });
+  }
   // ЗГД видит итоги всех дирекций, остальные — только своей.
   const executive = actor.role === "EXECUTIVE";
   const rows = await prisma.cycle.findMany({

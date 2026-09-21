@@ -14,7 +14,7 @@ const sameDirectorate = (actor: Actor, t: TemplateAccess) => !!actor.directorate
 
 /** Кто вообще может строить отчёты и хранить шаблоны. */
 export function canUseReports(role: UserRole): boolean {
-  return role === "HEAD" || role === "DIRECTOR" || role === "ADMIN" || role === "SYSTEM_ADMIN";
+  return role === "DIRECTOR" || role === "ADMIN" || role === "SYSTEM_ADMIN";
 }
 
 export function canShareTemplates(role: string): boolean {

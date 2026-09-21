@@ -13,11 +13,11 @@ const FORMATS = [
 ] as const;
 
 /** Иконка экспорта в шапке таблицы: быстрый экспорт «как в таблице» и отчёты по шаблонам (Сегмент → Трек и т.п.). */
-export function TableExportMenu({ params }: { params?: URLSearchParams }) {
+export function TableExportMenu({ params, reports = false }: { params?: URLSearchParams; /** Отчёты по шаблонам и конструктор — только директору и админу. */ reports?: boolean }) {
   const [templates, setTemplates] = useState<Tpl[] | null>(null);
 
   const load = () => {
-    if (templates) return;
+    if (templates || !reports) return;
     fetch("/api/report-templates")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setTemplates((d?.templates ?? []).map((t: Tpl) => ({ id: t.id, name: t.name }))))
@@ -48,6 +48,8 @@ export function TableExportMenu({ params }: { params?: URLSearchParams }) {
               <a key={f} href={table(f)} download onClick={close} className="btn-ghost !py-1 text-xs uppercase">{f}</a>
             ))}
           </div>
+          {reports && (
+            <>
           <div className="border-t border-slate-100 px-3 pt-2 pb-1 text-xs text-slate-500">Отчёт по шаблону</div>
           {[{ id: "sys:directorate", name: "Оперативка по дирекции" }, ...(templates ?? []).filter((t) => t.id !== "sys:directorate")].map((t) => (
             <div key={t.id} className="flex items-center justify-between gap-2 px-3 py-1 text-sm">
@@ -64,6 +66,8 @@ export function TableExportMenu({ params }: { params?: URLSearchParams }) {
               <MenuItem icon={<Settings2 size={15} />}>Настроить отчёт…</MenuItem>
             </Link>
           </div>
+            </>
+          )}
         </div>
       )}
     </Popover>

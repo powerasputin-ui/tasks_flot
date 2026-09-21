@@ -30,7 +30,6 @@ export const ROLE_LABEL: Record<string, string> = {
 export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>> = {
   HEAD: [
     { href: "/table", label: "Таблица" },
-    { href: "/operativka", label: "Оперативка" },
     { href: "/archive", label: "Архив" },
   ],
   DIRECTOR: [

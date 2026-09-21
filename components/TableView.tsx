@@ -7,6 +7,7 @@ import { Highlight } from "@/components/ui/Highlight";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
+import { CycleStrip } from "@/components/CycleStrip";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, isDirectorial } from "@/lib/permissions";
@@ -386,7 +387,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         return <StatusPill name={row.statusName} color={row.statusColor} />;
       case "operFlag": {
         const mark = row.operFlag && row.changedAfterSubmission && (
-          <span title="Изменено после отправки куратору — откройте историю позиции" className="ml-1.5 inline-flex h-4 items-center rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">
+          <span title="Изменено после отправки директору — откройте историю позиции" className="ml-1.5 inline-flex h-4 items-center rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">
             изм.
           </span>
         );
@@ -399,7 +400,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             onChange={(e) => toggleOper(row, e.target.checked)}
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-4 cursor-pointer accent-primary"
-            title="Отправить куратору"
+            title="Отправить директору"
           />
           {mark}
           </span>
@@ -429,13 +430,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
               <BarChart3 size={18} />
             </button>
-            {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} />}
+            {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} reports={isDirectorial(me.role)} />}
           </>,
           headerSlot
         )}
       <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
 
       <section className="flex min-w-0 flex-1 flex-col">
+        {me?.role === "HEAD" && !preview && defaultArchive !== "archived" && <CycleStrip />}
         <div className="border-b border-outline-variant bg-surface px-6 py-4">
           <div className="mb-3">
             <SegmentSelect segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
@@ -445,7 +447,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               <p className="label-caps">{defaultArchive === "archived" ? "Архив позиций" : "Рабочая таблица"}</p>
               <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface">{selectedName}</h2>
               <p className="mt-0.5 text-[12px] text-on-surface-variant">
-                {loading ? "Загрузка…" : `${visibleRows.length} позиций · ${operCount} отправлено куратору`}
+                {loading ? "Загрузка…" : `${visibleRows.length} позиций · ${operCount} отправлено директору`}
                 {lastUpdated && !loading && ` · обновлено ${new Date(lastUpdated).toLocaleDateString("ru-RU")}`}
               </p>
             </div>

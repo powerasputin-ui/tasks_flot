@@ -13,7 +13,7 @@ export function reportToSections(model: ReportModel, opts: { summary?: boolean }
     sections.push({
       title: "Статус текущих задач",
       headers: ["Показатель", "Количество"],
-      rows: [["Всего задач", s.total], ...s.byStatus.map((st) => [st.name, st.count] as [string, number]), ["Просрочено", s.overdue], ["Отправлено куратору", s.sent]],
+      rows: [["Всего задач", s.total], ...s.byStatus.map((st) => [st.name, st.count] as [string, number]), ["Просрочено", s.overdue], ["Отправлено директору", s.sent]],
     });
   }
 
