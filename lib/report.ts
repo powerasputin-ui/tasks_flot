@@ -201,8 +201,7 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
     .filter((k) => (k === "comment" ? commentsMode === "column" : true))
     .filter((k) => (k.startsWith("custom:") ? custom.has(k.slice("custom:".length)) : k in COLUMN_LABEL))
     .map((k) => ({ key: k, label: k.startsWith("custom:") ? custom.get(k.slice("custom:".length))!.name : COLUMN_LABEL[k as StdColumn] }));
-  // Если все колонки ушли в группировку, отчёт без колонок не имеет смысла — оставляем «Задача».
-  const columns = visible.length ? visible : [{ key: "name", label: COLUMN_LABEL.name }];
+  const columns = visible; // выбранных колонок нет (всё ушло в группировку) — строк задач в отчёте нет, только группы с итогами
 
   const toReportRow = (r: TableRow): ReportRow => ({
     id: r.id,

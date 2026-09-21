@@ -105,6 +105,7 @@ export async function renderReportPptx(model: import("@/lib/report").ReportModel
       const slide = pptx.addSlide();
       slide.addText(`${g.label} (${g.count})${pages > 1 ? ` — ${p + 1}/${pages}` : ""}`, { x: 0.5, y: 0.3, w: 12.3, h: 0.6, fontSize: 22, bold: true, fontFace: font });
       const chunk = list.slice(p * ROWS_PER_SLIDE, (p + 1) * ROWS_PER_SLIDE);
+      if (model.columns.length === 0) continue; // колонок не выбрано — на слайде только название группы
       if (chunk.length === 0) {
         slide.addText("Нет данных.", { x: 0.5, y: 1.2, w: 12, h: 0.5, fontSize: 14, color: "888888", fontFace: font });
         continue;

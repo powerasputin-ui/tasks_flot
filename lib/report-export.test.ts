@@ -62,3 +62,19 @@ describe("PDF: шапка и состав", () => {
     expect(sections[0].title).toBe("Оперативка");
   });
 });
+
+describe("колонки в файлах", () => {
+  it("в файл попадают только выбранные колонки", () => {
+    const m = buildReport([row({ id: "1" })], { columns: ["owner", "status"], groupBy: [] }, ctx);
+    const s = reportToSections(m, { summary: false });
+    expect(s[0].headers).toEqual(["Ответственный", "Статус"]);
+    expect(s[0].rows[0]).toHaveLength(2);
+  });
+
+  it("если выбранных колонок нет (всё в группировке) — только группы, без строк задач и без падения", () => {
+    const m = buildReport([row({ id: "1", name: "СЕКРЕТНАЯ" })], { columns: ["segment"], groupBy: ["segment"] }, ctx);
+    const s = reportToSections(m, { summary: false });
+    expect(JSON.stringify(s)).not.toContain("СЕКРЕТНАЯ");
+    expect(s[0].rows).toHaveLength(1);
+  });
+});

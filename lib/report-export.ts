@@ -22,6 +22,7 @@ export function reportToSections(model: ReportModel, opts: { summary?: boolean }
   const rows: Array<Array<string | number | null>> = [];
 
   const pushRows = (list: ReportGroup["rows"], indent: string) => {
+    if (model.columns.length === 0) return; // колонок не выбрано — строки задач не выводим
     for (const r of list ?? []) {
       rows.push(model.columns.map((c, i) => (i === 0 ? indent + r.cells[c.key] : r.cells[c.key])));
       if (r.comment) rows.push(blank(`${indent}    Комментарий: ${r.comment}`));
@@ -39,7 +40,7 @@ export function reportToSections(model: ReportModel, opts: { summary?: boolean }
   if (model.groups) walk(model.groups, 0);
   else pushRows(model.rows ?? [], "");
 
-  sections.push({ title: model.title, headers: model.columns.map((c) => c.label), rows });
+  sections.push({ title: model.title, headers: model.columns.length ? model.columns.map((c) => c.label) : [""], rows });
   return sections;
 }
 

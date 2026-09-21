@@ -134,6 +134,7 @@ function GroupBlock({ group, model, depth, defaultOpen }: { group: ReportGroup; 
 }
 
 function RowsTable({ rows, model }: { rows: ReportRow[]; model: ReportModel }) {
+  if (model.columns.length === 0) return null;
   return (
     <table className="w-full min-w-[640px] border-collapse text-[13px]">
       <thead>

@@ -202,8 +202,15 @@ describe("отчёт по финальному снимку", () => {
 });
 
 describe("колонки, целиком ушедшие в группировку", () => {
-  it("остаётся колонка «Задача», чтобы отчёт и PDF не ломались", () => {
+  it("лишних колонок не добавляется: выбранных нет — строк задач нет", () => {
     const m = buildReport([row({ id: "1" })], { columns: ["segment", "track"], groupBy: ["segment", "track"] }, ctx);
-    expect(m.columns.map((c) => c.key)).toEqual(["name"]);
+    expect(m.columns).toEqual([]);
+    expect(m.groups![0].count).toBe(1);
+  });
+
+  it("снятая колонка «Задача» не попадает в модель", () => {
+    const m = buildReport([row({ id: "1" })], { columns: ["owner", "status"], groupBy: [] }, ctx);
+    expect(m.columns.map((c) => c.key)).toEqual(["owner", "status"]);
+    expect(Object.keys(m.rows![0].cells)).toEqual(["owner", "status"]);
   });
 });
