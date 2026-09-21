@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
+import { ReportHeader, ReportTree, SummaryTiles } from "@/components/ReportView";
+import type { ReportModel } from "@/lib/report";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
 
@@ -38,6 +40,8 @@ export function OperativkaView() {
   const [cycle, setCycle] = useState<Cycle | null>(null);
   const [summary, setSummary] = useState<Person[]>([]);
   const [finals, setFinals] = useState<Final[]>([]);
+  // отчёт по живым данным (сводка по дирекции + дерево Сегмент → Трек); руководству он недоступен — у него финалы
+  const [model, setModel] = useState<ReportModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
@@ -47,6 +51,12 @@ export function OperativkaView() {
   const load = useCallback(async () => {
     const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
     setRole(boot?.user?.role ?? null);
+    if (boot?.user && boot.user.role !== "MANAGEMENT") {
+      const rep = await fetch("/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .then((x) => (x.ok ? x.json() : null))
+        .catch(() => null);
+      setModel(rep?.model ?? null);
+    }
     setCycle(cur.cycle);
     setSummary(cur.summary ?? []);
     setFinals(cur.finals ?? []);
@@ -88,8 +98,14 @@ export function OperativkaView() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <p className="label-caps">Оперативка</p>
-      <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle ? `Оперативка №${cycle.number}` : role === "MANAGEMENT" ? "Финальные оперативки" : "Цикл оперативки"}</h1>
+      {model ? (
+        <ReportHeader model={{ ...model, title: cycle ? `Оперативка №${cycle.number}` : "Оперативка" }} />
+      ) : (
+        <>
+          <p className="label-caps">Оперативка</p>
+          <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle ? `Оперативка №${cycle.number}` : role === "MANAGEMENT" ? "Финальные оперативки" : "Цикл оперативки"}</h1>
+        </>
+      )}
 
       {error && (
         <div className="mt-3 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
@@ -147,40 +163,61 @@ export function OperativkaView() {
             </div>
           )}
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <Kpi icon={<Send size={18} />} label="Отправлено куратору" value={sentTotal} />
-            <Kpi icon={<CheckCircle2 size={18} />} label="Подали" value={summary.length - missing.length} />
-            <Kpi icon={<AlertTriangle size={18} />} label="Ничего не подали" value={missing.length} warn={missing.length > 0} />
-          </div>
+          {isCurator && (
+            <details className="surface mt-6 group">
+              <summary className="cursor-pointer select-none px-4 py-3 text-[13px] font-semibold text-on-surface">
+                Контроль подачи: кто сколько подал
+                <span className="ml-2 text-[12px] font-normal text-on-surface-variant">
+                  подали {summary.length - missing.length} из {summary.length}
+                  {missing.length > 0 && ` · не подали: ${missing.length}`}
+                </span>
+              </summary>
+              <div className="border-t border-outline-variant p-4">
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <Kpi icon={<Send size={18} />} label="Отправлено куратору" value={sentTotal} />
+                <Kpi icon={<CheckCircle2 size={18} />} label="Подали" value={summary.length - missing.length} />
+                <Kpi icon={<AlertTriangle size={18} />} label="Ничего не подали" value={missing.length} warn={missing.length > 0} />
+              </div>
 
-          <div className="surface mt-5 overflow-hidden">
-            <table className="w-full border-collapse text-[13px]">
-              <thead className="bg-surface-high">
-                <tr>
-                  <th className="label-caps px-4 py-3 text-left">Сотрудник</th>
-                  <th className="label-caps px-4 py-3 text-center">Позиций</th>
-                  <th className="label-caps px-4 py-3 text-center">Отправлено</th>
-                  <th className="label-caps px-4 py-3 text-left">Статус</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.map((p) => (
-                  <tr key={p.id} className="border-t border-outline-variant/50">
-                    <td className="px-4 py-3">
-                      {p.name}
-                      {p.role === "CURATOR" && <span title="Куратор" className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">К</span>}
-                    </td>
-                    <td className="px-4 py-3 text-center">{p.total}</td>
-                    <td className="px-4 py-3 text-center">{p.sent}</td>
-                    <td className="px-4 py-3">
-                      {p.sent > 0 ? <span className="font-semibold text-status-emerald">подал</span> : <span className="font-semibold text-status-red">не подал</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              <div className="surface mt-5 overflow-hidden">
+                <table className="w-full border-collapse text-[13px]">
+                  <thead className="bg-surface-high">
+                    <tr>
+                      <th className="label-caps px-4 py-3 text-left">Сотрудник</th>
+                      <th className="label-caps px-4 py-3 text-center">Позиций</th>
+                      <th className="label-caps px-4 py-3 text-center">Отправлено</th>
+                      <th className="label-caps px-4 py-3 text-left">Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.map((p) => (
+                      <tr key={p.id} className="border-t border-outline-variant/50">
+                        <td className="px-4 py-3">
+                          {p.name}
+                          {p.role === "CURATOR" && <span title="Куратор" className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">К</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center">{p.total}</td>
+                        <td className="px-4 py-3 text-center">{p.sent}</td>
+                        <td className="px-4 py-3">
+                          {p.sent > 0 ? <span className="font-semibold text-status-emerald">подал</span> : <span className="font-semibold text-status-red">не подал</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              </div>
+            </details>
+          )}
         </>
+      )}
+
+      {model && (
+        <div className="mt-6 space-y-5">
+          {model.showSummary && <SummaryTiles model={model} />}
+          <ReportTree model={model} />
+        </div>
       )}
 
       {finals.length > 0 && (
