@@ -380,9 +380,10 @@ describe("пользователи", () => {
     expect(await prisma.user.findUnique({ where: { email: `${TAG}@e2e.local` } })).toBeNull();
   });
 
-  it("куратор видит в списке только ответственных, e-mail виден ему, руководителю — нет", async () => {
+  it("куратор видит в списке ответственных руководителей и кураторов (но не администратора и руководство), e-mail виден ему, руководителю — нет", async () => {
     const c = await call(curator, users.GET, "/api/users?all=1");
-    expect(c.data.users.every((u: { role: string }) => u.role === "HEAD")).toBe(true);
+    expect(c.data.users.every((u: { role: string }) => u.role === "HEAD" || u.role === "CURATOR")).toBe(true);
+    expect(c.data.users.some((u: { id: string }) => u.id === curator.id)).toBe(true);
     expect(c.data.users[0].email).toBeTruthy();
     const h = await call(head, users.GET, "/api/users?all=1");
     expect(h.data.users[0].email).toBeUndefined();

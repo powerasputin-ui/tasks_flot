@@ -227,7 +227,7 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
                   {isAdmin ? (
                     <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
                       {Object.entries(ROLE_LABEL).map(([k, v]) => (
-                        <option key={k} value={k}>{v}</option>
+                        <option key={k} value={k}>{k === "CURATOR" ? "Куратор (с правами руководителя)" : v}</option>
                       ))}
                     </select>
                   ) : (
@@ -236,6 +236,7 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
                 </td>
                 <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
                 <td className="px-4 py-3">
+                  {isAdmin || u.role === "HEAD" ? (
                   <div className="flex items-center justify-end gap-1.5">
                     {resetFor === u.id ? (
                       <>
@@ -265,6 +266,9 @@ function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isA
                       </>
                     )}
                   </div>
+                  ) : (
+                    <p className="text-right text-[12px] text-outline">Управляет администратор</p>
+                  )}
                 </td>
               </tr>
             ))}
@@ -313,7 +317,7 @@ function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean
         <FormField label="Роль">
           <select value={role} onChange={(e) => setRole(e.target.value)} className="select w-full">
             {Object.entries(ROLE_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
+              <option key={k} value={k}>{k === "CURATOR" ? "Куратор (с правами руководителя)" : v}</option>
             ))}
           </select>
         </FormField>

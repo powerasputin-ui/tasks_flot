@@ -20,7 +20,7 @@ type Me = {
 
 export const ROLE_LABEL: Record<string, string> = {
   HEAD: "Руководитель",
-  CURATOR: "Куратор",
+  CURATOR: "Руководитель и куратор",
   MANAGEMENT: "Руководство",
   SYSTEM_ADMIN: "Администратор",
 };
