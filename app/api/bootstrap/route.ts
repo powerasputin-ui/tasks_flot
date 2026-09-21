@@ -11,10 +11,11 @@ import { listDirectorates } from "@/lib/directorates";
  */
 export async function GET() {
   const actor = await requireActor();
+  const viewAs = actor.viewAs ? { id: actor.id, name: actor.name, role: actor.role, realName: actor.viewAs.realName } : null;
   // ЗГД дирекции не имеет: справочники дирекции ему не нужны
   if (actor.role === "EXECUTIVE") {
     const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true } });
-    return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, directorate: null, directorates: [] });
+    return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, directorate: null, directorates: [], viewAs });
   }
   const directorateId = requireDirectorate(actor);
   const [user, segments, tracks, statuses, attractiveness, users, columns, layout] = await Promise.all([
@@ -40,6 +41,7 @@ export async function GET() {
     columns,
     tableColumns: layout?.value ?? null,
     directorate: dirs.find((d) => d.id === directorateId) ?? null,
-    directorates: isAdmin ? dirs.filter((d) => d.isActive) : [],
+    directorates: isAdmin && !viewAs ? dirs.filter((d) => d.isActive) : [],
+    viewAs,
   });
 }

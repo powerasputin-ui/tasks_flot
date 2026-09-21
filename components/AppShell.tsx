@@ -7,7 +7,7 @@ import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Eye, LogOut, Search, Settings, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
-import { setPreview, usePreviewAs } from "@/lib/preview-as";
+import { setPreview } from "@/lib/preview-as";
 import { Avatar } from "@/components/ui/Avatar";
 import { MenuItem, Popover } from "@/components/ui/Popover";
 
@@ -27,6 +27,8 @@ export const ROLE_LABEL: Record<string, string> = {
 };
 
 // Меню по ролям (TZ_v4, раздел 8).
+const ROLE_ORDER: Record<string, number> = { EXECUTIVE: 0, ADMIN: 1, DIRECTOR: 2, HEAD: 3, SYSTEM_ADMIN: 4 };
+
 export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>> = {
   HEAD: [
     { href: "/table", label: "Таблица" },
@@ -105,11 +107,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me>(null);
-  // руководители, глазами которых куратор может посмотреть систему
-  const [heads, setHeads] = useState<Array<{ id: string; name: string }>>([]);
+  // люди, глазами которых можно посмотреть систему (грузятся при открытии меню)
+  const [people, setPeople] = useState<Array<{ id: string; name: string; role: string; directorateId: string | null }> | null>(null);
+  const [viewAs, setViewAs] = useState<{ id: string; name: string; role: string; realName: string } | null>(null);
   const [directorate, setDirectorate] = useState<{ id: string; name: string } | null>(null);
   const [directorates, setDirectorates] = useState<Array<{ id: string; name: string }>>([]);
-  const preview = usePreviewAs();
 
   useEffect(() => {
     if (pathname === "/login") {
@@ -118,7 +120,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
     loadBootstrap().then((b) => {
       setMe((b?.user as Me) ?? null);
-      setHeads((b?.users ?? []).filter((u) => u.role === "HEAD").map((u) => ({ id: u.id, name: u.name })));
+      setViewAs(b?.viewAs ?? null);
+      setPreview(b?.viewAs ? { id: b.viewAs.id, name: b.viewAs.name, role: b.viewAs.role } : null);
       setDirectorate(b?.directorate ?? null);
       setDirectorates(b?.directorates ?? []);
     });
@@ -129,6 +132,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     await fetch("/api/directorates/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     clearBootstrap();
     window.location.reload();
+  }
+
+  async function loadPeople() {
+    if (people) return;
+    const r = await fetch("/api/users?all=1&everywhere=1").then((x) => (x.ok ? x.json() : null)).catch(() => null);
+    setPeople((r?.users ?? []).filter((u: { isActive: boolean }) => u.isActive));
+  }
+
+  // «Посмотреть как»: режим включает сервер (кука), после чего данные и меню грузятся заново от имени выбранного человека
+  async function startViewAs(userId: string | null) {
+    await fetch("/api/view-as", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }) });
+    clearBootstrap();
+    router.push("/");
+    router.refresh();
   }
 
   async function logout() {
@@ -143,10 +160,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main className="min-h-0 flex-1 overflow-auto">{children}</main>;
   }
 
-  // Режим просмотра доступен только куратору; в нём меню и кнопки такие же, как у руководителя.
-  const canPreview = me?.role === "ADMIN" || me?.role === "DIRECTOR";
-  const previewing = canPreview ? preview : null;
-  const effRole = previewing ? "HEAD" : me?.role;
+  // Режим просмотра доступен админу (любой человек) и директору (руководители его дирекции); в нём меню и данные — того, кого смотрят.
+  const previewing = viewAs;
+  const canPreview = !viewAs && (me?.role === "ADMIN" || me?.role === "SYSTEM_ADMIN" || me?.role === "DIRECTOR");
+  const effRole = me?.role;
   const nav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
 
   return (
@@ -234,7 +251,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               align="right"
               width={260}
               trigger={({ toggle }) => (
-                <button onClick={toggle} className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-high">
+                <button onClick={() => { loadPeople(); toggle(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-high">
                   <Avatar name={me.name} />
                   <span className="hidden max-w-40 truncate text-[13px] font-semibold text-on-surface lg:inline">{me.name}</span>
                   <ChevronDown size={14} className="text-outline" />
@@ -247,25 +264,31 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <p className="text-[13px] font-semibold text-on-surface">{me.name}</p>
                     <p className="text-[12px] text-on-surface-variant">{ROLE_LABEL[me.role]}</p>
                   </div>
+                  {previewing && (
+                    <div className="border-b border-outline-variant py-1.5">
+                      <MenuItem onClick={() => startViewAs(null)} icon={<Eye size={15} />}>
+                        Выйти из режима просмотра
+                      </MenuItem>
+                    </div>
+                  )}
                   {canPreview && (
                     <div className="border-b border-outline-variant py-1.5">
-                      {previewing ? (
-                        <MenuItem onClick={() => setPreview(null)} icon={<Eye size={15} />}>
-                          Выйти из режима просмотра
-                        </MenuItem>
-                      ) : (
-                        <>
-                          <p className="label-caps px-3.5 pb-1 pt-1">Посмотреть как руководитель</p>
-                          <div className="max-h-56 overflow-y-auto">
-                            {heads.length === 0 && <p className="px-3.5 py-2 text-[12px] text-outline">Руководителей пока нет</p>}
-                            {heads.map((h) => (
-                              <MenuItem key={h.id} onClick={() => setPreview({ id: h.id, name: h.name })} icon={<Avatar name={h.name} size={18} />}>
-                                {h.name}
-                              </MenuItem>
-                            ))}
-                          </div>
-                        </>
-                      )}
+                      <p className="label-caps px-3.5 pb-1 pt-1">Посмотреть как…</p>
+                      <div className="max-h-72 overflow-y-auto">
+                        {!people && <p className="px-3.5 py-2 text-[12px] text-outline">Загрузка…</p>}
+                        {people && people.filter((u) => u.id !== me?.id).length === 0 && <p className="px-3.5 py-2 text-[12px] text-outline">Других пользователей нет</p>}
+                        {(people ?? [])
+                          .filter((u) => u.id !== me?.id && (me?.role !== "DIRECTOR" || u.role === "HEAD"))
+                          .sort((x, y) => (ROLE_ORDER[x.role] ?? 9) - (ROLE_ORDER[y.role] ?? 9) || x.name.localeCompare(y.name, "ru"))
+                          .map((u) => (
+                            <MenuItem key={u.id} onClick={() => startViewAs(u.id)} icon={<Avatar name={u.name} size={18} />}>
+                              <span className="flex flex-col leading-tight">
+                                <span>{u.name}</span>
+                                <span className="text-[11px] text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
+                              </span>
+                            </MenuItem>
+                          ))}
+                      </div>
                     </div>
                   )}
                   <MenuItem onClick={logout} icon={<LogOut size={15} />}>
@@ -281,9 +304,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-primary-soft px-4 py-2 text-[13px] text-primary">
           <Eye size={15} className="shrink-0" />
           <span className="min-w-0 flex-1">
-            Режим просмотра: вы видите систему глазами руководителя <strong className="font-semibold">{previewing.name}</strong>. Изменения в этом режиме не сохраняются.
+            Режим просмотра: вы (<strong className="font-semibold">{previewing.realName}</strong>) видите систему глазами <strong className="font-semibold">{previewing.name}</strong> — {ROLE_LABEL[previewing.role] ?? previewing.role}. Изменения в этом режиме отключены.
           </span>
-          <button onClick={() => setPreview(null)} className="btn-ghost h-8 bg-surface">
+          <button onClick={() => startViewAs(null)} className="btn-ghost h-8 bg-surface">
             Выйти из режима
           </button>
         </div>

@@ -16,6 +16,8 @@ export type Bootstrap = {
   directorate?: { id: string; name: string } | null;
   /** Только админу: дирекции для переключателя. */
   directorates?: Array<{ id: string; name: string }>;
+  /** Режим «Посмотреть как»: чьими глазами смотрит человек за сессией. */
+  viewAs?: { id: string; name: string; role: string; realName: string } | null;
 };
 
 const TTL_MS = 60_000;

@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
   const response = NextResponse.json({
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
   });
+  response.cookies.set("viewas", "", { path: "/", maxAge: 0 }); // чужой режим просмотра не должен пережить новый вход
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
+import { requireActor } from "@/lib/session";
 
-// Руководство работает только с финальными оперативками, остальные — с рабочей таблицей.
+// ЗГД работает с итогами дирекций, остальные — с рабочей таблицей (директор — с «Оперативкой» через меню).
 export default async function Home() {
-  const session = await getSession();
-  redirect(session?.role === "EXECUTIVE" ? "/operativka" : "/table");
+  const actor = await requireActor().catch(() => null);
+  redirect(actor?.role === "EXECUTIVE" ? "/operativka" : "/table");
 }

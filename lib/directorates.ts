@@ -24,3 +24,6 @@ export async function directorateName(id: string | null | undefined): Promise<st
 
 /** Имя куки, в которой админ запоминает выбранную для работы дирекцию. */
 export const DIRECTORATE_COOKIE = "dir";
+
+/** Кука режима «Посмотреть как»: идентификатор человека, глазами которого смотрит админ или директор. */
+export const VIEW_AS_COOKIE = "viewas";

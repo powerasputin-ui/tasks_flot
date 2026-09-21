@@ -2,7 +2,8 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken, type SessionPayload } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/lib/permissions";
-import { DIRECTORATE_COOKIE, listDirectorates } from "@/lib/directorates";
+import { DIRECTORATE_COOKIE, VIEW_AS_COOKIE, listDirectorates } from "@/lib/directorates";
+import { canViewAs } from "@/lib/permissions";
 
 export async function getSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
@@ -42,8 +43,35 @@ export function invalidateActor(userId?: string): void {
   else actorCache.clear();
 }
 
+/** Настоящий человек за сессией, даже если включён режим «Посмотреть как». */
+export async function requireRealActor(): Promise<Actor & { name: string }> {
+  return loadActor();
+}
+
+const viewTargetCache = new Map<string, { at: number; user: { id: string; name: string; role: Actor["role"]; directorateId: string | null; isActive: boolean } | null }>();
+async function loadViewTarget(id: string) {
+  const hit = viewTargetCache.get(id);
+  if (hit && Date.now() - hit.at < ACTOR_TTL_MS) return hit.user;
+  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, directorateId: true, isActive: true } });
+  viewTargetCache.set(id, { at: Date.now(), user });
+  return user;
+}
+
 export async function requireActor(): Promise<Actor & { name: string }> {
-  const base = await loadActor();
+  const real = await loadActor();
+  // «Посмотреть как»: право проверяется на КАЖДОМ запросе по настоящей роли из базы; чужая или устаревшая кука игнорируется.
+  const viewId = (await cookies()).get(VIEW_AS_COOKIE)?.value;
+  if (viewId && (real.role === "ADMIN" || real.role === "SYSTEM_ADMIN" || real.role === "DIRECTOR")) {
+    const target = await loadViewTarget(viewId);
+    if (target && canViewAs(real, target)) {
+      const directorateId = target.role === "ADMIN" || target.role === "SYSTEM_ADMIN" ? await adminDirectorate(target.directorateId) : target.directorateId;
+      return { id: target.id, name: target.name, role: target.role, directorateId, viewAs: { realId: real.id, realName: real.name, realRole: real.role } };
+    }
+  }
+  return resolveDirectorate(real);
+}
+
+async function resolveDirectorate(base: Actor & { name: string }): Promise<Actor & { name: string }> {
   // Выбранная админом дирекция читается из куки на каждом запросе: смена переключателем действует сразу, без ожидания кэша.
   if (base.role === "ADMIN" || base.role === "SYSTEM_ADMIN") return { ...base, directorateId: await adminDirectorate(base.directorateId) };
   // руководитель и директор без дирекции работать не могут: данных у них нет

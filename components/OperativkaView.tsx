@@ -101,7 +101,7 @@ export function OperativkaView() {
     await load();
   }
 
-  // Режим «Посмотреть как руководитель»: кнопки куратора скрыты, как у руководителя
+  // Режим «Посмотреть как»: кнопки управления скрыты (запись отключена)
   const previewUser = usePreviewAs();
   const isCurator = !!role && isDirectorial(role) && !previewUser;
   const isManagement = role === "EXECUTIVE";

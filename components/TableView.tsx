@@ -62,10 +62,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [refs, setRefs] = useState<Refs>({ segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
   const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
   const [realMe, setMe] = useState<Me>(null);
-  // Режим «Посмотреть как руководитель»: права и кнопки как у выбранного руководителя, запись отключена.
-  const previewUser = usePreviewAs();
-  const preview = realMe && isDirectorial(realMe.role) ? previewUser : null;
-  const me = useMemo<Me>(() => (preview && realMe ? { id: preview.id, role: "HEAD" } : realMe), [preview, realMe]);
+  // Режим «Посмотреть как»: сервер отдаёт данные и права выбранного человека (это и есть me), а запись отключена.
+  const preview = usePreviewAs();
+  const me = realMe;
   const previewBlock = () => setError("Режим просмотра: изменения отключены.");
   const [savedColumns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [customCols, setCustomCols] = useState<CustomCol[]>([]);

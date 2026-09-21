@@ -14,12 +14,16 @@ export async function GET(request: NextRequest) {
   const admin = canManageDirectory(session.role);
   const manager = canManageUsers(session.role);
   const all = manager && new URL(request.url).searchParams.get("all") === "1";
+  // админ для режима «Посмотреть как» просит людей всех дирекций
+  const everywhere = all && (admin || session.role === "ADMIN") && new URL(request.url).searchParams.get("everywhere") === "1";
   // Куратор в настройках видит «ответственных»: руководителей (ведёт их) и кураторов (у них права руководителя тоже есть; их ведёт администратор).
   // Свои люди дирекции. Админ дополнительно видит тех, кто ни в какой дирекции не состоит (ЗГД, админы без дирекции).
   const inDir = { directorateId: session.directorateId ?? "" };
   const seesAllPeople = admin || session.role === "ADMIN";
   const users = await prisma.user.findMany({
-    where: all
+    where: everywhere
+      ? {}
+      : all
       ? seesAllPeople
         ? { OR: [inDir, { directorateId: null }] }
         : { ...inDir, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }

@@ -11,6 +11,7 @@ import {
   canManageTracks,
   canManageUser,
   canManageUsers,
+  canViewAs,
   canViewItems,
   checkRoleChange,
   isDirectorial,
@@ -173,5 +174,29 @@ describe("смена роли: админ назначает и снимает �
   it("технический администратор может любую смену роли", () => {
     expect(checkRoleChange(tech, headT, "SYSTEM_ADMIN", 1)).toBeNull();
     expect(checkRoleChange(tech, adminT, "HEAD", 1)).toBeNull();
+  });
+});
+
+describe("«Посмотреть как»", () => {
+  const A = "dirA";
+  const t = (role: "HEAD" | "DIRECTOR" | "ADMIN" | "EXECUTIVE" | "SYSTEM_ADMIN", directorateId: string | null = A, isActive = true) => ({ id: "x", role, directorateId, isActive });
+  const adminA = { id: "a1", role: "ADMIN" as const, directorateId: A };
+  const directorA = { id: "d1", role: "DIRECTOR" as const, directorateId: A };
+
+  it("админ смотрит глазами руководителя, директора, ЗГД и другого админа — но не технического администратора и не себя", () => {
+    for (const r of ["HEAD", "DIRECTOR", "EXECUTIVE", "ADMIN"] as const) expect(canViewAs(adminA, t(r, r === "EXECUTIVE" ? null : "dirB"))).toBe(true);
+    expect(canViewAs(adminA, t("SYSTEM_ADMIN"))).toBe(false);
+    expect(canViewAs(adminA, { ...t("HEAD"), id: "a1" })).toBe(false);
+    expect(canViewAs(adminA, t("HEAD", A, false))).toBe(false);
+  });
+
+  it("директор смотрит только глазами руководителей своей дирекции", () => {
+    expect(canViewAs(directorA, t("HEAD", A))).toBe(true);
+    expect(canViewAs(directorA, t("HEAD", "dirB"))).toBe(false);
+    for (const r of ["DIRECTOR", "ADMIN", "EXECUTIVE"] as const) expect(canViewAs(directorA, t(r, A))).toBe(false);
+  });
+
+  it("руководитель и ЗГД смотреть глазами других не могут", () => {
+    for (const role of ["HEAD", "EXECUTIVE"] as const) expect(canViewAs({ id: "u", role, directorateId: A }, t("HEAD", A))).toBe(false);
   });
 });

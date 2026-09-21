@@ -11,7 +11,14 @@ import type { UserRole } from "@prisma/client";
  *  - ЗГД (EXECUTIVE, в базе MANAGEMENT): видит только отправленные итоги дирекций, рабочих позиций не видит.
  *  - Технический администратор (SYSTEM_ADMIN): читает позиции, управляет пользователями и справочниками.
  */
-export type Actor = { id: string; role: UserRole; /** Дирекция, в которой работает актор (см. lib/scope.ts). */ directorateId?: string | null };
+export type Actor = {
+  id: string;
+  role: UserRole;
+  /** Дирекция, в которой работает актор (см. lib/scope.ts). */
+  directorateId?: string | null;
+  /** Режим «Посмотреть как»: актор — тот, кого смотрят; здесь — кто на самом деле смотрит. Запись в этом режиме отключена. */
+  viewAs?: { realId: string; realName: string; realRole: UserRole };
+};
 export type ItemOwnership = { responsibleId: string | null };
 
 /** Директор и админ: «руководящие» роли с правами править всё и вести цикл (директор — в пределах своей дирекции, это проверяет запрос). */
@@ -131,4 +138,19 @@ export function canAccessWorkTable(role: UserRole): boolean {
 /** Excel/PDF рабочей таблицы: руководитель, директор, админ. */
 export function canExportWorkTable(role: UserRole): boolean {
   return isResponsibleRole(role);
+}
+
+/**
+ * «Посмотреть как»: увидеть систему глазами другого человека (его меню, данные и права), без права что-либо менять.
+ * Админ и технический администратор — любого (кроме технического администратора); директор — руководителей своей дирекции.
+ */
+export function canViewAs(
+  real: { id: string; role: UserRole; directorateId?: string | null },
+  target: { id: string; role: UserRole; directorateId: string | null; isActive: boolean }
+): boolean {
+  if (target.id === real.id || !target.isActive) return false;
+  if (real.role === "SYSTEM_ADMIN") return true;
+  if (real.role === "ADMIN") return target.role !== "SYSTEM_ADMIN";
+  if (real.role === "DIRECTOR") return target.role === "HEAD" && !!real.directorateId && target.directorateId === real.directorateId;
+  return false;
 }
