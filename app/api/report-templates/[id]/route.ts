@@ -15,7 +15,7 @@ async function loadEditable(id: string) {
   const actor = await requireActor();
   const tpl = await prisma.reportTemplate.findUnique({ where: { id } });
   // чужой личный шаблон для остальных «не существует»
-  if (!tpl || (tpl.scope === "PERSONAL" && tpl.ownerId !== actor.id)) return { actor, tpl: null, error: NextResponse.json({ error: "NOT_FOUND" }, { status: 404 }) };
+  if (!tpl || (tpl.scope === "PERSONAL" && tpl.ownerId !== actor.id) || (tpl.scope === "SHARED" && tpl.directorateId !== actor.directorateId)) return { actor, tpl: null, error: NextResponse.json({ error: "NOT_FOUND" }, { status: 404 }) };
   if (!canEditTemplate(actor, tpl)) return { actor, tpl, error: NextResponse.json({ error: "FORBIDDEN" }, { status: 403 }) };
   return { actor, tpl, error: null };
 }
@@ -30,7 +30,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (parsed.data.scope === "SHARED" && !canShareTemplates(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const template = await prisma.reportTemplate.update({
     where: { id },
-    data: { name: parsed.data.name, scope: parsed.data.scope, ...(parsed.data.config ? { config: parsed.data.config } : {}) },
+    data: { name: parsed.data.name, scope: parsed.data.scope, ...(parsed.data.scope === "SHARED" ? { directorateId: actor.directorateId ?? null } : {}), ...(parsed.data.config ? { config: parsed.data.config } : {}) },
     select: { id: true, name: true, scope: true, ownerId: true, config: true },
   });
   return NextResponse.json({ template });

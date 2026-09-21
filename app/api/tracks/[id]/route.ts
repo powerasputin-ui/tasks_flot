@@ -3,6 +3,7 @@ import { invalidateDicts } from "@/lib/dictionaries";
 import { prisma } from "@/lib/prisma";
 import { requireFreshSession } from "@/lib/session";
 import { canManageTracks } from "@/lib/permissions";
+import { requireDirectorate } from "@/lib/scope";
 import { trackSchema } from "@/lib/validation";
 
 // Изменить название/сегмент трека или скрыть его (isActive=false).
@@ -13,7 +14,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const parsed = trackSchema.partial().safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
-  if (!(await prisma.track.findUnique({ where: { id } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!(await prisma.track.findFirst({ where: { id, directorateId: requireDirectorate(session) } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (parsed.data.segmentId && !(await prisma.segment.findFirst({ where: { id: parsed.data.segmentId, directorateId: requireDirectorate(session) }, select: { id: true } }))) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
 
   const track = await prisma.track.update({ where: { id }, data: parsed.data });
   invalidateDicts();
@@ -26,7 +28,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const session = await requireFreshSession();
   if (!canManageTracks(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
-  if (!(await prisma.track.findUnique({ where: { id } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!(await prisma.track.findFirst({ where: { id, directorateId: requireDirectorate(session) } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const used = await prisma.operationalItem.count({ where: { trackId: id } });
   if (used === 0) {

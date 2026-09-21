@@ -34,27 +34,40 @@ function isForeignKeyError(e: unknown): boolean {
 }
 
 // Активные свои колонки берём из кэша справочников (lib/dictionaries), а не отдельным запросом.
-async function activeColumnDefs(): Promise<ColumnDef[]> {
-  return (await getDicts()).customColumns;
+async function activeColumnDefs(directorateId: string): Promise<ColumnDef[]> {
+  return (await getDicts()).customColumns.filter((c) => c.directorateId === directorateId);
+}
+
+/** Сегмент, трек и ответственный должны быть из дирекции актора: иначе через чужой id можно «привязаться» к чужой дирекции. */
+async function refsInDirectorate(directorateId: string, f: { segmentId?: string | null; trackId?: string | null; responsibleId?: string | null }): Promise<boolean> {
+  const d = await getDicts();
+  const okSeg = !f.segmentId || d.segments.get(f.segmentId)?.directorateId === directorateId;
+  const okTrack = !f.trackId || d.tracks.get(f.trackId)?.directorateId === directorateId;
+  const okUser = !f.responsibleId || d.users.get(f.responsibleId)?.directorateId === directorateId;
+  return okSeg && okTrack && okUser;
 }
 
 export async function createItem(actor: Actor, input: ItemFields & { title: string }): Promise<ItemResult> {
   if (!canCreateItem(actor.role)) return { ok: false, error: "FORBIDDEN" };
+  const directorateId = actor.directorateId;
+  if (!directorateId) return { ok: false, error: "FORBIDDEN" };
   // Руководитель создаёт позиции только на себя: ответственным по умолчанию становится он сам.
   const responsibleId = actor.role === "HEAD" ? input.responsibleId ?? actor.id : input.responsibleId;
   if (!canAssignResponsible(actor, responsibleId)) return { ok: false, error: "FORBIDDEN" };
 
+  if (!(await refsInDirectorate(directorateId, { ...input, responsibleId }))) return { ok: false, error: "INVALID_REFERENCE" };
+
   const { customValues, ...rest } = input;
   let custom: Record<string, string> = {};
   if (customValues) {
-    const merged = mergeCustomValues(await activeColumnDefs(), {}, customValues);
+    const merged = mergeCustomValues(await activeColumnDefs(directorateId), {}, customValues);
     if (!merged.ok) return { ok: false, error: "INVALID_CUSTOM", message: merged.error };
     custom = merged.values;
   }
 
   try {
     const item = await prisma.operationalItem.create({
-      data: { ...rest, customValues: custom, responsibleId, createdById: actor.id, updatedById: actor.id },
+      data: { ...rest, customValues: custom, responsibleId, directorateId, createdById: actor.id, updatedById: actor.id },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
     return { ok: true, id: item.id, record: item };
@@ -68,7 +81,7 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   const { version, customValues, ...fields } = input;
   if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
-  if (!existing) return { ok: false, error: "NOT_FOUND" };
+  if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
   if (!canEditItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   if (existing.archivedAt) return { ok: false, error: "ARCHIVED" };
   // Сменить ответственного на другого может только куратор.
@@ -76,11 +89,13 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
     return { ok: false, error: "FORBIDDEN" };
   }
 
+  if (!(await refsInDirectorate(actor.directorateId, fields))) return { ok: false, error: "INVALID_REFERENCE" };
+
   // Значения своих колонок: проверяем тип и сливаем с уже сохранёнными.
   const existingCustom = (existing.customValues ?? {}) as Record<string, string>;
   let nextCustom: Record<string, string> | undefined;
   if (customValues) {
-    const merged = mergeCustomValues(await activeColumnDefs(), existingCustom, customValues);
+    const merged = mergeCustomValues(await activeColumnDefs(actor.directorateId), existingCustom, customValues);
     if (!merged.ok) return { ok: false, error: "INVALID_CUSTOM", message: merged.error };
     nextCustom = merged.values;
   }
@@ -124,7 +139,7 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
 export async function setItemArchived(actor: Actor, id: string, archived: boolean): Promise<ItemResult> {
   if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
-  if (!existing) return { ok: false, error: "NOT_FOUND" };
+  if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
   if (!(archived ? canDeleteItem(actor, existing) : canRestoreItem(actor, existing))) return { ok: false, error: "FORBIDDEN" };
   if (archived === (existing.archivedAt !== null)) return { ok: true, id, record: existing }; // уже в нужном состоянии
 

@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   const resolved = await resolveReportConfig(actor, { templateId: sp.get("templateId") ?? undefined, config });
   if (!resolved.ok) return NextResponse.json({ error: resolved.status === 404 ? "NOT_FOUND" : "INVALID_INPUT" }, { status: resolved.status });
 
-  const model = await buildLiveReport(resolved.config);
+  const model = await buildLiveReport(actor, resolved.config);
   const stamp = new Date().toISOString().slice(0, 10);
   if (pptx) {
     return new Response(new Uint8Array(await renderReportPptx(model)), {

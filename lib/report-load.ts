@@ -4,12 +4,13 @@ import { loadTableRows } from "@/lib/table-view";
 import { buildFinalModel, buildReport, type ReportModel } from "@/lib/report";
 import { DEFAULT_DIRECTORATE, DEFAULT_TEMPLATE_ID, reportConfigSchema, systemTemplate, type ReportConfig } from "@/lib/report-config";
 import { canViewTemplate } from "@/lib/report-templates";
+import { directorateName } from "@/lib/directorates";
+import { requireDirectorate } from "@/lib/scope";
 import type { Actor } from "@/lib/permissions";
 
-/** Название дирекции из общей настройки (позже — из выбранной при входе дирекции). */
-export async function loadDirectorateName(): Promise<string> {
-  const s = await prisma.appSetting.findUnique({ where: { key: "directorate.name" } });
-  return typeof s?.value === "string" && s.value.trim() ? s.value : DEFAULT_DIRECTORATE;
+/** Название дирекции для шапки отчёта. */
+export async function loadDirectorateName(directorateId: string | null | undefined): Promise<string> {
+  return (await directorateName(directorateId)) ?? DEFAULT_DIRECTORATE;
 }
 
 export type ConfigInput = { templateId?: string; config?: unknown };
@@ -33,13 +34,14 @@ export async function resolveReportConfig(actor: Actor, input: ConfigInput): Pro
 }
 
 /** Отчёт по живым данным (текущие неархивные позиции). */
-export async function buildLiveReport(config: ReportConfig): Promise<ReportModel> {
-  const [rows, dicts, directorate] = await Promise.all([loadTableRows("active"), getDicts(), loadDirectorateName()]);
-  const customColumns = dicts.customColumns.map((c) => ({ id: c.id, name: c.name, type: c.type }));
+export async function buildLiveReport(actor: Actor, config: ReportConfig): Promise<ReportModel> {
+  const directorateId = requireDirectorate(actor);
+  const [rows, dicts, directorate] = await Promise.all([loadTableRows("active", directorateId), getDicts(), loadDirectorateName(directorateId)]);
+  const customColumns = dicts.customColumns.filter((c) => c.directorateId === directorateId).map((c) => ({ id: c.id, name: c.name, type: c.type }));
   return buildReport(rows, config, { directorate, generatedAt: new Date(), customColumns });
 }
 
 /** Отчёт по финальной оперативке (доступен и руководству). */
-export async function buildFinalReport(cycle: { snapshot: unknown; finalizedAt: Date | null; number: number }, config: ReportConfig): Promise<ReportModel> {
-  return buildFinalModel(cycle, config, await loadDirectorateName());
+export async function buildFinalReport(cycle: { snapshot: unknown; finalizedAt: Date | null; number: number; directorateId?: string | null }, config: ReportConfig): Promise<ReportModel> {
+  return buildFinalModel(cycle, config, await loadDirectorateName(cycle.directorateId));
 }

@@ -5,7 +5,9 @@ import {
   canDeleteItem,
   canEditItem,
   canExportWorkTable,
+  canCreateDirectorates,
   canManageDirectory,
+  canManageSegments,
   canManageTracks,
   canManageUser,
   canManageUsers,
@@ -74,9 +76,18 @@ describe("назначение ответственного", () => {
 });
 
 describe("справочники и экспорт", () => {
-  it("технические справочники — только SYSTEM_ADMIN", () => {
+  it("общие справочники (статусы, привлекательность) — админ и технический администратор", () => {
     expect(canManageDirectory("SYSTEM_ADMIN")).toBe(true);
-    for (const r of ["ADMIN", "DIRECTOR", "HEAD", "EXECUTIVE"] as const) expect(canManageDirectory(r)).toBe(false);
+    expect(canManageDirectory("ADMIN")).toBe(true);
+    for (const r of ["DIRECTOR", "HEAD", "EXECUTIVE"] as const) expect(canManageDirectory(r)).toBe(false);
+  });
+
+  it("сегменты дирекции — директор, админ, технический администратор; дирекции заводит только админ", () => {
+    for (const r of ["DIRECTOR", "ADMIN", "SYSTEM_ADMIN"] as const) expect(canManageSegments(r)).toBe(true);
+    for (const r of ["HEAD", "EXECUTIVE"] as const) expect(canManageSegments(r)).toBe(false);
+    expect(canCreateDirectorates("ADMIN")).toBe(true);
+    expect(canCreateDirectorates("SYSTEM_ADMIN")).toBe(true);
+    for (const r of ["DIRECTOR", "HEAD", "EXECUTIVE"] as const) expect(canCreateDirectorates(r)).toBe(false);
   });
 
   it("экспорт рабочей таблицы: руководитель, директор, админ", () => {

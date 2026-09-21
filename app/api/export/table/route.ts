@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
+import { requireDirectorate } from "@/lib/scope";
 import { canExportWorkTable } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRows, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { prisma } from "@/lib/prisma";
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
   const list = (k: string) => (sp.get(k) ? sp.get(k)!.split(",").filter(Boolean) : undefined);
 
   const rows = applyTableSort(
-    applyTableFilters(await loadTableRows(archive), {
+    applyTableFilters(await loadTableRows(archive, requireDirectorate(actor)), {
       segmentIds: sp.get("segmentIds") ? sp.get("segmentIds")!.split(",").filter(Boolean) : undefined,
       trackIds: list("trackIds"),
       statusIds: list("statusIds"),
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
   );
 
   // свои колонки куратора — в конец таблицы выгрузки
-  const custom = await prisma.customColumn.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+  const custom = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: requireDirectorate(actor) }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
   const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Опер", "Комментарий", ...custom.map((c) => c.name)];
   const data = rows.map((r) => [
     r.segmentName,

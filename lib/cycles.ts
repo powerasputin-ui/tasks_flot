@@ -42,22 +42,24 @@ export function reminderDue(deadline: Date, now: Date = new Date()): boolean {
 
 const isCurator = (a: Actor) => isDirectorial(a.role);
 
-export async function activeCycle(): Promise<Cycle | null> {
-  return prisma.cycle.findFirst({ where: { status: { not: "FINAL" } }, orderBy: { number: "desc" } });
+export async function activeCycle(directorateId: string): Promise<Cycle | null> {
+  return prisma.cycle.findFirst({ where: { directorateId, status: { not: "FINAL" } }, orderBy: { number: "desc" } });
 }
 
 export async function createCycle(actor: Actor, deadline: Date): Promise<CycleResult<{ id: string }>> {
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
   if (Number.isNaN(deadline.getTime())) return { ok: false, error: "INVALID_INPUT" };
-  if (await activeCycle()) return { ok: false, error: "CYCLE_EXISTS" };
-  const last = await prisma.cycle.findFirst({ orderBy: { number: "desc" }, select: { number: true } });
-  const cycle = await prisma.cycle.create({ data: { number: (last?.number ?? 0) + 1, deadline, createdById: actor.id } });
+  const directorateId = actor.directorateId;
+  if (!directorateId) return { ok: false, error: "FORBIDDEN" };
+  if (await activeCycle(directorateId)) return { ok: false, error: "CYCLE_EXISTS" };
+  const last = await prisma.cycle.findFirst({ where: { directorateId }, orderBy: { number: "desc" }, select: { number: true } });
+  const cycle = await prisma.cycle.create({ data: { number: (last?.number ?? 0) + 1, directorateId, deadline, createdById: actor.id } });
   return { ok: true, id: cycle.id };
 }
 
 export async function startReview(actor: Actor, id: string): Promise<CycleResult> {
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
-  const cycle = await prisma.cycle.findUnique({ where: { id } });
+  const cycle = await prisma.cycle.findFirst({ where: { id, directorateId: actor.directorateId ?? "" } });
   if (!cycle) return { ok: false, error: "NOT_FOUND" };
   if (!canTransition(cycle.status, "IN_REVIEW")) return { ok: false, error: "BAD_STATE" };
   await prisma.cycle.update({ where: { id }, data: { status: "IN_REVIEW", reviewStartedAt: new Date() } });
@@ -70,13 +72,13 @@ export async function startReview(actor: Actor, id: string): Promise<CycleResult
  */
 export async function finalizeCycle(actor: Actor, id: string): Promise<CycleResult<{ count: number }>> {
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
-  const cycle = await prisma.cycle.findUnique({ where: { id } });
+  const cycle = await prisma.cycle.findFirst({ where: { id, directorateId: actor.directorateId ?? "" } });
   if (!cycle) return { ok: false, error: "NOT_FOUND" };
   if (!canTransition(cycle.status, "FINAL")) return { ok: false, error: "BAD_STATE" };
 
-  const sent = (await loadTableRows("active")).filter((r) => r.operFlag);
+  const sent = (await loadTableRows("active", cycle.directorateId ?? "")).filter((r) => r.operFlag);
   // Названия своих колонок фиксируем в снимке: позже колонку могут переименовать или удалить.
-  const custom = await prisma.customColumn.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+  const custom = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: cycle.directorateId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
   const snapshot = JSON.parse(
     JSON.stringify(sent.map((r) => ({ ...r, customFields: custom.map((c) => ({ name: c.name, type: c.type, value: r.customValues[c.id] ?? null })) })))
   );
@@ -101,7 +103,7 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
   const text = comment.trim();
   if (!text) return { ok: false, error: "INVALID_INPUT" };
-  const existing = await prisma.operationalItem.findUnique({ where: { id: itemId } });
+  const existing = await prisma.operationalItem.findFirst({ where: { id: itemId, directorateId: actor.directorateId ?? "" } });
   if (!existing) return { ok: false, error: "NOT_FOUND" };
   if (!existing.operFlag || existing.archivedAt) return { ok: false, error: "BAD_STATE" };
 
@@ -130,10 +132,10 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
 export type PersonSummary = { id: string; name: string; role: string; total: number; sent: number };
 
 /** Кто сколько заполнил и сколько отправил куратору (руководители и кураторы, заполняющие позиции). */
-export async function cycleSummary(): Promise<PersonSummary[]> {
+export async function cycleSummary(directorateId: string): Promise<PersonSummary[]> {
   const [users, items] = await Promise.all([
-    prisma.user.findMany({ where: { isActive: true, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
-    prisma.operationalItem.findMany({ where: { archivedAt: null, responsibleId: { not: null } }, select: { responsibleId: true, operFlag: true } }),
+    prisma.user.findMany({ where: { directorateId, isActive: true, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
+    prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null, responsibleId: { not: null } }, select: { responsibleId: true, operFlag: true } }),
   ]);
   return users.map((u) => {
     const mine = items.filter((i) => i.responsibleId === u.id);
@@ -150,9 +152,9 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
   const claimed = await prisma.cycle.updateMany({ where: { id: cycle.id, remindersSentAt: null }, data: { remindersSentAt: now } });
   if (claimed.count !== 1) return 0; // другой запрос уже отправил
 
-  const missing = (await cycleSummary()).filter((p) => p.sent === 0);
+  const missing = (await cycleSummary(cycle.directorateId ?? "")).filter((p) => p.sent === 0);
   if (missing.length === 0) return 0;
-  const curators = await prisma.user.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } });
+  const curators = await prisma.user.findMany({ where: { directorateId: cycle.directorateId, role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } });
   const names = missing.map((p) => p.name).join(", ");
   const due = cycle.deadline.toLocaleDateString("ru-RU");
   for (const c of curators) {

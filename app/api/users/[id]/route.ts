@@ -7,12 +7,15 @@ import { prisma } from "@/lib/prisma";
 import { canManageUser, canManageUsers, checkRoleChange } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
+import { listDirectorates } from "@/lib/directorates";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).optional(),
   role: z.enum(ROLES).optional(),
   isActive: z.boolean().optional(),
   password: z.string().min(8, "Минимум 8 символов").optional(),
+  /** Только админ: перевести человека в другую дирекцию (нельзя, пока за ним закреплены позиции). */
+  directorateId: z.string().nullable().optional(),
 });
 
 /**
@@ -29,8 +32,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
-  const target = await prisma.user.findUnique({ where: { id }, select: { role: true, isActive: true } });
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true, isActive: true, directorateId: true } });
   if (!target) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  // Директор видит и правит только людей своей дирекции; чужие для него «не существуют».
+  const isAdminActor = session.role === "ADMIN" || session.role === "SYSTEM_ADMIN";
+  if (!isAdminActor && target.directorateId !== session.directorateId) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (parsed.data.directorateId !== undefined) {
+    if (!isAdminActor) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+    const to = parsed.data.directorateId;
+    if (to !== target.directorateId) {
+      if (to && !(await listDirectorates()).some((d) => d.id === to && d.isActive)) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
+      if (await prisma.operationalItem.count({ where: { responsibleId: id, archivedAt: null } })) return NextResponse.json({ error: "HAS_ITEMS" }, { status: 409 });
+    }
+  }
 
   // Смена роли: правила — в checkRoleChange (куратор: только руководитель ↔ куратор, не себя, не последнего).
   const newRole = parsed.data.role && parsed.data.role !== target.role ? parsed.data.role : undefined;

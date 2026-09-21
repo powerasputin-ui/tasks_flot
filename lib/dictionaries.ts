@@ -8,13 +8,13 @@ import type { ColumnDef } from "@/lib/custom-columns";
  * а не подтягиваем «join»-ами при каждой загрузке. Любое изменение справочника вызывает invalidateDicts().
  */
 export type Dicts = {
-  segments: Map<string, { name: string; color: string | null }>;
-  tracks: Map<string, { name: string }>;
+  segments: Map<string, { name: string; color: string | null; directorateId: string | null }>;
+  tracks: Map<string, { name: string; directorateId: string | null }>;
   attractiveness: Map<string, { name: string; color: string | null }>;
   statuses: Map<string, { name: string; color: string | null }>;
-  users: Map<string, { id: string; name: string; role: UserRole }>;
+  users: Map<string, { id: string; name: string; role: UserRole; directorateId: string | null }>;
   /** Активные свои колонки таблицы (для проверки значений при сохранении позиции). */
-  customColumns: ColumnDef[];
+  customColumns: Array<ColumnDef & { directorateId: string | null }>;
 };
 
 const TTL_MS = 60_000;
@@ -24,20 +24,20 @@ let inflight: Promise<Dicts> | null = null;
 async function load(): Promise<Dicts> {
   // независимые запросы идут параллельно — по времени это один обмен с базой
   const [segments, tracks, attractiveness, statuses, users, customColumns] = await Promise.all([
-    prisma.segment.findMany({ select: { id: true, name: true, color: true } }),
-    prisma.track.findMany({ select: { id: true, name: true } }),
+    prisma.segment.findMany({ select: { id: true, name: true, color: true, directorateId: true } }),
+    prisma.track.findMany({ select: { id: true, name: true, directorateId: true } }),
     prisma.attractiveness.findMany({ select: { id: true, name: true, color: true } }),
     prisma.status.findMany({ select: { id: true, name: true, color: true } }),
-    prisma.user.findMany({ select: { id: true, name: true, role: true } }),
-    prisma.customColumn.findMany({ where: { isActive: true }, select: { id: true, name: true, type: true, options: true } }),
+    prisma.user.findMany({ select: { id: true, name: true, role: true, directorateId: true } }),
+    prisma.customColumn.findMany({ where: { isActive: true }, select: { id: true, name: true, type: true, options: true, directorateId: true } }),
   ]);
   return {
-    segments: new Map(segments.map((s) => [s.id, { name: s.name, color: s.color }])),
-    tracks: new Map(tracks.map((t) => [t.id, { name: t.name }])),
+    segments: new Map(segments.map((s) => [s.id, { name: s.name, color: s.color, directorateId: s.directorateId }])),
+    tracks: new Map(tracks.map((t) => [t.id, { name: t.name, directorateId: t.directorateId }])),
     attractiveness: new Map(attractiveness.map((a) => [a.id, { name: a.name, color: a.color }])),
     statuses: new Map(statuses.map((s) => [s.id, { name: s.name, color: s.color }])),
     users: new Map(users.map((u) => [u.id, u])),
-    customColumns: customColumns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options })),
+    customColumns: customColumns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options, directorateId: c.directorateId })),
   };
 }
 

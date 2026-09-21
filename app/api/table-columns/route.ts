@@ -3,8 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canManageColumns } from "@/lib/permissions";
+import { requireDirectorate } from "@/lib/scope";
 
-const KEY = "table.columns";
+// раскладка — настройка дирекции: ключ с идентификатором дирекции
+const keyFor = (directorateId: string) => `table.columns:${directorateId}`;
 
 const schema = z.object({
   columns: z
@@ -22,8 +24,8 @@ const schema = z.object({
 
 // Вид колонок таблицы (порядок, подписи, показ, «удалённые») — один для всех пользователей.
 export async function GET() {
-  await requireActor();
-  const setting = await prisma.appSetting.findUnique({ where: { key: KEY } });
+  const actor = await requireActor();
+  const setting = await prisma.appSetting.findUnique({ where: { key: keyFor(requireDirectorate(actor)) } });
   return NextResponse.json({ columns: setting?.value ?? null });
 }
 
@@ -33,9 +35,10 @@ export async function PUT(request: NextRequest) {
   if (!canManageColumns(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
+  const key = keyFor(requireDirectorate(actor));
   await prisma.appSetting.upsert({
-    where: { key: KEY },
-    create: { key: KEY, value: parsed.data.columns },
+    where: { key },
+    create: { key, value: parsed.data.columns },
     update: { value: parsed.data.columns },
   });
   return NextResponse.json({ ok: true });

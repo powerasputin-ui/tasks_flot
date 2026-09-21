@@ -11,7 +11,7 @@ import type { UserRole } from "@prisma/client";
  *  - ЗГД (EXECUTIVE, в базе MANAGEMENT): видит только отправленные итоги дирекций, рабочих позиций не видит.
  *  - Технический администратор (SYSTEM_ADMIN): читает позиции, управляет пользователями и справочниками.
  */
-export type Actor = { id: string; role: UserRole };
+export type Actor = { id: string; role: UserRole; /** Дирекция, в которой работает актор (см. lib/scope.ts). */ directorateId?: string | null };
 export type ItemOwnership = { responsibleId: string | null };
 
 /** Директор и админ: «руководящие» роли с правами править всё и вести цикл (директор — в пределах своей дирекции, это проверяет запрос). */
@@ -109,9 +109,19 @@ export function canManageTracks(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN" || isDirectorial(role);
 }
 
-/** Пользователи и справочники — только SYSTEM_ADMIN. */
+/** Общие справочники (статусы, привлекательность) — единый стандарт для всех дирекций: админ и технический администратор. */
 export function canManageDirectory(role: UserRole): boolean {
-  return role === "SYSTEM_ADMIN";
+  return role === "SYSTEM_ADMIN" || role === "ADMIN";
+}
+
+/** Заводить и переименовывать дирекции, выбирать рабочую дирекцию: админ и технический администратор. */
+export function canCreateDirectorates(role: UserRole): boolean {
+  return role === "SYSTEM_ADMIN" || role === "ADMIN";
+}
+
+/** Сегменты — свои у каждой дирекции: их ведёт директор (в своей дирекции), админ и технический администратор. */
+export function canManageSegments(role: UserRole): boolean {
+  return role === "SYSTEM_ADMIN" || isDirectorial(role);
 }
 
 export function canAccessWorkTable(role: UserRole): boolean {

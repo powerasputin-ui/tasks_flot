@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
+import { requireDirectorate } from "@/lib/scope";
 import { canViewItems } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
@@ -8,7 +9,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const actor = await requireActor();
   const { id } = await params;
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  if (!(await prisma.operationalItem.findUnique({ where: { id }, select: { id: true } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!(await prisma.operationalItem.findFirst({ where: { id, directorateId: requireDirectorate(actor) }, select: { id: true } }))) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const events = await prisma.auditEvent.findMany({
     where: { entityType: "OperationalItem", entityId: id },

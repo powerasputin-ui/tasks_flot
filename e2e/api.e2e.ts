@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { PrismaClient } from "@prisma/client";
 
 // Сессия подменяется: тест вызывает настоящие маршруты от имени выбранного пользователя.
-const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string } }));
+const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string; directorateId: string | null } }));
 vi.mock("@/lib/session", () => {
   class AuthError extends Error {}
   return {
@@ -19,7 +19,7 @@ vi.mock("@/lib/session", () => {
     },
     requireFreshSession: async () => {
       if (!state.actor) throw new AuthError("UNAUTHENTICATED");
-      return { userId: state.actor.id, role: state.actor.role };
+      return { userId: state.actor.id, role: state.actor.role, directorateId: state.actor.directorateId };
     },
     invalidateActor: () => {},
   };
@@ -48,18 +48,29 @@ import * as report from "@/app/api/report/route";
 import * as templates from "@/app/api/report-templates/route";
 import * as template from "@/app/api/report-templates/[id]/route";
 import * as exportReport from "@/app/api/export/report/route";
+import * as cycleFinalize from "@/app/api/cycles/[id]/finalize/route";
+import * as cycleReport from "@/app/api/cycles/[id]/report/route";
+import * as directorates from "@/app/api/directorates/route";
+import * as segments from "@/app/api/segments/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
 
-type Actor = { id: string; role: string; name: string };
+type Actor = { id: string; role: string; name: string; directorateId: string | null };
 let curator: Actor;
 let head: Actor;
-const admin: Actor = { id: "e2e-admin", role: "SYSTEM_ADMIN", name: "E2E admin" };
-const management: Actor = { id: "e2e-mgmt", role: "EXECUTIVE", name: "E2E management" };
+// тестовая «вторая дирекция» и её люди; в базе живут только на время прогона
+let dirB = "";
+let director: Actor; // директор основной дирекции
+let directorB: Actor;
+let headB: Actor;
+const testUserIds: string[] = [];
+const admin: Actor = { id: "e2e-admin", role: "SYSTEM_ADMIN", name: "E2E admin", directorateId: null };
+const management: Actor = { id: "e2e-mgmt", role: "EXECUTIVE", name: "E2E management", directorateId: null };
 
 const created = { items: [] as string[], columns: [] as string[], tracks: [] as string[], cycles: [] as string[], templates: [] as string[] };
 let originalLayout: unknown = undefined;
+let layoutKey = "";
 
 async function call(
   actor: Actor | null,
@@ -88,9 +99,21 @@ let colId = "";
 let trackId = "";
 
 beforeAll(async () => {
-  curator = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN", isActive: true }, select: { id: true, name: true, role: true } });
-  head = await prisma.user.findFirstOrThrow({ where: { role: "HEAD", isActive: true }, select: { id: true, name: true, role: true } });
-  originalLayout = (await prisma.appSetting.findUnique({ where: { key: "table.columns" } }))?.value ?? null;
+  const sel = { id: true, name: true, role: true, directorateId: true } as const;
+  curator = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN", isActive: true, directorateId: { not: null } }, select: sel });
+  head = await prisma.user.findFirstOrThrow({ where: { role: "HEAD", isActive: true, directorateId: curator.directorateId }, select: sel });
+  admin.directorateId = curator.directorateId;
+  const mk = async (name: string, role: "HEAD" | "DIRECTOR", directorateId: string): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} ${name}`, email: `${TAG}.${name}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  dirB = (await prisma.directorate.create({ data: { name: `${TAG} Тестовая дирекция` } })).id;
+  director = await mk("director", "DIRECTOR", curator.directorateId!);
+  directorB = await mk("directorB", "DIRECTOR", dirB);
+  headB = await mk("headB", "HEAD", dirB);
+  layoutKey = `table.columns:${curator.directorateId}`;
+  originalLayout = (await prisma.appSetting.findUnique({ where: { key: layoutKey } }))?.value ?? null;
 });
 
 afterAll(async () => {
@@ -103,10 +126,29 @@ afterAll(async () => {
   await prisma.track.deleteMany({ where: { id: { in: created.tracks } } });
   await prisma.cycle.deleteMany({ where: { id: { in: created.cycles } } });
   await prisma.reportTemplate.deleteMany({ where: { id: { in: created.templates } } });
+  // вторая тестовая дирекция и всё, что в ней создано
+  if (dirB) {
+    const itemsB = (await prisma.operationalItem.findMany({ where: { directorateId: dirB }, select: { id: true } })).map((i) => i.id);
+    await prisma.auditEvent.deleteMany({ where: { entityId: { in: itemsB } } });
+    await prisma.itemNote.deleteMany({ where: { itemId: { in: itemsB } } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: dirB } });
+    await prisma.cycle.deleteMany({ where: { directorateId: dirB } });
+    await prisma.track.deleteMany({ where: { directorateId: dirB } });
+    await prisma.segment.deleteMany({ where: { directorateId: dirB } });
+    await prisma.customColumn.deleteMany({ where: { directorateId: dirB } });
+    await prisma.reportTemplate.deleteMany({ where: { directorateId: dirB } });
+    await prisma.appSetting.deleteMany({ where: { key: `table.columns:${dirB}` } });
+  }
+  const testUsers = (await prisma.user.findMany({ where: { email: { contains: TAG } }, select: { id: true } })).map((u) => u.id);
+  await prisma.notification.deleteMany({ where: { userId: { in: testUsers } } });
+  await prisma.auditEvent.deleteMany({ where: { actorId: { in: testUsers } } });
+  await prisma.reportTemplate.deleteMany({ where: { ownerId: { in: testUsers } } });
+  await prisma.user.deleteMany({ where: { id: { in: testUsers } } });
+  if (dirB) await prisma.directorate.deleteMany({ where: { id: dirB } });
   if (originalLayout === undefined) {
     // beforeAll не отработал — общий вид колонок не трогали
-  } else if (originalLayout === null) await prisma.appSetting.deleteMany({ where: { key: "table.columns" } });
-  else await prisma.appSetting.update({ where: { key: "table.columns" }, data: { value: originalLayout as object } });
+  } else if (originalLayout === null) await prisma.appSetting.deleteMany({ where: { key: layoutKey } });
+  else await prisma.appSetting.update({ where: { key: layoutKey }, data: { value: originalLayout as object } });
   await prisma.$disconnect();
 });
 
@@ -383,42 +425,55 @@ describe("общий вид колонок таблицы", () => {
 });
 
 describe("пользователи", () => {
-  it("руководитель не управляет пользователями; куратор не создаёт кураторов и не правит не-ответственных", async () => {
-    expect((await call(head, users.POST, "/api/users", { method: "POST", body: { name: "x", email: `${TAG}@e2e.local`, password: "longpassword1", role: "HEAD" } })).status).toBe(403);
-    expect((await call(curator, users.POST, "/api/users", { method: "POST", body: { name: "x", email: `${TAG}@e2e.local`, password: "longpassword1", role: "ADMIN" } })).status).toBe(403);
-    expect((await call(curator, user.PATCH, `/api/users/${curator.id}`, { method: "PATCH", id: curator.id, body: { isActive: false } })).status).toBe(403);
-    expect(await prisma.user.findUnique({ where: { email: `${TAG}@e2e.local` } })).toBeNull();
+  // Все изменения — только над тестовыми пользователями с меткой: настоящих людей тест не трогает.
+  it("руководитель не управляет пользователями; директор создаёт только руководителей своей дирекции", async () => {
+    const body = (role: string, n: string) => ({ name: "x", email: `${TAG}.${n}@e2e.local`, password: "longpassword1", role });
+    expect((await call(head, users.POST, "/api/users", { method: "POST", body: body("HEAD", "h1") })).status).toBe(403);
+    expect((await call(director, users.POST, "/api/users", { method: "POST", body: body("ADMIN", "a1") })).status).toBe(403);
+    expect((await call(director, users.POST, "/api/users", { method: "POST", body: body("DIRECTOR", "d1") })).status).toBe(403);
+    expect((await call(director, users.POST, "/api/users", { method: "POST", body: body("EXECUTIVE", "z1") })).status).toBe(403);
+    const ok = await call(director, users.POST, "/api/users", { method: "POST", body: body("HEAD", "h2") });
+    expect(ok.status).toBe(201);
+    // дирекцию новому человеку ставит сервер (директору — его собственную), а не тело запроса
+    const stored = await prisma.user.findUniqueOrThrow({ where: { id: ok.data.user.id } });
+    expect(stored.directorateId).toBe(director.directorateId);
+    for (const e of ["a1", "d1", "z1"]) expect(await prisma.user.findUnique({ where: { email: `${TAG}.${e}@e2e.local` } })).toBeNull();
   });
 
-  it("смена ролей куратором: запреты работают (ничего в базе не меняется)", async () => {
-    // себя куратор снять не может
-    const self = await call(curator, user.PATCH, `/api/users/${curator.id}`, { method: "PATCH", id: curator.id, body: { role: "HEAD" } });
-    expect(self.status).toBe(400);
-    expect(self.data.error).toBe("CANNOT_DEMOTE_SELF");
-    // администратором или руководством куратор назначать не может
-    const toAdmin = await call(curator, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "SYSTEM_ADMIN" } });
-    expect(toAdmin.status).toBe(403);
-    // руководитель не меняет чужие роли
-    const byHead = await call(head, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "ADMIN" } });
-    expect(byHead.status).toBe(403);
-    // имя/пароль/отключение другого куратора — по-прежнему только у администратора
-    const other = await prisma.user.findFirst({ where: { role: "ADMIN", isActive: true, id: { not: curator.id } }, select: { id: true } });
-    if (other) {
-      const rename = await call(curator, user.PATCH, `/api/users/${other.id}`, { method: "PATCH", id: other.id, body: { name: "взлом" } });
-      expect(rename.status).toBe(403);
-    }
-    // в базе роль не изменилась
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: curator.id } })).role).toBe("ADMIN");
+  it("директор не меняет роли и не правит директоров, руководителей чужой дирекции для него не существует", async () => {
+    expect((await call(director, user.PATCH, `/api/users/${headB.id}`, { method: "PATCH", id: headB.id, body: { name: "взлом" } })).status).toBe(404);
+    expect((await call(director, user.PATCH, `/api/users/${director.id}`, { method: "PATCH", id: director.id, body: { role: "ADMIN" } })).status).toBe(403);
+    expect((await call(head, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "DIRECTOR" } })).status).toBe(403);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: headB.id } })).name).not.toBe("взлом");
     expect((await prisma.user.findUniqueOrThrow({ where: { id: head.id } })).role).toBe("HEAD");
   });
 
-  it("куратор видит в списке ответственных руководителей и кураторов (но не администратора и руководство), e-mail виден ему, руководителю — нет", async () => {
-    const c = await call(curator, users.GET, "/api/users?all=1");
-    expect(c.data.users.every((u: { role: string }) => u.role === "HEAD" || u.role === "ADMIN")).toBe(true);
-    expect(c.data.users.some((u: { id: string }) => u.id === curator.id)).toBe(true);
-    expect(c.data.users[0].email).toBeTruthy();
+  it("админ назначает и снимает директора; себя не разжалует; технического администратора не назначает", async () => {
+    const set = (id: string, role: string) => call(curator, user.PATCH, `/api/users/${id}`, { method: "PATCH", id, body: { role } });
+    expect((await set(headB.id, "DIRECTOR")).status).toBe(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: headB.id } })).role).toBe("DIRECTOR");
+    expect((await set(headB.id, "HEAD")).status).toBe(200);
+    expect((await set(headB.id, "SYSTEM_ADMIN")).status).toBe(403);
+    const self = await set(curator.id, "HEAD");
+    expect(self.status).toBe(400);
+    expect(self.data.error).toBe("CANNOT_DEMOTE_SELF");
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: curator.id } })).role).toBe("ADMIN");
+    // человека нельзя перевести в другую дирекцию, пока за ним числятся позиции
+    const busy = await prisma.operationalItem.create({ data: { title: `${TAG} занят`, responsibleId: headB.id, createdById: headB.id, directorateId: dirB } });
+    created.items.push(busy.id);
+    const move = await call(curator, user.PATCH, `/api/users/${headB.id}`, { method: "PATCH", id: headB.id, body: { directorateId: curator.directorateId } });
+    expect(move.status).toBe(409);
+    expect(move.data.error).toBe("HAS_ITEMS");
+  });
+
+  it("список людей: директор видит только свою дирекцию, e-mail виден управляющим, руководителю — нет", async () => {
+    const d = await call(director, users.GET, "/api/users?all=1");
+    expect(d.data.users.every((u: { directorateId: string | null }) => u.directorateId === director.directorateId)).toBe(true);
+    expect(d.data.users.some((u: { id: string }) => u.id === headB.id)).toBe(false);
+    expect(d.data.users[0].email).toBeTruthy();
     const h = await call(head, users.GET, "/api/users?all=1");
     expect(h.data.users[0].email).toBeUndefined();
+    expect(h.data.users.some((u: { id: string }) => u.id === headB.id)).toBe(false);
   });
 });
 
@@ -580,5 +635,124 @@ describe("быстрая загрузка", () => {
     expect(withTrack.every((r) => !!r.trackName)).toBe(true);
     expect(rows.filter((r) => r.ownerId).every((r) => !!r.ownerName)).toBe(true);
     expect(rows.filter((r) => r.segmentId).every((r) => !!r.segmentName)).toBe(true);
+  });
+});
+
+describe("изоляция дирекций", () => {
+  let itemA = "";
+  let itemB = "";
+
+  it("подготовка: по позиции в каждой дирекции", async () => {
+    const a = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} изоляция A`, comment: "секрет A" } });
+    expect(a.status).toBe(201);
+    itemA = a.data.row.id;
+    created.items.push(itemA);
+    const b = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} изоляция B`, comment: "секрет B" } });
+    expect(b.status).toBe(201);
+    itemB = b.data.row.id;
+    created.items.push(itemB);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemB } })).directorateId).toBe(dirB);
+  });
+
+  it("таблица, поиск, экспорт и отчёт показывают только свою дирекцию", async () => {
+    const seenByB = await call(headB, items.GET, `/api/items?q=${q(TAG)}`);
+    expect(rowIds(seenByB.data)).toContain(itemB);
+    expect(rowIds(seenByB.data)).not.toContain(itemA);
+    const seenByA = await call(head, items.GET, `/api/items?q=${q(TAG)}`);
+    expect(rowIds(seenByA.data)).not.toContain(itemB);
+    const csvB = await call(headB, exportTable.GET, "/api/export/table?format=csv");
+    const text = await csvB.res.text();
+    expect(text).toContain("изоляция B");
+    expect(text).not.toContain("изоляция A");
+    const repB = await call(directorB, report.POST, "/api/report", { method: "POST", body: {} });
+    expect(repB.data.model.summary.total).toBe((await prisma.operationalItem.count({ where: { directorateId: dirB, archivedAt: null } })));
+    expect(JSON.stringify(repB.data.model)).not.toContain("секрет A");
+  });
+
+  it("чужая позиция по идентификатору: чтение, правка, журнал, архив — 404", async () => {
+    expect((await call(headB, item.GET, `/api/items/${itemA}`, { id: itemA })).status).toBe(404);
+    expect((await call(directorB, item.PATCH, `/api/items/${itemA}`, { method: "PATCH", id: itemA, body: { version: 1, comment: "взлом" } })).status).toBe(404);
+    expect((await call(headB, history.GET, `/api/items/${itemA}/history`, { id: itemA })).status).toBe(404);
+    expect((await call(directorB, item.DELETE, `/api/items/${itemA}`, { method: "DELETE", id: itemA })).status).toBe(404);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemA } })).comment).toBe("секрет A");
+  });
+
+  it("нельзя привязать позицию к чужому сегменту, треку или человеку", async () => {
+    const segA = await prisma.segment.findFirstOrThrow({ where: { directorateId: curator.directorateId }, select: { id: true } });
+    const r1 = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} чужой сегмент`, segmentId: segA.id } });
+    expect(r1.status).toBe(400);
+    const r2 = await call(directorB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} чужой человек`, responsibleId: head.id } });
+    expect(r2.status).toBe(400);
+  });
+
+  it("справочники и колонки у каждой дирекции свои", async () => {
+    const segB = await call(directorB, segments.POST, "/api/segments", { method: "POST", body: { name: `${TAG} Сегмент B` } });
+    expect(segB.status).toBe(201);
+    const listA = await call(head, segments.GET, "/api/segments");
+    expect(listA.data.segments.some((x: { name: string }) => x.name.includes(TAG))).toBe(false);
+    const listB = await call(headB, segments.GET, "/api/segments");
+    expect(listB.data.segments.map((x: { name: string }) => x.name)).toEqual([`${TAG} Сегмент B`]);
+    // директор создаёт колонку только у себя
+    const col = await call(directorB, columns.POST, "/api/columns", { method: "POST", body: { name: `${TAG} Колонка B`, type: "TEXT" } });
+    expect(col.status).toBe(201);
+    const colsA = await call(head, columns.GET, "/api/columns");
+    expect(colsA.data.columns.some((c: { name: string }) => c.name.includes(TAG))).toBe(false);
+    const colB = await prisma.customColumn.findFirstOrThrow({ where: { name: `${TAG} Колонка B` } });
+    expect(colB.directorateId).toBe(dirB);
+    expect((await call(director, column.DELETE, `/api/columns/${colB.id}`, { method: "DELETE", id: colB.id })).status).toBe(404);
+    // bootstrap: своя дирекция и только её люди
+    const boot = await call(headB, bootstrap.GET, "/api/bootstrap");
+    expect(boot.data.directorate.id).toBe(dirB);
+    expect(boot.data.users.every((u: { id: string }) => [directorB.id, headB.id].includes(u.id))).toBe(true);
+  });
+
+  it("лента изменений не показывает события чужой дирекции", async () => {
+    const feedB = await call(directorB, recent.GET, "/api/items/recent-changes?limit=100");
+    expect(feedB.data.events.every((e: { itemId: string }) => e.itemId !== itemA)).toBe(true);
+    const feedA = await call(director, recent.GET, "/api/items/recent-changes?limit=100");
+    expect(feedA.data.events.every((e: { itemId: string }) => e.itemId !== itemB)).toBe(true);
+  });
+
+  it("общий шаблон отчёта виден только своей дирекции", async () => {
+    const c = await call(directorB, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} общий B`, scope: "SHARED", config: { columns: ["name"], groupBy: [] } } });
+    expect(c.status).toBe(201);
+    created.templates.push(c.data.template.id);
+    const listA = await call(director, templates.GET, "/api/report-templates");
+    expect(listA.data.templates.some((t: { id: string }) => t.id === c.data.template.id)).toBe(false);
+    const listB = await call(headB, templates.GET, "/api/report-templates");
+    expect(listB.data.templates.some((t: { id: string }) => t.id === c.data.template.id)).toBe(true);
+    const viaA = await call(director, report.POST, "/api/report", { method: "POST", body: { templateId: c.data.template.id } });
+    expect(viaA.status).toBe(404);
+  });
+
+  it("цикл у каждой дирекции свой; итог видит ЗГД (всех дирекций) и участники своей дирекции", async () => {
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 5 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    const cycleB = start.data.id ?? start.data.cycle?.id;
+    created.cycles.push(cycleB);
+    // цикл дирекции B не мешает и не виден в дирекции A
+    const curA = await call(director, cyclesCurrent.GET, "/api/cycles/current");
+    expect(curA.data.cycle?.id).not.toBe(cycleB);
+    // чужой директор не может вести цикл
+    expect((await call(director, cycleReview.POST, `/api/cycles/${cycleB}/review`, { method: "POST", id: cycleB })).status).toBe(404);
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleB}/review`, { method: "POST", id: cycleB })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleB}/finalize`, { method: "POST", id: cycleB })).status).toBe(200);
+    // ЗГД видит итог с названием дирекции; директор другой дирекции — нет
+    const exec = await call(management, cyclesCurrent.GET, "/api/cycles/current");
+    const found = exec.data.finals.find((f: { id: string }) => f.id === cycleB);
+    expect(found.directorate).toContain(TAG);
+    const other = await call(director, cyclesCurrent.GET, "/api/cycles/current");
+    expect(other.data.finals.some((f: { id: string }) => f.id === cycleB)).toBe(false);
+    expect((await call(management, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(200);
+    expect((await call(director, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(404);
+    expect((await call(headB, cycleReport.POST, `/api/cycles/${cycleB}/report`, { method: "POST", id: cycleB, body: {} })).status).toBe(200);
+  });
+
+  it("дирекции заводит только админ; ЗГД живых данных не видит", async () => {
+    expect((await call(director, directorates.POST, "/api/directorates", { method: "POST", body: { name: `${TAG} нельзя` } })).status).toBe(403);
+    expect((await call(management, items.GET, "/api/items")).data.rows).toEqual([]);
+    const boot = await call(management, bootstrap.GET, "/api/bootstrap");
+    expect(boot.data.segments).toEqual([]);
+    expect(boot.data.users).toEqual([]);
   });
 });

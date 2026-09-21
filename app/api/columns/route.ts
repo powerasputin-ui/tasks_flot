@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canManageColumns, canViewItems } from "@/lib/permissions";
+import { requireDirectorate } from "@/lib/scope";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -15,7 +16,7 @@ const createSchema = z.object({
 export async function GET() {
   const actor = await requireActor();
   if (!canViewItems(actor.role)) return NextResponse.json({ columns: [] });
-  const columns = await prisma.customColumn.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+  const columns = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: requireDirectorate(actor) }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
   return NextResponse.json({ columns });
 }
 
@@ -28,9 +29,10 @@ export async function POST(request: NextRequest) {
   const { name, type, options = [] } = parsed.data;
   if (type === "SELECT" && options.length === 0) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
 
-  const last = await prisma.customColumn.findFirst({ orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
+  const directorateId = requireDirectorate(actor);
+  const last = await prisma.customColumn.findFirst({ where: { directorateId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
   const column = await prisma.customColumn.create({
-    data: { name, type, options: type === "SELECT" ? options : [], sortOrder: (last?.sortOrder ?? 0) + 1 },
+    data: { name, type, options: type === "SELECT" ? options : [], sortOrder: (last?.sortOrder ?? 0) + 1, directorateId },
   });
   invalidateDicts();
   return NextResponse.json({ column }, { status: 201 });

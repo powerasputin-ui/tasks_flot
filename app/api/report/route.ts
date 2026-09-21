@@ -11,5 +11,5 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as { templateId?: string; config?: unknown };
   const resolved = await resolveReportConfig(actor, body);
   if (!resolved.ok) return NextResponse.json({ error: resolved.status === 404 ? "NOT_FOUND" : "INVALID_INPUT" }, { status: resolved.status });
-  return NextResponse.json({ model: await buildLiveReport(resolved.config) });
+  return NextResponse.json({ model: await buildLiveReport(actor, resolved.config) });
 }

@@ -16,7 +16,7 @@ export async function GET() {
   const actor = await requireActor();
   if (!canUseReports(actor.role)) return NextResponse.json({ templates: [] });
   const templates = await prisma.reportTemplate.findMany({
-    where: { OR: [{ scope: "SHARED" }, { ownerId: actor.id }] },
+    where: { OR: [{ scope: "SHARED", directorateId: actor.directorateId ?? "" }, { ownerId: actor.id }] },
     orderBy: [{ scope: "desc" }, { name: "asc" }],
     select: { id: true, name: true, scope: true, ownerId: true, config: true, updatedAt: true },
   });
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
   if (parsed.data.scope === "SHARED" && !canShareTemplates(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const template = await prisma.reportTemplate.create({
-    data: { name: parsed.data.name, scope: parsed.data.scope, config: parsed.data.config, ownerId: actor.id },
+    data: { name: parsed.data.name, scope: parsed.data.scope, config: parsed.data.config, ownerId: actor.id, directorateId: actor.directorateId ?? null },
     select: { id: true, name: true, scope: true, ownerId: true, config: true },
   });
   return NextResponse.json({ template: { ...template, mine: true, canEdit: true } }, { status: 201 });

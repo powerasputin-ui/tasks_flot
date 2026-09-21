@@ -42,11 +42,17 @@ const STATUSES: Array<{ name: string; color: string }> = [
 ];
 
 async function main() {
+  // Единственная пока дирекция (сегменты, люди и позиции принадлежат дирекции).
+  const directorate = await prisma.directorate.upsert({
+    where: { name: "Дирекция по развитию флота и коммерческой эксплуатации" },
+    update: {},
+    create: { id: "dir_fleet", name: "Дирекция по развитию флота и коммерческой эксплуатации" },
+  });
   for (const [i, name] of SEGMENTS.entries()) {
     await prisma.segment.upsert({
-      where: { name },
+      where: { directorateId_name: { directorateId: directorate.id, name } },
       update: {},
-      create: { name, sortOrder: i },
+      create: { name, sortOrder: i, directorateId: directorate.id },
     });
   }
 

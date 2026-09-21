@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { canViewFinalCycle } from "@/lib/scope";
 import { exportResponse, parseExportFormat, renderExport } from "@/lib/export";
 import { renderPptx, renderReportPptx } from "@/lib/export-pptx";
 import { buildFinalReport, resolveReportConfig } from "@/lib/report-load";
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const format = pptx ? null : parseExportFormat(formatParam);
   if (!pptx && !format) return NextResponse.json({ error: "INVALID_FORMAT" }, { status: 400 });
   const cycle = await prisma.cycle.findFirst({ where: { id, status: "FINAL" } });
-  if (!cycle) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!cycle || !canViewFinalCycle(actor, cycle)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   // Выгрузка по шаблону или по своей конфигурации отчёта (?config=<JSON> | ?templateId=…); без них — прежний плоский список.
   const sp = new URL(request.url).searchParams;

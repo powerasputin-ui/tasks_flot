@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canManageColumns } from "@/lib/permissions";
+import { requireDirectorate } from "@/lib/scope";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
@@ -17,7 +18,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { id } = await params;
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
-  const existing = await prisma.customColumn.findUnique({ where: { id } });
+  const existing = await prisma.customColumn.findFirst({ where: { id, directorateId: requireDirectorate(actor) } });
   if (!existing || !existing.isActive) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   const column = await prisma.customColumn.update({
     where: { id },
@@ -32,7 +33,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const actor = await requireActor();
   if (!canManageColumns(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
-  const existing = await prisma.customColumn.findUnique({ where: { id } });
+  const existing = await prisma.customColumn.findFirst({ where: { id, directorateId: requireDirectorate(actor) } });
   if (!existing) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   await prisma.customColumn.update({ where: { id }, data: { isActive: false } });
   invalidateDicts();

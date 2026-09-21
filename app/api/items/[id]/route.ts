@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
+import { requireDirectorate } from "@/lib/scope";
 import { canViewItems } from "@/lib/permissions";
 import { loadTableRow, rowFromRecord } from "@/lib/table-view";
 import { ITEM_ERROR_STATUS, setItemArchived, updateItem } from "@/lib/items";
@@ -9,7 +10,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const actor = await requireActor();
   const { id } = await params;
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  const row = await loadTableRow(id);
+  const row = await loadTableRow(id, requireDirectorate(actor));
   if (!row) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   return NextResponse.json({ row });
 }

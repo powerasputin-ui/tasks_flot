@@ -113,12 +113,12 @@ export function toTableRow(i: ItemRecord, dicts: Dicts, changedAfterSubmission =
   };
 }
 
-/** Права на просмотр проверяет вызывающий маршрут (canViewItems); фильтра по отделам нет. */
-export async function loadTableRows(archive: ArchiveMode = "active"): Promise<TableRow[]> {
+/** Права на просмотр проверяет вызывающий маршрут (canViewItems); строки всегда только своей дирекции. */
+export async function loadTableRows(archive: ArchiveMode, directorateId: string): Promise<TableRow[]> {
   // позиции и справочники запрашиваются параллельно (справочники чаще всего берутся из кэша)
   const [items, dicts] = await Promise.all([
     prisma.operationalItem.findMany({
-      where: archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {},
+      where: { directorateId, ...(archive === "active" ? { archivedAt: null } : archive === "archived" ? { archivedAt: { not: null } } : {}) },
       orderBy: { createdAt: "desc" },
     }),
     getDicts(),
@@ -143,8 +143,8 @@ async function changedAfterSubmissionIds(sentIds: string[]): Promise<Set<string>
   return idsChangedAfterSubmission(events);
 }
 
-export async function loadTableRow(id: string): Promise<TableRow | null> {
-  const item = await prisma.operationalItem.findUnique({ where: { id } });
+export async function loadTableRow(id: string, directorateId: string): Promise<TableRow | null> {
+  const item = await prisma.operationalItem.findFirst({ where: { id, directorateId } });
   return item ? rowFromRecord(item) : null;
 }
 

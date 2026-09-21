@@ -5,6 +5,7 @@ import { canViewItems } from "@/lib/permissions";
 import { clipText, describeAuditAction, FIELD_LABEL, formatAuditValue, type NameMaps } from "@/lib/audit-format";
 import { CUSTOM_FIELD_PREFIX } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
+import { requireDirectorate } from "@/lib/scope";
 
 // Предохранитель для очень старых записей: лимиты ввода (2000/300) держат обычные значения намного короче.
 const FEED_VALUE_MAX = 4000;
@@ -29,16 +30,17 @@ export async function GET(request: NextRequest) {
     ? { OR: [...(fieldList.includes("__none") ? [{ fieldName: null }] : []), ...(namedFields.length ? [{ fieldName: { in: namedFields } }] : [])] }
     : {};
 
-  // Фильтр по сегменту требует списка позиций сегмента; без фильтра этот запрос не нужен.
-  let entityFilter: { entityId?: { in: string[] } } = {};
-  if (segmentIds.length) {
-    const inSegments = await prisma.operationalItem.findMany({
-      where: { OR: [{ segmentId: { in: segmentIds.filter((s) => s !== "none") } }, ...(segmentIds.includes("none") ? [{ segmentId: null }] : [])] },
-      select: { id: true },
-    });
-    if (inSegments.length === 0) return NextResponse.json({ events: [] });
-    entityFilter = { entityId: { in: inSegments.map((i) => i.id) } };
-  }
+  // Лента только по позициям своей дирекции (журнал не хранит дирекцию — берём идентификаторы позиций дирекции);
+  // фильтр по сегменту сужает этот же список.
+  const inScope = await prisma.operationalItem.findMany({
+    where: {
+      directorateId: requireDirectorate(actor),
+      ...(segmentIds.length ? { OR: [{ segmentId: { in: segmentIds.filter((s) => s !== "none") } }, ...(segmentIds.includes("none") ? [{ segmentId: null }] : [])] } : {}),
+    },
+    select: { id: true },
+  });
+  if (inScope.length === 0) return NextResponse.json({ events: [] });
+  const entityFilter = { entityId: { in: inScope.map((i) => i.id) } };
 
   const [events, dicts] = await Promise.all([
     prisma.auditEvent.findMany({

@@ -14,21 +14,23 @@ datasource db {
 enum UserRole {
   HEAD // Руководитель направления: заполняет свои позиции
   DIRECTOR // Директор дирекции: правит всё в своей дирекции, собирает и отправляет итог ЗГД
-  EXECUTIVE @map("MANAGEMENT") // ЗГД: видит отправленные итоги дирекций
-  ADMIN @map("CURATOR") // Админ (бывший первичный куратор): заводит дирекции и людей, назначает директоров
+  EXECUTIVE    @map("MANAGEMENT") // ЗГД: видит отправленные итоги дирекций
+  ADMIN        @map("CURATOR") // Админ (бывший первичный куратор): заводит дирекции и людей, назначает директоров
   SYSTEM_ADMIN // Технический администратор
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         UserRole
-  isActive     Boolean  @default(true)
-  tableColumns Json? // личные настройки колонок таблицы (порядок, видимость, ширина, подписи)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String       @id @default(cuid())
+  name          String
+  email         String       @unique
+  passwordHash  String
+  role          UserRole
+  isActive      Boolean      @default(true)
+  tableColumns  Json? // личные настройки колонок таблицы (порядок, видимость, ширина, подписи)
+  directorateId String? // дирекция человека (пусто у ЗГД; у админа — «домашняя», рабочую он выбирает сам)
+  directorate   Directorate? @relation(fields: [directorateId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   responsibleItems OperationalItem[] @relation("ItemResponsible")
   createdItems     OperationalItem[] @relation("ItemCreatedBy")
@@ -42,17 +44,20 @@ model User {
 }
 
 model Segment {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  color     String?
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String       @id @default(cuid())
+  name          String
+  directorateId String?
+  directorate   Directorate? @relation(fields: [directorateId], references: [id])
+  color         String?
+  sortOrder     Int          @default(0)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   tracks Track[]
   items  OperationalItem[]
 
+  @@unique([directorateId, name])
   @@map("segments")
 }
 
@@ -86,14 +91,16 @@ model Status {
 
 // Справочник (раньше Track был рабочей сущностью). Не удаляется физически (isActive=false).
 model Track {
-  id        String   @id @default(cuid())
-  name      String
-  segmentId String?
-  segment   Segment? @relation(fields: [segmentId], references: [id])
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String       @id @default(cuid())
+  name          String
+  segmentId     String?
+  segment       Segment?     @relation(fields: [segmentId], references: [id])
+  directorateId String?
+  directorate   Directorate? @relation(fields: [directorateId], references: [id])
+  sortOrder     Int          @default(0)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   items OperationalItem[]
 
@@ -129,6 +136,8 @@ model OperationalItem {
   archivedAt       DateTime?
   version          Int             @default(1)
   customValues     Json            @default("{}") // значения своих колонок: { <id колонки>: "значение" }
+  directorateId    String?
+  directorate      Directorate?    @relation(fields: [directorateId], references: [id])
 
   notes ItemNote[]
 
@@ -138,6 +147,7 @@ model OperationalItem {
   @@index([responsibleId])
   @@index([deadline])
   @@index([archivedAt])
+  @@index([directorateId])
   @@map("operational_items")
 }
 
@@ -219,18 +229,21 @@ enum CycleStatus {
 /// Цикл оперативки (один недельный период; активен не более одного).
 /// snapshot — неизменяемый снимок отправленных позиций на момент финализации.
 model Cycle {
-  id                String      @id @default(cuid())
-  number            Int         @unique
-  deadline          DateTime // срок подачи; за 2 дня до него куратору приходит напоминание «не подал»
-  status            CycleStatus @default(OPEN)
-  createdById       String
-  createdAt         DateTime    @default(now())
-  reviewStartedAt   DateTime?
-  finalizedAt       DateTime?
-  finalizedById     String?
-  remindersSentAt   DateTime?
-  snapshot          Json?
+  id              String       @id @default(cuid())
+  number          Int
+  directorateId   String?
+  directorate     Directorate? @relation(fields: [directorateId], references: [id])
+  deadline        DateTime // срок подачи; за 2 дня до него куратору приходит напоминание «не подал»
+  status          CycleStatus  @default(OPEN)
+  createdById     String
+  createdAt       DateTime     @default(now())
+  reviewStartedAt DateTime?
+  finalizedAt     DateTime?
+  finalizedById   String?
+  remindersSentAt DateTime?
+  snapshot        Json?
 
+  @@unique([directorateId, number])
   @@index([status])
   @@map("cycles")
 }
@@ -246,13 +259,15 @@ enum CustomColumnType {
 /// Значения хранятся в OperationalItem.customValues по ключу id колонки.
 /// Удаление мягкое (isActive=false): значения остаются в истории, колонка скрывается.
 model CustomColumn {
-  id        String           @id @default(cuid())
-  name      String
-  type      CustomColumnType @default(TEXT)
-  options   String[] // для SELECT
-  sortOrder Int              @default(0)
-  isActive  Boolean          @default(true)
-  createdAt DateTime         @default(now())
+  id            String           @id @default(cuid())
+  name          String
+  type          CustomColumnType @default(TEXT)
+  options       String[] // для SELECT
+  sortOrder     Int              @default(0)
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  directorateId String?
+  directorate   Directorate?     @relation(fields: [directorateId], references: [id])
 
   @@map("custom_columns")
 }
@@ -274,15 +289,36 @@ enum ReportScope {
 
 /// Сохранённая настройка отчёта «Оперативки»: колонки, группировка, фильтры (см. lib/report-config.ts).
 model ReportTemplate {
-  id        String      @id @default(cuid())
-  name      String
-  config    Json
-  scope     ReportScope @default(PERSONAL)
-  ownerId   String
-  owner     User        @relation(fields: [ownerId], references: [id])
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id            String       @id @default(cuid())
+  name          String
+  config        Json
+  scope         ReportScope  @default(PERSONAL)
+  ownerId       String
+  owner         User         @relation(fields: [ownerId], references: [id])
+  directorateId String? // общие шаблоны принадлежат дирекции
+  directorate   Directorate? @relation(fields: [directorateId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([ownerId])
   @@map("report_templates")
+}
+
+/// Дирекция: у каждой свои люди, позиции, сегменты, треки, циклы и колонки. Статусы и привлекательность общие.
+model Directorate {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  users           User[]
+  items           OperationalItem[]
+  segments        Segment[]
+  tracks          Track[]
+  cycles          Cycle[]
+  customColumns   CustomColumn[]
+  reportTemplates ReportTemplate[]
+
+  @@map("directorates")
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
+import { requireDirectorate } from "@/lib/scope";
 import { canViewItems } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRows, rowFromRecord, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { createItem, ITEM_ERROR_STATUS } from "@/lib/items";
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
   const list = (k: string) => (sp.get(k) ? sp.get(k)!.split(",").filter(Boolean) : undefined);
 
   const rows = applyTableSort(
-    applyTableFilters(await loadTableRows(archive), {
+    applyTableFilters(await loadTableRows(archive, requireDirectorate(actor)), {
       segmentIds: sp.get("segmentIds") ? sp.get("segmentIds")!.split(",").filter(Boolean) : undefined,
       trackIds: list("trackIds"),
       statusIds: list("statusIds"),
