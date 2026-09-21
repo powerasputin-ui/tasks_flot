@@ -134,18 +134,7 @@ function GroupBlock({ group, model, depth, defaultOpen }: { group: ReportGroup; 
 }
 
 function RowsTable({ rows, model }: { rows: ReportRow[]; model: ReportModel }) {
-  if (model.columns.length === 0) {
-    // колонок нет — показываем только комментарии
-    const withComments = rows.filter((r) => r.comment);
-    if (withComments.length === 0) return null;
-    return (
-      <ul className="divide-y divide-outline-variant/40 border-t border-outline-variant/60">
-        {withComments.map((r) => (
-          <li key={r.id} className="px-4 py-2 text-[13px] text-on-surface"><ExpandableText text={r.comment!} lines={3} /></li>
-        ))}
-      </ul>
-    );
-  }
+  if (model.columns.length === 0) return null;
   return (
     <table className="w-full min-w-[640px] border-collapse text-[13px]">
       <thead>
@@ -158,11 +147,13 @@ function RowsTable({ rows, model }: { rows: ReportRow[]; model: ReportModel }) {
       <tbody>
         {rows.map((r) => (
           <Fragment key={r.id}>
-            <tr className={`border-t border-outline-variant/40 align-top ${r.comment ? "" : ""}`}>
+            <tr className="border-t border-outline-variant/40 align-top">
               {model.columns.map((c) => (
                 <td key={c.key} className={`px-4 py-2 ${c.key === "name" ? "min-w-56" : ""} ${c.key === "deadline" && r.overdue ? "font-semibold text-status-red" : "text-on-surface"}`}>
                   {c.key === "status" && r.cells[c.key] !== "—" ? (
                     <StatusPill name={r.cells[c.key]} color={r.statusColor} />
+                  ) : c.key === "comment" ? (
+                    r.cells[c.key] !== "—" ? <ExpandableText text={r.cells[c.key]} lines={3} /> : <span className="text-outline">—</span>
                   ) : c.key === "name" ? (
                     <span className={r.archived ? "text-outline" : ""} style={{ overflowWrap: "anywhere" }}>{r.cells[c.key]}</span>
                   ) : (
@@ -171,15 +162,6 @@ function RowsTable({ rows, model }: { rows: ReportRow[]; model: ReportModel }) {
                 </td>
               ))}
             </tr>
-            {r.comment && (
-              <tr>
-                <td colSpan={model.columns.length} className="px-4 pb-2.5 pt-0">
-                  <div className="ml-3 border-l-2 border-outline-variant pl-3 text-[13px] text-on-surface">
-                    <ExpandableText text={r.comment} lines={3} />
-                  </div>
-                </td>
-              </tr>
-            )}
           </Fragment>
         ))}
       </tbody>

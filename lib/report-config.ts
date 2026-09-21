@@ -25,6 +25,7 @@ export type GroupKey = (typeof GROUP_KEYS)[number];
 export const GROUP_LABEL: Record<GroupKey, string> = { segment: "Сегмент", track: "Трек", owner: "Ответственный", status: "Статус" };
 
 export const SORT_KEYS = ["deadline", "name", "status", "owner", "updatedAt"] as const;
+/** Устаревшая настройка: комментарий теперь обычная колонка. Оставлена, чтобы старые сохранённые шаблоны проходили проверку. */
 export const COMMENT_MODES = ["column", "underTask", "hide"] as const;
 export const COMMENT_MODE_LABEL: Record<(typeof COMMENT_MODES)[number], string> = {
   column: "Отдельной колонкой",
@@ -66,7 +67,7 @@ export type ResolvedReportConfig = {
   groupBy: GroupKey[];
   filters: NonNullable<ReportConfig["filters"]>;
   sort: { by: (typeof SORT_KEYS)[number]; dir: "asc" | "desc" };
-  options: { summary: boolean; comments: (typeof COMMENT_MODES)[number] };
+  options: { summary: boolean };
 };
 
 export function resolveConfig(c: ReportConfig): ResolvedReportConfig {
@@ -76,7 +77,7 @@ export function resolveConfig(c: ReportConfig): ResolvedReportConfig {
     groupBy: c.groupBy,
     filters: c.filters ?? {},
     sort: c.sort ?? { by: "deadline", dir: "asc" },
-    options: { summary: c.options?.summary ?? true, comments: c.options?.comments ?? "underTask" },
+    options: { summary: c.options?.summary ?? true },
   };
 }
 
@@ -92,7 +93,7 @@ export const SYSTEM_TEMPLATES: ReportTemplateDef[] = [
       columns: ["name", "owner", "status", "deadline", "comment"],
       groupBy: ["segment", "track"],
       sort: { by: "deadline", dir: "asc" },
-      options: { summary: true, comments: "underTask" },
+      options: { summary: true },
     },
   },
   {
@@ -103,7 +104,7 @@ export const SYSTEM_TEMPLATES: ReportTemplateDef[] = [
       columns: ["segment", "track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"],
       groupBy: [],
       sort: { by: "deadline", dir: "asc" },
-      options: { summary: false, comments: "column" },
+      options: { summary: false },
     },
   },
 ];

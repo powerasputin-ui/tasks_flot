@@ -112,7 +112,7 @@ export async function renderReportPptx(model: import("@/lib/report").ReportModel
       }
       const body = chunk.flatMap(({ path, row }) => {
         const main = [...(depth > 0 ? [cell(path.join(" / "))] : []), ...model.columns.map((c) => cell(row.cells[c.key] ?? "—"))];
-        return row.comment ? [main, [cell(`Комментарий: ${row.comment}`, false, headers.length)]] : [main];
+        return [main];
       });
       slide.addTable([headers.map((h) => cell(h, true)), ...body], { x: 0.5, y: 1.1, w: 12.3, autoPage: false });
     }

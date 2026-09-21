@@ -10,7 +10,6 @@ import { MenuItem, Popover } from "@/components/ui/Popover";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
 import {
   COLUMN_LABEL,
-  COMMENT_MODES,
   DEFAULT_TEMPLATE_ID,
   GROUP_KEYS,
   GROUP_LABEL,
@@ -243,19 +242,12 @@ function Builder({
     [boot.columns]
   );
   const label = (k: string) => allColumns.find((c) => c.key === k)?.label ?? k;
-  // «Комментарий» считается выбранным, только если он в списке и режим не «Не показывать»
-  const commentOn = cfg.options.comments !== "hide";
-  const chosen = cfg.columns.filter((k) => allColumns.some((c) => c.key === k) && (k !== "comment" || commentOn));
+  const chosen = cfg.columns.filter((k) => allColumns.some((c) => c.key === k));
   const rest = allColumns.filter((c) => !chosen.includes(c.key));
 
   const toggleColumn = (key: string, on: boolean) => {
-    if (on) {
-      // включая «Комментарий», выходим из режима «Не показывать»
-      const comments = key === "comment" && cfg.options.comments === "hide" ? "underTask" : cfg.options.comments;
-      set({ columns: [...chosen, key], options: { ...cfg.options, comments } });
-    } else if (chosen.length > 1) {
-      set({ columns: chosen.filter((k) => k !== key), options: key === "comment" ? { ...cfg.options, comments: "hide" } : cfg.options });
-    }
+    if (on) set({ columns: [...chosen, key] });
+    else if (chosen.length > 1) set({ columns: chosen.filter((k) => k !== key) });
   };
   const move = (key: string, dir: -1 | 1) => {
     const i = chosen.indexOf(key);
@@ -323,17 +315,6 @@ function Builder({
             <li key={k} className="flex items-center gap-2 px-3 py-1.5">
               <input type="checkbox" checked onChange={() => toggleColumn(k, false)} className="h-4 w-4 accent-primary" disabled={chosen.length <= 1} />
               <span className="flex-1 truncate text-[13px] text-on-surface">{label(k)}</span>
-              {k === "comment" && (
-                <select
-                  value={cfg.options.comments}
-                  onChange={(e) => set({ options: { ...cfg.options, comments: e.target.value as (typeof COMMENT_MODES)[number] } })}
-                  className="select h-7 !py-0 text-[12px]"
-                  aria-label="Как показывать комментарии"
-                >
-                  <option value="underTask">под задачей</option>
-                  <option value="column">колонкой</option>
-                </select>
-              )}
               <button onClick={() => move(k, -1)} disabled={i === 0} className="btn-icon h-7 w-7 disabled:opacity-30" aria-label="Выше"><ArrowUp size={14} /></button>
               <button onClick={() => move(k, 1)} disabled={i === chosen.length - 1} className="btn-icon h-7 w-7 disabled:opacity-30" aria-label="Ниже"><ArrowDown size={14} /></button>
             </li>

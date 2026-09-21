@@ -30,11 +30,11 @@ describe("reportToSections", () => {
     expect(sections[1].headers).toEqual(model.columns.map((c) => c.label));
   });
 
-  it("группы идут строками с числом позиций, комментарий — строкой под задачей", () => {
+  it("группы идут строками с числом позиций, комментарий — обычная колонка", () => {
     const first = sections[1].rows.map((r) => String(r[0]));
     expect(first.some((t) => t.includes("Сегмент: Балкеры (2)"))).toBe(true);
     expect(first.some((t) => t.includes("Трек: Ледокол (1)"))).toBe(true);
-    expect(first.some((t) => t.includes("Комментарий: ждём КП"))).toBe(true);
+    expect(sections[1].rows.some((r) => r.includes("ждём КП"))).toBe(true);
   });
 
   it("без сводки и без группировки — один плоский список", () => {

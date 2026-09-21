@@ -31,8 +31,6 @@ export type ReportRow = {
   id: string;
   /** Значения выбранных колонок (только видимых: без тех, что уже стали группами). */
   cells: Record<string, string>;
-  /** Комментарий для режима «строкой под задачей». */
-  comment: string | null;
   overdue: boolean;
   archived: boolean;
   /** Цвет статуса — чтобы экран мог нарисовать плашку. */
@@ -56,7 +54,6 @@ export type ReportModel = {
   columns: Array<{ key: string; label: string }>;
   groupBy: GroupKey[];
   showSummary: boolean;
-  commentsMode: "column" | "underTask" | "hide";
   summary: ReportSummary;
   /** Есть группировка — дерево групп; иначе плоский список rows. */
   groups: ReportGroup[] | null;
@@ -194,12 +191,8 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
 
   const rows = sortRows(applyFilters(allRows, cfg.filters, now), cfg.sort);
 
-  // Комментарии показываются, только если «Комментарий» выбран в списке колонок и режим не «Не показывать».
-  // Режим решает как: отдельной колонкой (на своём месте в списке) или строкой под задачей.
-  const commentsMode = cfg.options.comments;
-  const commentOn = cfg.columns.includes("comment") && commentsMode !== "hide";
-  const keys = cfg.columns.filter((k) => k !== "comment");
-  if (commentOn && commentsMode === "column") keys.splice(cfg.columns.slice(0, cfg.columns.indexOf("comment")).filter((k) => k !== "comment").length, 0, "comment");
+  // Колонки — ровно то, что выбрано (комментарий — обычная колонка); те, что уже стали группами, не дублируются.
+  const keys = cfg.columns;
   const columns = keys
     .filter((k) => !(cfg.groupBy as string[]).includes(k))
     .filter((k) => (k.startsWith("custom:") ? custom.has(k.slice("custom:".length)) : k in COLUMN_LABEL))
@@ -208,7 +201,6 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
   const toReportRow = (r: TableRow): ReportRow => ({
     id: r.id,
     cells: Object.fromEntries(columns.map((c) => [c.key, cellValue(r, c.key, custom)])),
-    comment: commentOn && commentsMode === "underTask" ? r.comment : null,
     overdue: isOverdue(r, now),
     archived: r.archived,
     statusColor: r.statusColor,
@@ -243,7 +235,6 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
     columns,
     groupBy: cfg.groupBy,
     showSummary: cfg.options.summary,
-    commentsMode,
     summary: summarize(rows, now),
     groups: cfg.groupBy.length ? build(rows, cfg.groupBy) : null,
     rows: cfg.groupBy.length ? null : rows.map(toReportRow),

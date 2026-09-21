@@ -127,19 +127,6 @@ describe("buildReport: фильтры, сортировка, комментар�
     expect(desc).toEqual(["1", "3", "2"]);
   });
 
-  it("режимы комментариев: под задачей, колонкой, скрыть", () => {
-    const rows = [row({ id: "1", comment: "ждём КП" })];
-    const under = buildReport(rows, { ...base, options: { comments: "underTask" } }, ctx);
-    expect(under.columns.some((c) => c.key === "comment")).toBe(false);
-    expect(under.groups![0].groups![0].rows![0].comment).toBe("ждём КП");
-    const col = buildReport(rows, { ...base, options: { comments: "column" } }, ctx);
-    expect(col.columns.some((c) => c.key === "comment")).toBe(true);
-    expect(col.groups![0].groups![0].rows![0].comment).toBeNull();
-    const hide = buildReport(rows, { ...base, options: { comments: "hide" } }, ctx);
-    expect(hide.columns.some((c) => c.key === "comment")).toBe(false);
-    expect(hide.groups![0].groups![0].rows![0].comment).toBeNull();
-  });
-
   it("свои колонки выводятся; удалённые (нет в справочнике) отбрасываются", () => {
     const rows = [row({ id: "1", customValues: { c1: "Срочно" } })];
     const m = buildReport(rows, { ...base, groupBy: [], columns: ["name", "custom:c1", "custom:gone"] }, ctx);
@@ -216,35 +203,30 @@ describe("колонки, целиком ушедшие в группировк�
   });
 });
 
-describe("комментарии: выбраны в колонках + режим", () => {
+describe("комментарий — обычная колонка", () => {
   const rows = [row({ id: "1", comment: "ждём КП" })];
 
-  it("под задачей — без колонки; колонкой — на своём месте; не показывать — нигде", () => {
-    const cols = ["name", "comment", "owner"];
-    const under = buildReport(rows, { columns: cols, groupBy: [], options: { comments: "underTask" } }, ctx);
-    expect(under.columns.map((c) => c.key)).toEqual(["name", "owner"]);
-    expect(under.rows![0].comment).toBe("ждём КП");
-    const col = buildReport(rows, { columns: cols, groupBy: [], options: { comments: "column" } }, ctx);
-    expect(col.columns.map((c) => c.key)).toEqual(["name", "comment", "owner"]);
-    expect(col.rows![0].cells.comment).toBe("ждём КП");
-    expect(col.rows![0].comment).toBeNull();
-    const hide = buildReport(rows, { columns: cols, groupBy: [], options: { comments: "hide" } }, ctx);
-    expect(hide.columns.map((c) => c.key)).toEqual(["name", "owner"]);
-    expect(hide.rows![0].comment).toBeNull();
+  it("выбран — показывается на своём месте; не выбран — нигде", () => {
+    const on = buildReport(rows, { columns: ["name", "comment", "owner"], groupBy: [] }, ctx);
+    expect(on.columns.map((c) => c.key)).toEqual(["name", "comment", "owner"]);
+    expect(on.rows![0].cells.comment).toBe("ждём КП");
+    const off = buildReport(rows, { columns: ["name", "owner"], groupBy: [] }, ctx);
+    expect(off.columns.map((c) => c.key)).toEqual(["name", "owner"]);
+    expect(JSON.stringify(off)).not.toContain("ждём КП");
   });
 
-  it("«Комментарий» не выбран в колонках — комментариев нет ни колонкой, ни под задачей", () => {
-    for (const comments of ["underTask", "column"] as const) {
-      const m = buildReport(rows, { columns: ["name", "owner"], groupBy: [], options: { comments } }, ctx);
-      expect(m.columns.map((c) => c.key)).toEqual(["name", "owner"]);
-      expect(m.rows![0].comment).toBeNull();
-    }
+  it("только комментарии: без задачи и других колонок", () => {
+    const m = buildReport(rows, { columns: ["comment"], groupBy: ["segment"] }, ctx);
+    expect(m.columns.map((c) => c.key)).toEqual(["comment"]);
+    const s = reportToSections(m, { summary: false });
+    expect(s[0].headers).toEqual(["Комментарий"]);
+    expect(JSON.stringify(s)).toContain("ждём КП");
+    expect(JSON.stringify(s)).not.toContain("Задача");
   });
 
-  it("без остальных колонок, но с комментарием под задачей комментарии не теряются", () => {
-    const m = buildReport(rows, { columns: ["segment", "comment"], groupBy: ["segment"], options: { comments: "underTask" } }, ctx);
-    expect(m.columns).toEqual([]);
-    expect(m.groups![0].rows![0].comment).toBe("ждём КП");
-    expect(JSON.stringify(reportToSections(m, { summary: false }))).toContain("ждём КП");
+  it("старые шаблоны с настройкой comments проходят проверку и не влияют на результат", () => {
+    expect(reportConfigSchema.safeParse({ columns: ["name", "comment"], groupBy: [], options: { comments: "underTask" } }).success).toBe(true);
+    const m = buildReport(rows, { columns: ["comment"], groupBy: [], options: { comments: "hide" } }, ctx);
+    expect(m.rows![0].cells.comment).toBe("ждём КП");
   });
 });
