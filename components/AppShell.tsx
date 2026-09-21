@@ -16,6 +16,7 @@ type Me = {
   name: string;
   email: string;
   role: "HEAD" | "DIRECTOR" | "ADMIN" | "EXECUTIVE" | "SYSTEM_ADMIN";
+  memoEditor?: boolean;
 } | null;
 
 export const ROLE_LABEL: Record<string, string> = {
@@ -164,7 +165,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const previewing = viewAs;
   const canPreview = !viewAs && (me?.role === "ADMIN" || me?.role === "SYSTEM_ADMIN" || me?.role === "DIRECTOR");
   const effRole = me?.role;
-  const nav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
+  const baseNav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
+  // назначенный админом составитель справки (руководитель) видит «Оперативку»
+  const nav = effRole === "HEAD" && me?.memoEditor ? [baseNav[0], { href: "/operativka", label: "Оперативка" }, ...baseNav.slice(1)] : baseNav;
 
   return (
     <>

@@ -26,6 +26,7 @@ model User {
   passwordHash  String
   role          UserRole
   isActive      Boolean      @default(true)
+  memoEditor    Boolean      @default(false) // составитель справки для ЗГД (назначает админ; директор и админ ведут справку по роли)
   tableColumns  Json? // личные настройки колонок таблицы (порядок, видимость, ширина, подписи)
   directorateId String? // дирекция человека (пусто у ЗГД; у админа — «домашняя», рабочую он выбирает сам)
   directorate   Directorate? @relation(fields: [directorateId], references: [id])

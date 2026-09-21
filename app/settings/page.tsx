@@ -10,7 +10,7 @@ import { clearBootstrap } from "@/lib/client-bootstrap";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
-type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null };
+type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null; memoEditor?: boolean };
 type Directorate = { id: string; name: string; isActive: boolean };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
@@ -250,6 +250,12 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                     </select>
                   ) : (
                     <span className="text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
+                  )}
+                  {isAdmin && u.role === "HEAD" && (
+                    <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-[12px] text-on-surface-variant" title="Составитель готовит справку для ЗГД вместе с директором: видит «Оперативку» и колонку «В справку»">
+                      <input type="checkbox" checked={!!u.memoEditor} onChange={(e) => patch(u.id, { memoEditor: e.target.checked }, e.target.checked ? "Назначен составителем справки." : "Снят с составления справки.")} className="h-3.5 w-3.5 accent-primary" />
+                      Составитель справки
+                    </label>
                   )}
                 </td>
                 <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>

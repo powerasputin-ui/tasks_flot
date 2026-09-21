@@ -4,7 +4,7 @@
  * Сбрасывается при выходе и после любых изменений в настройках (clearBootstrap).
  */
 export type Bootstrap = {
-  user: { id: string; name: string; email: string; role: string; isActive: boolean } | null;
+  user: { id: string; name: string; email: string; role: string; isActive: boolean; memoEditor?: boolean } | null;
   segments: Array<{ id: string; name: string; color?: string | null }>;
   tracks: Array<{ id: string; name: string; segmentId: string | null }>;
   statuses: Array<{ id: string; name: string }>;

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getDicts } from "@/lib/dictionaries";
 import { directorateName } from "@/lib/directorates";
-import { isDirectorial, type Actor } from "@/lib/permissions";
+import { canCompileMemo, type Actor } from "@/lib/permissions";
 import { isInScope } from "@/lib/scope";
 import { buildDraft, memoTitle, parseMemoDoc, syncWithSources, type BulletFlags, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
 import { Prisma, type Cycle } from "@prisma/client";
@@ -17,9 +17,9 @@ export type MemoSource = SourceItem & {
 
 export const MEMO_LIMITS = { sections: 60, bullets: 400, textLength: 6000, titleLength: 200 };
 
-/** Справку ведут директор и админ (в своей дирекции), руководитель и ЗГД — нет. */
+/** Справку ведут директор, админ и назначенные админом составители (в своей дирекции); остальные руководители и ЗГД — нет. */
 export function canEditMemo(actor: Actor, cycle: { directorateId: string | null }): boolean {
-  return isDirectorial(actor.role) && isInScope(actor, cycle);
+  return canCompileMemo(actor) && isInScope(actor, cycle);
 }
 
 export async function loadSectionDefs(directorateId: string): Promise<SectionDef[]> {

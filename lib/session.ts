@@ -48,11 +48,11 @@ export async function requireRealActor(): Promise<Actor & { name: string }> {
   return loadActor();
 }
 
-const viewTargetCache = new Map<string, { at: number; user: { id: string; name: string; role: Actor["role"]; directorateId: string | null; isActive: boolean } | null }>();
+const viewTargetCache = new Map<string, { at: number; user: { id: string; name: string; role: Actor["role"]; directorateId: string | null; isActive: boolean; memoEditor: boolean } | null }>();
 async function loadViewTarget(id: string) {
   const hit = viewTargetCache.get(id);
   if (hit && Date.now() - hit.at < ACTOR_TTL_MS) return hit.user;
-  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, directorateId: true, isActive: true } });
+  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, directorateId: true, isActive: true, memoEditor: true } });
   viewTargetCache.set(id, { at: Date.now(), user });
   return user;
 }
@@ -65,7 +65,7 @@ export async function requireActor(): Promise<Actor & { name: string }> {
     const target = await loadViewTarget(viewId);
     if (target && canViewAs(real, target)) {
       const directorateId = target.role === "ADMIN" || target.role === "SYSTEM_ADMIN" ? await adminDirectorate(target.directorateId) : target.directorateId;
-      return { id: target.id, name: target.name, role: target.role, directorateId, viewAs: { realId: real.id, realName: real.name, realRole: real.role } };
+      return { id: target.id, name: target.name, role: target.role, directorateId, memoEditor: target.memoEditor, viewAs: { realId: real.id, realName: real.name, realRole: real.role } };
     }
   }
   return resolveDirectorate(real);
@@ -85,13 +85,13 @@ async function loadActor(): Promise<Actor & { name: string }> {
   if (hit && Date.now() - hit.at < ACTOR_TTL_MS) return hit.actor;
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, role: true, isActive: true, directorateId: true },
+    select: { id: true, name: true, role: true, isActive: true, directorateId: true, memoEditor: true },
   });
   if (!user || !user.isActive) {
     actorCache.delete(session.userId);
     throw new AuthError("UNAUTHENTICATED");
   }
-  const actor = { id: user.id, name: user.name, role: user.role, directorateId: user.directorateId };
+  const actor = { id: user.id, name: user.name, role: user.role, directorateId: user.directorateId, memoEditor: user.memoEditor };
   actorCache.set(session.userId, { at: Date.now(), actor });
   return actor;
 }

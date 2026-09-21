@@ -14,6 +14,7 @@ export async function GET() {
       email: true,
       role: true,
       isActive: true,
+      memoEditor: true,
     },
   });
   return NextResponse.json({ user });

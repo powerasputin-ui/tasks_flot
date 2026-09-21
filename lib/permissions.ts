@@ -18,6 +18,8 @@ export type Actor = {
   directorateId?: string | null;
   /** Режим «Посмотреть как»: актор — тот, кого смотрят; здесь — кто на самом деле смотрит. Запись в этом режиме отключена. */
   viewAs?: { realId: string; realName: string; realRole: UserRole };
+  /** Составитель справки для ЗГД: назначает админ (директор и админ ведут справку по роли). */
+  memoEditor?: boolean;
 };
 export type ItemOwnership = { responsibleId: string | null };
 
@@ -153,4 +155,9 @@ export function canViewAs(
   if (real.role === "ADMIN") return target.role !== "SYSTEM_ADMIN";
   if (real.role === "DIRECTOR") return target.role === "HEAD" && !!real.directorateId && target.directorateId === real.directorateId;
   return false;
+}
+
+/** Кто ведёт справку для ЗГД: директор и админ по роли, а также люди, которых назначил админ. */
+export function canCompileMemo(actor: { role: UserRole; memoEditor?: boolean }): boolean {
+  return isDirectorial(actor.role) || (actor.role === "HEAD" && !!actor.memoEditor);
 }

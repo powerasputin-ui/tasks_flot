@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { PrismaClient } from "@prisma/client";
 
 // Сессия подменяется: тест вызывает настоящие маршруты от имени выбранного пользователя.
-const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string; directorateId: string | null } }));
+const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean } }));
 vi.mock("@/lib/session", () => {
   class AuthError extends Error {}
   return {
@@ -56,11 +56,13 @@ import * as memo from "@/app/api/cycles/[id]/memo/route";
 import * as memoRefresh from "@/app/api/cycles/[id]/memo/refresh/route";
 import * as memoExport from "@/app/api/cycles/[id]/memo/export/route";
 import * as memoSections from "@/app/api/memo-sections/route";
+import * as memoInclude from "@/app/api/cycles/[id]/memo/include/route";
+import * as inclusion from "@/app/api/memo/inclusion/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
 
-type Actor = { id: string; role: string; name: string; directorateId: string | null };
+type Actor = { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean };
 let curator: Actor;
 let head: Actor;
 // тестовая «вторая дирекция» и её люди; в базе живут только на время прогона
@@ -947,5 +949,70 @@ describe("справка директора", () => {
     const put = await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc: r.data.doc, version: r.data.version } });
     expect(put.status).toBe(409);
     expect(put.data.error).toBe("BAD_STATE");
+  });
+});
+
+describe("составитель справки и решение «в справку» из таблицы", () => {
+  let cycleId = "";
+  let itemSubmitted = "";
+  let itemPlain = "";
+  let compiler: Actor;
+
+  it("составителя назначает только админ; директор и сам руководитель — нет", async () => {
+    const setFlag = (who: Actor, on: boolean) => call(who, user.PATCH, `/api/users/${headB.id}`, { method: "PATCH", id: headB.id, body: { memoEditor: on } });
+    expect((await setFlag(directorB, true)).status).toBe(403);
+    expect((await setFlag(headB, true)).status).toBe(403);
+    expect((await setFlag(curator, true)).status).toBe(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: headB.id } })).memoEditor).toBe(true);
+    compiler = { ...headB, memoEditor: true };
+  });
+
+  it("подготовка: цикл дирекции B, две позиции руководителя: одна подана, другая нет", async () => {
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    cycleId = start.data.id;
+    created.cycles.push(cycleId);
+    const a = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} подана`, operFlag: true, comment: "Подана директору." } });
+    const b = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} не подана`, comment: "Не подана." } });
+    itemSubmitted = a.data.row.id;
+    itemPlain = b.data.row.id;
+    created.items.push(itemSubmitted, itemPlain);
+  });
+
+  it("составитель видит и правит справку, обычный руководитель — нет", async () => {
+    expect((await call(compiler, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId })).status).toBe(200);
+    expect((await call(headB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId })).status).toBe(404);
+    const inc = await call(compiler, inclusion.GET, "/api/memo/inclusion");
+    expect(inc.data.cycleId).toBe(cycleId);
+    expect(inc.data.included).toContain(itemSubmitted);
+    expect(inc.data.included).not.toContain(itemPlain);
+    // обычному руководителю решения по справке не показываются
+    expect((await call(headB, inclusion.GET, "/api/memo/inclusion")).data.cycleId).toBeNull();
+  });
+
+  it("решение из таблицы: включить неподанную, исключить поданную; повторная сборка их не возвращает", async () => {
+    const on = await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain, include: true } });
+    expect(on.status).toBe(200);
+    const off = await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemSubmitted, include: false } });
+    expect(off.status).toBe(200);
+    const inc = await call(compiler, inclusion.GET, "/api/memo/inclusion");
+    expect(inc.data.included).toContain(itemPlain);
+    expect(inc.data.included).not.toContain(itemSubmitted);
+    expect(inc.data.known).toContain(itemSubmitted); // решение принято: исключена, не «новая»
+    const refresh = await call(compiler, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
+    expect(refresh.data.added).toBe(0);
+    // чужие и неподходящие запросы
+    expect((await call(headB, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain, include: false } })).status).toBe(404);
+    expect((await call(director, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain, include: false } })).status).toBe(404);
+    expect((await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: "нет-такой", include: true } })).status).toBe(404);
+    expect((await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain } })).status).toBe(400);
+  });
+
+  it("снять флаг: руководитель снова обычный (доступ к справке пропадает)", async () => {
+    expect((await call(curator, user.PATCH, `/api/users/${headB.id}`, { method: "PATCH", id: headB.id, body: { memoEditor: false } })).status).toBe(200);
+    expect((await call(headB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId })).status).toBe(404);
+    // закрываем цикл, чтобы не оставлять активный
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
   });
 });

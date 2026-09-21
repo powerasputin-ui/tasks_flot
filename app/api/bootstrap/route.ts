@@ -14,12 +14,12 @@ export async function GET() {
   const viewAs = actor.viewAs ? { id: actor.id, name: actor.name, role: actor.role, realName: actor.viewAs.realName } : null;
   // ЗГД дирекции не имеет: справочники дирекции ему не нужны
   if (actor.role === "EXECUTIVE") {
-    const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true } });
+    const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true } });
     return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, directorate: null, directorates: [], viewAs });
   }
   const directorateId = requireDirectorate(actor);
   const [user, segments, tracks, statuses, attractiveness, users, columns, layout] = await Promise.all([
-    prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true } }),
+    prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true } }),
     prisma.segment.findMany({ where: { isActive: true, directorateId }, orderBy: { sortOrder: "asc" } }),
     prisma.track.findMany({ where: { isActive: true, directorateId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, segmentId: true } }),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),

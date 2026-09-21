@@ -239,3 +239,44 @@ export function parseMemoDoc(value: unknown): MemoDoc | null {
     })),
   };
 }
+
+/**
+ * Решение «в справку / не в справку» по строке (из таблицы или из левой колонки редактора).
+ * Включить: если пункт со строкой уже есть — показать, если нет — добавить пунктом в раздел её трека.
+ * Исключить: пункт с одной строкой скрывается (не возвращается при «Обновить из данных»); у объединённого пункта строка
+ * просто убирается из источников, текст остаётся на усмотрение составителя.
+ */
+export function setIncluded(doc: MemoDoc, item: SourceItem, include: boolean, defs: SectionDef[], items: SourceItem[]): MemoDoc {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  if (include) {
+    const has = doc.sections.some((s) => s.bullets.some((b) => b.itemIds.includes(item.id)));
+    if (has) return { sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.itemIds.includes(item.id) ? { ...b, hidden: false } : b)) })) };
+    const def = sectionOf(item, defs);
+    const key = def?.id ?? OTHER_SECTION_ID;
+    const sections = doc.sections.map((s) => ({ ...s, bullets: [...s.bullets] }));
+    let target = sections.find((s) => s.id === key);
+    if (!target) {
+      target = emptySection(def);
+      sections.push(target);
+    }
+    target.bullets.push(bulletFor(item));
+    return { sections: orderSections(sections, defs) };
+  }
+  return {
+    sections: doc.sections.map((s) => ({
+      ...s,
+      bullets: s.bullets.map((b) => {
+        if (!b.itemIds.includes(item.id)) return b;
+        if (b.itemIds.length === 1) return { ...b, hidden: true };
+        const itemIds = b.itemIds.filter((id) => id !== item.id);
+        return { ...b, itemIds, sourceHash: hashText(combinedSource(itemIds, byId)) };
+      }),
+    })),
+  };
+}
+
+/** Строки, по которым составитель ещё не принял решения (поданы, но их нет ни в одном пункте, даже скрытом). */
+export function undecided(doc: MemoDoc, items: SourceItem[]): SourceItem[] {
+  const known = new Set(doc.sections.flatMap((s) => s.bullets.flatMap((b) => b.itemIds)));
+  return items.filter((i) => isEligible(i) && !known.has(i.id));
+}

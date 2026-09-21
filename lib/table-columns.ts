@@ -1,6 +1,6 @@
 // Настройки колонок таблицы: общие для таблицы и страницы «Настройки → Колонки таблицы».
 
-export type StdKey = "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "comment";
+export type StdKey = "track" | "cost" | "attractiveness" | "name" | "deadline" | "deadlineWeek" | "owner" | "status" | "operFlag" | "memo" | "comment";
 /** Свои колонки куратора имеют ключ custom:<id колонки>. */
 export type ColumnKey = StdKey | `custom:${string}`;
 
@@ -18,10 +18,11 @@ export const DEFAULT_LABEL: Record<StdKey, string> = {
   owner: "Ответственный",
   status: "Статус",
   operFlag: "Опер",
+  memo: "В справку",
   comment: "Комментарии",
 };
 
-export const ALL_KEYS: StdKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment", "deadlineWeek"];
+export const ALL_KEYS: StdKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "memo", "comment", "deadlineWeek"];
 
 export const WIDTH: Record<StdKey, number> = {
   track: 170,
@@ -33,10 +34,11 @@ export const WIDTH: Record<StdKey, number> = {
   owner: 160,
   status: 130,
   operFlag: 70,
+  memo: 90,
   comment: 240,
 };
 
-export const DEFAULT_VISIBLE: StdKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "comment"];
+export const DEFAULT_VISIBLE: StdKey[] = ["track", "name", "cost", "attractiveness", "owner", "deadline", "status", "operFlag", "memo", "comment"];
 
 export function buildColumns(visibleKeys: StdKey[]): ColumnConfig[] {
   const ordered = [...visibleKeys, ...ALL_KEYS.filter((k) => !visibleKeys.includes(k))];

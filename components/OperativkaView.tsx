@@ -36,6 +36,7 @@ function deadlineHint(iso: string): { text: string; late: boolean } {
 
 export function OperativkaView() {
   const [role, setRole] = useState<string | null>(null);
+  const [memoEditor, setMemoEditor] = useState(false);
   const [cycle, setCycle] = useState<Cycle | null>(null);
   const [summary, setSummary] = useState<Person[]>([]);
   const [finals, setFinals] = useState<Final[]>([]);
@@ -49,6 +50,7 @@ export function OperativkaView() {
   const load = useCallback(async () => {
     const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
     setRole(boot?.user?.role ?? null);
+    setMemoEditor(!!boot?.user?.memoEditor);
     setCycle(cur.cycle);
     setSummary(cur.summary ?? []);
     setFinals(cur.finals ?? []);
@@ -69,11 +71,11 @@ export function OperativkaView() {
     const q = new URLSearchParams(window.location.search);
     const t = q.get("tab");
     // директор и админ открывают «Справку»; остальным (тех. администратору) доступны «Данные»
-    const home: Tab = isDirectorial(role) ? "memo" : "finals";
+    const home: Tab = isDirectorial(role) || memoEditor ? "memo" : "finals";
     const wanted: Tab = t === "finals" ? "finals" : t === "memo" ? "memo" : home;
-    setTabState(role === "EXECUTIVE" || (wanted === "memo" && !isDirectorial(role)) ? "finals" : wanted);
+    setTabState(role === "EXECUTIVE" || (wanted === "memo" && !isDirectorial(role) && !memoEditor) ? "finals" : wanted);
     setFinalIdState(q.get("final"));
-  }, [role]);
+  }, [role, memoEditor]);
 
   function syncUrl(nextTab: Tab, nextFinal: string | null) {
     const q = new URLSearchParams();
@@ -112,7 +114,7 @@ export function OperativkaView() {
   if (loading || !tab) return <p className="p-6 text-[13px] text-on-surface-variant">Загрузка…</p>;
 
   const hint = cycle && cycle.status === "OPEN" ? deadlineHint(cycle.deadline) : null;
-  const directorial = !!role && isDirectorial(role);
+  const directorial = (!!role && isDirectorial(role)) || memoEditor;
   const tabs: Array<{ id: Tab; label: string; badge?: string; warn?: boolean }> = isManagement
     ? [{ id: "finals", label: "Архив", badge: String(finals.length) }]
     : [

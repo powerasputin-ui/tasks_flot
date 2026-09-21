@@ -127,3 +127,41 @@ describe("заголовок и разбор", () => {
     expect(d?.sections[0].bullets[0]).toMatchObject({ id: "2", text: "т", itemIds: [], origin: "auto", edited: false, hidden: false });
   });
 });
+
+describe("решение «в справку» из таблицы", () => {
+  it("включить: добавляется пунктом в раздел трека; уже есть — просто показывается; скрытый возвращается", async () => {
+    const { setIncluded } = await import("@/lib/memo");
+    const items = [item("a"), item("bb", { trackId: "t2", operFlag: false })];
+    const doc = buildDraft(items, defs);
+    expect(doc.sections).toHaveLength(1); // неподанный не входит
+    const added = setIncluded(doc, items[1], true, defs, items);
+    expect(added.sections.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(added.sections[1].bullets[0].itemIds).toEqual(["bb"]);
+    // повторное включение не плодит пункты
+    expect(setIncluded(added, items[1], true, defs, items).sections[1].bullets).toHaveLength(1);
+    // скрытый возвращается
+    const hidden = setIncluded(added, items[1], false, defs, items);
+    expect(hidden.sections[1].bullets[0].hidden).toBe(true);
+    expect(setIncluded(hidden, items[1], true, defs, items).sections[1].bullets[0].hidden).toBe(false);
+  });
+
+  it("исключить: пункт с одной строкой скрывается (не вернётся при «Обновить из данных»); у объединённого строка убирается из источников", async () => {
+    const { setIncluded } = await import("@/lib/memo");
+    const items = [item("a", { comment: "Первое." }), item("bb", { comment: "Второе." })];
+    let doc = buildDraft(items, defs);
+    const single = setIncluded(doc, items[0], false, defs, items);
+    expect(single.sections[0].bullets[0].hidden).toBe(true);
+    expect(refreshDraft(single, items, defs).added).toBe(0);
+    doc = mergeBullets(doc, "s1", doc.sections[0].bullets[0].id, doc.sections[0].bullets[1].id, items);
+    const cut = setIncluded(doc, items[1], false, defs, items);
+    expect(cut.sections[0].bullets[0].itemIds).toEqual(["a"]);
+    expect(cut.sections[0].bullets[0].hidden).toBe(false);
+  });
+
+  it("«ждут решения»: поданные строки, которых ещё нет ни в одном пункте (даже скрытом)", async () => {
+    const { undecided } = await import("@/lib/memo");
+    const items = [item("a"), item("bb"), item("ccc", { operFlag: false })];
+    const doc = buildDraft([items[0]], defs);
+    expect(undecided(doc, items).map((i) => i.id)).toEqual(["bb"]);
+  });
+});

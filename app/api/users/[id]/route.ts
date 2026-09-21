@@ -13,6 +13,8 @@ const patchSchema = z.object({
   name: z.string().trim().min(1).optional(),
   role: z.enum(ROLES).optional(),
   isActive: z.boolean().optional(),
+  /** Только админ: составитель справки для ЗГД. */
+  memoEditor: z.boolean().optional(),
   password: z.string().min(8, "Минимум 8 символов").optional(),
   /** Только админ: перевести человека в другую дирекцию (нельзя, пока за ним закреплены позиции). */
   directorateId: z.string().nullable().optional(),
@@ -37,6 +39,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // Директор видит и правит только людей своей дирекции; чужие для него «не существуют».
   const isAdminActor = session.role === "ADMIN" || session.role === "SYSTEM_ADMIN";
   if (!isAdminActor && target.directorateId !== session.directorateId) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (parsed.data.memoEditor !== undefined && !isAdminActor) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   if (parsed.data.directorateId !== undefined) {
     if (!isAdminActor) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
     const to = parsed.data.directorateId;

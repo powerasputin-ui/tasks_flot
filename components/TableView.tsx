@@ -41,7 +41,7 @@ type Row = ItemRow & {
   staleWeeks: number;
 };
 
-type Me = { id: string; role: string } | null;
+type Me = { id: string; role: string; memoEditor?: boolean } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
@@ -59,6 +59,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // «В справку»: решения составителя по активной оперативке (колонка видна только составителям при активном цикле)
+  const [memo, setMemo] = useState<{ cycleId: string; included: Set<string>; known: Set<string> } | null>(null);
   const [refs, setRefs] = useState<Refs>({ segments: [], tracks: [], statuses: [], attractiveness: [], users: [] });
   const [segmentRefs, setSegmentRefs] = useState<SegmentRef[]>([]);
   const [realMe, setMe] = useState<Me>(null);
@@ -315,6 +317,34 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     return new Date(row.deadline) < new Date();
   }, []);
 
+  const canCompile = !!me && (isDirectorial(me.role) || !!me.memoEditor);
+  useEffect(() => {
+    if (!canCompile) return;
+    let alive = true;
+    fetch("/api/memo/inclusion")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive) return;
+        setMemo(d?.cycleId ? { cycleId: d.cycleId, included: new Set<string>(d.included), known: new Set<string>(d.known) } : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [canCompile]);
+
+  // решение «в справку / не в справку» по строке; сразу отражается в таблице, сервер обновляет черновик справки
+  async function toggleMemo(row: Row, include: boolean) {
+    if (!memo || preview) return previewBlock();
+    const prev = memo;
+    setMemo({ ...memo, included: new Set(include ? [...memo.included, row.id] : [...memo.included].filter((x) => x !== row.id)), known: new Set([...memo.known, row.id]) });
+    const res = await fetch(`/api/cycles/${memo.cycleId}/memo/include`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: row.id, include }) });
+    if (!res.ok) {
+      setMemo(prev);
+      setError(res.status === 409 ? "Справку сейчас правят в другом окне. Повторите." : "Не удалось изменить справку.");
+    }
+  }
+
   // Ссылка вида /table?item=<id> (например, из справки директора «Открыть в таблице») сразу открывает эту позицию
   const itemParam = searchParams.get("item");
   const openedFor = useRef<string | null>(null);
@@ -362,7 +392,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
 
-  const visibleColumns = columns.filter((c) => c.visible && !c.removed);
+  const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "memo" || !!memo));
   const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
 
   function renderCell(row: Row, col: ColumnConfig) {
@@ -398,6 +428,26 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         );
       case "status":
         return <StatusPill name={row.statusName} color={row.statusColor} />;
+      case "memo": {
+        if (!memo) return "—";
+        const isIn = memo.included.has(row.id);
+        const undecided = row.operFlag && !memo.known.has(row.id) && !row.archived;
+        return row.archived ? (
+          "—"
+        ) : (
+          <span className="inline-flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={isIn}
+              onChange={(e) => void toggleMemo(row, e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-4 w-4 cursor-pointer accent-primary"
+              title={isIn ? "Входит в справку для ЗГД" : "Добавить в справку для ЗГД"}
+            />
+            {undecided && <span title="Подано директору, решение по справке ещё не принято" className="rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">новое</span>}
+          </span>
+        );
+      }
       case "operFlag": {
         const mark = row.operFlag && row.changedAfterSubmission && (
           <span title="Изменено после отправки директору — откройте историю позиции" className="ml-1.5 inline-flex h-4 items-center rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">
@@ -413,7 +463,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             onChange={(e) => toggleOper(row, e.target.checked)}
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-4 cursor-pointer accent-primary"
-            title="Отправить директору"
+            title="В оперативку: подать директору"
           />
           {mark}
           </span>
