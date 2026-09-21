@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   // Шрифты DejaVu (кириллица для PDF) читаются по пути с диска — включаем их в serverless-функции.
   outputFileTracingIncludes: {
     "/api/export/*": ["./assets/fonts/**/*"],
+    "/api/cycles/*/memo/*": ["./assets/fonts/**/*"],
   },
 };
 

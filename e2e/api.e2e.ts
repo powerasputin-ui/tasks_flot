@@ -52,6 +52,10 @@ import * as cycleFinalize from "@/app/api/cycles/[id]/finalize/route";
 import * as cycleReport from "@/app/api/cycles/[id]/report/route";
 import * as directorates from "@/app/api/directorates/route";
 import * as segments from "@/app/api/segments/route";
+import * as memo from "@/app/api/cycles/[id]/memo/route";
+import * as memoRefresh from "@/app/api/cycles/[id]/memo/refresh/route";
+import * as memoExport from "@/app/api/cycles/[id]/memo/export/route";
+import * as memoSections from "@/app/api/memo-sections/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -818,5 +822,130 @@ describe("руководитель, который заполняет табли
     expect((await call(headB, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(404);
     expect((await call(management, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
     expect((await call(directorB, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
+  });
+});
+
+describe("справка директора", () => {
+  let cycleId = "";
+  let trackA = "";
+  let version = 0;
+  const ids: string[] = [];
+
+  it("структура справки: директор задаёт разделы и короткое название; чужие и руководитель не могут", async () => {
+    const t = await call(directorB, tracks.POST, "/api/tracks", { method: "POST", body: { name: `${TAG}-трек справки` } });
+    expect(t.status).toBe(201);
+    trackA = t.data.track.id;
+    created.tracks.push(trackA);
+    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { shortName: "ТД", sections: [{ title: `${TAG} Первый раздел`, trackIds: [trackA] }] } });
+    expect(put.status).toBe(200);
+    const got = await call(directorB, memoSections.GET, "/api/memo-sections");
+    expect(got.data.shortName).toBe("ТД");
+    expect(got.data.sections).toHaveLength(1);
+    expect(got.data.sections[0].trackIds).toEqual([trackA]);
+    // трек из другой дирекции в структуру не попадёт
+    const foreignTrack = await prisma.track.findFirst({ where: { directorateId: curator.directorateId }, select: { id: true } });
+    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { sections: [{ title: "x", trackIds: [foreignTrack!.id] }] } })).status).toBe(400);
+    expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { sections: [] } })).status).toBe(403);
+    expect((await call(headB, memoSections.GET, "/api/memo-sections")).status).toBe(403);
+  });
+
+  it("подготовка: цикл и подача руководителя (две позиции в разделе, одна без трека, одна не подана)", async () => {
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    cycleId = start.data.id;
+    created.cycles.push(cycleId);
+    const mk = async (title: string, extra: object) => {
+      const r = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} ${title}`, ...extra } });
+      expect(r.status).toBe(201);
+      created.items.push(r.data.row.id);
+      ids.push(r.data.row.id);
+    };
+    await mk("п1", { trackId: trackA, operFlag: true, comment: "Первый комментарий." });
+    await mk("п2", { trackId: trackA, operFlag: true, comment: "Второй комментарий." });
+    await mk("п3", { operFlag: true, comment: "Без трека." });
+    await mk("п4", { trackId: trackA, comment: "Не подана." });
+  });
+
+  it("черновик собирается из поданных позиций по структуре; не поданные — в «не вошло»", async () => {
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(r.status).toBe(200);
+    version = r.data.version;
+    const titles = r.data.doc.sections.map((x: { title: string }) => x.title);
+    expect(titles[0]).toContain("Первый раздел");
+    expect(titles[titles.length - 1]).toBe("Прочие направления");
+    expect(r.data.doc.sections[0].bullets.map((b: { text: string }) => b.text)).toEqual(["Первый комментарий.", "Второй комментарий."]);
+    expect(r.data.notIncluded.map((i: { id: string }) => i.id)).toContain(ids[3]);
+    expect(r.data.title).toBe("Статус текущих задач по дирекции ТД");
+    expect(r.data.editable).toBe(true);
+  });
+
+  it("правка сохраняется по версии; устаревшая версия — 409; дата совещания попадает в заголовок", async () => {
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    const doc = r.data.doc;
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: "Моя редакция первого пункта.", edited: true };
+    const ok = await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc, version: r.data.version, meetingDate: "2026-09-21" } });
+    expect(ok.status).toBe(200);
+    version = ok.data.version;
+    const stale = await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc, version: r.data.version } });
+    expect(stale.status).toBe(409);
+    expect(stale.data.error).toBe("CONFLICT");
+    const again = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(again.data.title).toBe("Статус текущих задач по дирекции ТД к ОС 21.09.2026");
+    expect(again.data.doc.sections[0].bullets[0].text).toBe("Моя редакция первого пункта.");
+  });
+
+  it("свежий комментарий: неправленный пункт обновляется сам, правленый только помечается", async () => {
+    for (const [id, comment] of [[ids[0], "Новый первый."], [ids[1], "Новый второй."]] as const) {
+      const v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+      expect((await call(headB, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, comment } })).status).toBe(200);
+    }
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    const [b1, b2] = r.data.doc.sections[0].bullets;
+    expect(b1.text).toBe("Моя редакция первого пункта."); // правки директора не затёрты
+    expect(r.data.flags[b1.id].sourceChanged).toBe(true);
+    expect(b2.text).toBe("Новый второй."); // неправленный подтянулся сам
+  });
+
+  it("«Обновить из данных» добавляет только новые поданные позиции", async () => {
+    const before = await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
+    expect(before.data.added).toBe(0);
+    const r = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} п5`, trackId: trackA, operFlag: true, comment: "Пятый." } });
+    created.items.push(r.data.row.id);
+    const after = await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
+    expect(after.data.added).toBe(1);
+    const got = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(got.data.doc.sections[0].bullets.map((b: { text: string }) => b.text)).toContain("Пятый.");
+    expect(got.data.doc.sections[0].bullets[0].text).toBe("Моя редакция первого пункта.");
+  });
+
+  it("файлы: PDF и Word по справке", async () => {
+    const pdf = await call(directorB, memoExport.GET, `/api/cycles/${cycleId}/memo/export?format=pdf`, { id: cycleId });
+    expect(pdf.status).toBe(200);
+    const pdfBytes = new Uint8Array(await pdf.res.arrayBuffer());
+    expect(String.fromCharCode(...pdfBytes.slice(0, 4))).toBe("%PDF");
+    expect(pdfBytes.length).toBeGreaterThan(1500);
+    const docx = await call(directorB, memoExport.GET, `/api/cycles/${cycleId}/memo/export?format=docx`, { id: cycleId });
+    expect(docx.status).toBe(200);
+    const docxBytes = new Uint8Array(await docx.res.arrayBuffer());
+    expect(String.fromCharCode(...docxBytes.slice(0, 2))).toBe("PK");
+    expect((await call(directorB, memoExport.GET, `/api/cycles/${cycleId}/memo/export?format=doc`, { id: cycleId })).status).toBe(400);
+  });
+
+  it("доступ: руководитель, ЗГД и чужая дирекция справку не видят и не правят", async () => {
+    for (const who of [headB, management, director, head]) {
+      expect((await call(who, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId })).status).toBe(404);
+      expect((await call(who, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc: { sections: [] }, version: version } })).status).toBe(404);
+      expect((await call(who, memoExport.GET, `/api/cycles/${cycleId}/memo/export?format=pdf`, { id: cycleId })).status).toBe(404);
+    }
+  });
+
+  it("после отправки (финал) черновик не меняется", async () => {
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(r.data.editable).toBe(false);
+    const put = await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc: r.data.doc, version: r.data.version } });
+    expect(put.status).toBe(409);
+    expect(put.data.error).toBe("BAD_STATE");
   });
 });
