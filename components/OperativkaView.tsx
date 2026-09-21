@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
-import { ReportHeader, ReportTree, SummaryTiles } from "@/components/ReportView";
+import { ReportHeader } from "@/components/ReportView";
+import { ReportSection } from "@/components/ReportSection";
 import type { ReportModel } from "@/lib/report";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
@@ -51,12 +52,6 @@ export function OperativkaView() {
   const load = useCallback(async () => {
     const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
     setRole(boot?.user?.role ?? null);
-    if (boot?.user && boot.user.role !== "MANAGEMENT") {
-      const rep = await fetch("/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
-        .then((x) => (x.ok ? x.json() : null))
-        .catch(() => null);
-      setModel(rep?.model ?? null);
-    }
     setCycle(cur.cycle);
     setSummary(cur.summary ?? []);
     setFinals(cur.finals ?? []);
@@ -213,10 +208,9 @@ export function OperativkaView() {
         </>
       )}
 
-      {model && (
-        <div className="mt-6 space-y-5">
-          {model.showSummary && <SummaryTiles model={model} />}
-          <ReportTree model={model} />
+      {role && role !== "MANAGEMENT" && (
+        <div className="mt-6">
+          <ReportSection onModel={setModel} refreshKey={`${cycle?.id ?? ""}:${cycle?.status ?? ""}`} />
         </div>
       )}
 

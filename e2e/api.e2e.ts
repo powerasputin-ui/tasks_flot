@@ -44,6 +44,10 @@ import * as cyclesCurrent from "@/app/api/cycles/current/route";
 import * as cycleReview from "@/app/api/cycles/[id]/review/route";
 import * as cycleExport from "@/app/api/cycles/[id]/export/route";
 import * as bootstrap from "@/app/api/bootstrap/route";
+import * as report from "@/app/api/report/route";
+import * as templates from "@/app/api/report-templates/route";
+import * as template from "@/app/api/report-templates/[id]/route";
+import * as exportReport from "@/app/api/export/report/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -54,7 +58,7 @@ let head: Actor;
 const admin: Actor = { id: "e2e-admin", role: "SYSTEM_ADMIN", name: "E2E admin" };
 const management: Actor = { id: "e2e-mgmt", role: "MANAGEMENT", name: "E2E management" };
 
-const created = { items: [] as string[], columns: [] as string[], tracks: [] as string[], cycles: [] as string[] };
+const created = { items: [] as string[], columns: [] as string[], tracks: [] as string[], cycles: [] as string[], templates: [] as string[] };
 let originalLayout: unknown = undefined;
 
 async function call(
@@ -98,6 +102,7 @@ afterAll(async () => {
   await prisma.customColumn.deleteMany({ where: { id: { in: created.columns } } });
   await prisma.track.deleteMany({ where: { id: { in: created.tracks } } });
   await prisma.cycle.deleteMany({ where: { id: { in: created.cycles } } });
+  await prisma.reportTemplate.deleteMany({ where: { id: { in: created.templates } } });
   if (originalLayout === undefined) {
     // beforeAll не отработал — общий вид колонок не трогали
   } else if (originalLayout === null) await prisma.appSetting.deleteMany({ where: { key: "table.columns" } });
@@ -468,6 +473,93 @@ describe("лента изменений: фильтры «Кто» и «Поле
     expect(r.length).toBeGreaterThan(0);
     const empty = await feed(`actorIds=${head.id}&fields=__none&segmentIds=none-such-segment`);
     expect(empty.filter((e) => e.itemId === headItem)).toEqual([]);
+  });
+});
+
+describe("отчёт «Оперативки» и шаблоны", () => {
+  const cfgAll = { columns: ["name", "owner", "status", "deadline", "comment"], groupBy: ["segment", "track"] };
+  let personalId = "";
+  let sharedId = "";
+
+  it("отчёт по живым данным: сводка, дерево групп; руководство не строит рабочий отчёт", async () => {
+    const r1 = await call(head, report.POST, "/api/report", { method: "POST", body: {} });
+    expect(r1.status).toBe(200);
+    expect(r1.data.model.summary.total).toBeGreaterThan(0);
+    expect(Array.isArray(r1.data.model.groups)).toBe(true);
+    expect(r1.data.model.directorate).toContain("Дирекция");
+    expect((await call(management, report.POST, "/api/report", { method: "POST", body: {} })).status).toBe(403);
+  });
+
+  it("свои колонки/группировка/фильтры меняют отчёт; задача из теста попадает в него", async () => {
+    if (!headItem) {
+      // блок запускают и отдельно от остальных: тогда создаём свою тестовую позицию (она удалится в afterAll)
+      const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для отчёта`, comment: "тест" } });
+      expect(c.status).toBe(201);
+      headItem = c.data.row.id;
+      created.items.push(headItem);
+    }
+    const flat = await call(head, report.POST, "/api/report", { method: "POST", body: { config: { columns: ["name", "status"], groupBy: [], filters: { ownerIds: [head.id] } } } });
+    expect(flat.status).toBe(200);
+    expect(flat.data.model.groups).toBeNull();
+    expect(JSON.stringify(flat.data.model.rows)).toContain(TAG);
+    expect(flat.data.model.columns.map((c: { key: string }) => c.key)).toEqual(["name", "status"]);
+    const bad = await call(head, report.POST, "/api/report", { method: "POST", body: { config: { columns: [], groupBy: [] } } });
+    expect(bad.status).toBe(400);
+  });
+
+  it("шаблоны: личный создаёт любой, «для всех» — только куратор", async () => {
+    const mine = await call(head, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} мой`, scope: "PERSONAL", config: cfgAll } });
+    expect(mine.status).toBe(201);
+    personalId = mine.data.template.id;
+    created.templates.push(personalId);
+    expect((await call(head, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} общий`, scope: "SHARED", config: cfgAll } })).status).toBe(403);
+    const shared = await call(curator, templates.POST, "/api/report-templates", { method: "POST", body: { name: `${TAG} общий`, scope: "SHARED", config: cfgAll } });
+    expect(shared.status).toBe(201);
+    sharedId = shared.data.template.id;
+    created.templates.push(sharedId);
+    expect((await call(head, templates.POST, "/api/report-templates", { method: "POST", body: { name: "x", scope: "PERSONAL", config: { columns: [], groupBy: [] } } })).status).toBe(400);
+    expect((await call(management, templates.POST, "/api/report-templates", { method: "POST", body: { name: "x", scope: "PERSONAL", config: cfgAll } })).status).toBe(403);
+  });
+
+  it("видимость: общий видят все, личный — только владелец (даже куратор чужой личный не видит)", async () => {
+    const forHead = (await call(head, templates.GET, "/api/report-templates")).data.templates as Array<{ id: string }>;
+    expect(forHead.some((t) => t.id === personalId)).toBe(true);
+    expect(forHead.some((t) => t.id === sharedId)).toBe(true);
+    const forCurator = (await call(curator, templates.GET, "/api/report-templates")).data.templates as Array<{ id: string }>;
+    expect(forCurator.some((t) => t.id === sharedId)).toBe(true);
+    expect(forCurator.some((t) => t.id === personalId)).toBe(false);
+    // чужой личный шаблон нельзя ни открыть, ни построить по нему отчёт
+    expect((await call(curator, report.POST, "/api/report", { method: "POST", body: { templateId: personalId } })).status).toBe(404);
+    expect((await call(head, report.POST, "/api/report", { method: "POST", body: { templateId: personalId } })).status).toBe(200);
+    expect((await call(curator, template.DELETE, `/api/report-templates/${personalId}`, { method: "DELETE", id: personalId })).status).toBe(404);
+  });
+
+  it("правка: общий меняет куратор, руководитель — нет; свой личный можно править и удалять", async () => {
+    expect((await call(head, template.PATCH, `/api/report-templates/${sharedId}`, { method: "PATCH", id: sharedId, body: { name: "взлом" } })).status).toBe(403);
+    expect((await call(curator, template.PATCH, `/api/report-templates/${sharedId}`, { method: "PATCH", id: sharedId, body: { name: `${TAG} общий 2` } })).status).toBe(200);
+    // сделать свой шаблон «для всех» руководитель не может
+    expect((await call(head, template.PATCH, `/api/report-templates/${personalId}`, { method: "PATCH", id: personalId, body: { scope: "SHARED" } })).status).toBe(403);
+    expect((await call(head, template.PATCH, `/api/report-templates/${personalId}`, { method: "PATCH", id: personalId, body: { name: `${TAG} мой 2` } })).status).toBe(200);
+  });
+
+  it("выгрузка отчёта: Excel, PDF, CSV, PowerPoint по шаблону и по своей конфигурации", async () => {
+    for (const f of ["xlsx", "pdf", "csv", "pptx"]) {
+      const r = await call(head, exportReport.GET, `/api/export/report?format=${f}&templateId=${sharedId}`);
+      expect(r.status).toBe(200);
+      expect((await r.res.arrayBuffer()).byteLength).toBeGreaterThan(500);
+    }
+    const csv = await call(head, exportReport.GET, `/api/export/report?format=csv&config=${q(JSON.stringify({ columns: ["name"], groupBy: [], filters: { ownerIds: [head.id] } }))}`);
+    expect(await csv.res.text()).toContain(TAG);
+    expect((await call(head, exportReport.GET, "/api/export/report?format=doc")).status).toBe(400);
+    expect((await call(head, exportReport.GET, "/api/export/report?format=csv&config=не-json")).status).toBe(400);
+    expect((await call(head, exportReport.GET, "/api/export/report?format=csv&templateId=nope")).status).toBe(404);
+    expect((await call(management, exportReport.GET, "/api/export/report?format=csv")).status).toBe(403);
+  });
+
+  it("удаление шаблонов", async () => {
+    expect((await call(head, template.DELETE, `/api/report-templates/${personalId}`, { method: "DELETE", id: personalId })).status).toBe(200);
+    expect((await call(head, template.DELETE, `/api/report-templates/${sharedId}`, { method: "DELETE", id: sharedId })).status).toBe(403);
+    expect((await call(curator, template.DELETE, `/api/report-templates/${sharedId}`, { method: "DELETE", id: sharedId })).status).toBe(200);
   });
 });
 
