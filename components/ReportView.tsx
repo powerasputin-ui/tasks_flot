@@ -134,7 +134,18 @@ function GroupBlock({ group, model, depth, defaultOpen }: { group: ReportGroup; 
 }
 
 function RowsTable({ rows, model }: { rows: ReportRow[]; model: ReportModel }) {
-  if (model.columns.length === 0) return null;
+  if (model.columns.length === 0) {
+    // колонок нет — показываем только комментарии
+    const withComments = rows.filter((r) => r.comment);
+    if (withComments.length === 0) return null;
+    return (
+      <ul className="divide-y divide-outline-variant/40 border-t border-outline-variant/60">
+        {withComments.map((r) => (
+          <li key={r.id} className="px-4 py-2 text-[13px] text-on-surface"><ExpandableText text={r.comment!} lines={3} /></li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <table className="w-full min-w-[640px] border-collapse text-[13px]">
       <thead>

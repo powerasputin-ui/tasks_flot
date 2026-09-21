@@ -22,8 +22,12 @@ export function reportToSections(model: ReportModel, opts: { summary?: boolean }
   const rows: Array<Array<string | number | null>> = [];
 
   const pushRows = (list: ReportGroup["rows"], indent: string) => {
-    if (model.columns.length === 0) return; // колонок не выбрано — строки задач не выводим
     for (const r of list ?? []) {
+      if (model.columns.length === 0) {
+        // колонок нет — выводим только комментарии (если они показываются под задачей)
+        if (r.comment) rows.push(blank(`${indent}${r.comment}`));
+        continue;
+      }
       rows.push(model.columns.map((c, i) => (i === 0 ? indent + r.cells[c.key] : r.cells[c.key])));
       if (r.comment) rows.push(blank(`${indent}    Комментарий: ${r.comment}`));
     }

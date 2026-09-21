@@ -240,7 +240,7 @@ function Builder({
 
   // все возможные колонки: стандартные и свои; выбранные идут первыми в своём порядке
   const allColumns = useMemo(
-    () => [...STD_COLUMNS.map((k) => ({ key: k as string, label: COLUMN_LABEL[k] })), ...boot.columns.map((c) => ({ key: `custom:${c.id}`, label: c.name }))],
+    () => [...STD_COLUMNS.filter((k) => k !== "comment").map((k) => ({ key: k as string, label: COLUMN_LABEL[k] })), ...boot.columns.map((c) => ({ key: `custom:${c.id}`, label: c.name }))],
     [boot.columns]
   );
   const label = (k: string) => allColumns.find((c) => c.key === k)?.label ?? k;
@@ -349,7 +349,7 @@ function Builder({
         </div>
       </Block>
 
-      <Block title="Комментарии и сводка">
+      <Block title="Комментарии и сводка" hint="Комментарии включаются только здесь, отдельной галочки в колонках нет.">
         <div className="space-y-2">
           <select value={cfg.options.comments} onChange={(e) => set({ options: { ...cfg.options, comments: e.target.value as (typeof COMMENT_MODES)[number] } })} className="select w-full">
             {COMMENT_MODES.map((m) => (

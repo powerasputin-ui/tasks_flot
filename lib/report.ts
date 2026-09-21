@@ -194,14 +194,18 @@ export function buildReport(allRows: TableRow[], config: ReportConfig, ctx: Repo
 
   const rows = sortRows(applyFilters(allRows, cfg.filters, now), cfg.sort);
 
-  // Колонки: убираем те, что уже стали группами, и учитываем режим комментариев.
+  // Колонки: убираем те, что уже стали группами. Комментарии управляются только режимом («колонкой / под задачей / не показывать»):
+  // при режиме «колонкой» колонка стоит на своём месте из настроек (если её там нет — последней), в остальных режимах в колонках её нет.
   const commentsMode = cfg.options.comments;
-  const visible = cfg.columns
+  const keys = cfg.columns.filter((k) => k !== "comment");
+  if (commentsMode === "column") {
+    const at = cfg.columns.indexOf("comment");
+    keys.splice(at < 0 ? keys.length : cfg.columns.slice(0, at).filter((k) => k !== "comment").length, 0, "comment");
+  }
+  const columns = keys
     .filter((k) => !(cfg.groupBy as string[]).includes(k))
-    .filter((k) => (k === "comment" ? commentsMode === "column" : true))
     .filter((k) => (k.startsWith("custom:") ? custom.has(k.slice("custom:".length)) : k in COLUMN_LABEL))
     .map((k) => ({ key: k, label: k.startsWith("custom:") ? custom.get(k.slice("custom:".length))!.name : COLUMN_LABEL[k as StdColumn] }));
-  const columns = visible; // выбранных колонок нет (всё ушло в группировку) — строк задач в отчёте нет, только группы с итогами
 
   const toReportRow = (r: TableRow): ReportRow => ({
     id: r.id,

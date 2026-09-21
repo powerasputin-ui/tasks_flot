@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFinalModel, buildReport, isOverdue, snapshotToRows, type ReportContext } from "@/lib/report";
+import { reportToSections } from "@/lib/report-export";
 import { SYSTEM_TEMPLATES, reportConfigSchema, type ReportConfig } from "@/lib/report-config";
 import type { TableRow } from "@/lib/table-view";
 
@@ -212,5 +213,39 @@ describe("колонки, целиком ушедшие в группировк�
     const m = buildReport([row({ id: "1" })], { columns: ["owner", "status"], groupBy: [] }, ctx);
     expect(m.columns.map((c) => c.key)).toEqual(["owner", "status"]);
     expect(Object.keys(m.rows![0].cells)).toEqual(["owner", "status"]);
+  });
+});
+
+describe("комментарии: управляются только режимом", () => {
+  const rows = [row({ id: "1", comment: "ждём КП" })];
+  const cols = ["name", "owner"];
+
+  it("под задачей — без колонки; колонкой — колонка последней, если её нет в списке; не показывать — нигде", () => {
+    const under = buildReport(rows, { columns: cols, groupBy: [], options: { comments: "underTask" } }, ctx);
+    expect(under.columns.map((c) => c.key)).toEqual(cols);
+    expect(under.rows![0].comment).toBe("ждём КП");
+    const col = buildReport(rows, { columns: cols, groupBy: [], options: { comments: "column" } }, ctx);
+    expect(col.columns.map((c) => c.key)).toEqual(["name", "owner", "comment"]);
+    expect(col.rows![0].cells.comment).toBe("ждём КП");
+    expect(col.rows![0].comment).toBeNull();
+    const hide = buildReport(rows, { columns: cols, groupBy: [], options: { comments: "hide" } }, ctx);
+    expect(hide.columns.map((c) => c.key)).toEqual(cols);
+    expect(hide.rows![0].comment).toBeNull();
+  });
+
+  it("галка «comment» в старом списке колонок не отключает комментарии под задачей и держит позицию колонки", () => {
+    const under = buildReport(rows, { columns: ["name", "comment", "owner"], groupBy: [], options: { comments: "underTask" } }, ctx);
+    expect(under.rows![0].comment).toBe("ждём КП");
+    expect(under.columns.map((c) => c.key)).toEqual(["name", "owner"]);
+    const col = buildReport(rows, { columns: ["name", "comment", "owner"], groupBy: [], options: { comments: "column" } }, ctx);
+    expect(col.columns.map((c) => c.key)).toEqual(["name", "comment", "owner"]);
+  });
+
+  it("без колонок, но с комментариями под задачей комментарии не теряются", () => {
+    const m = buildReport(rows, { columns: ["segment"], groupBy: ["segment"], options: { comments: "underTask" } }, ctx);
+    expect(m.columns).toEqual([]);
+    expect(m.groups![0].rows![0].comment).toBe("ждём КП");
+    const s = reportToSections(m, { summary: false });
+    expect(JSON.stringify(s)).toContain("ждём КП");
   });
 });
