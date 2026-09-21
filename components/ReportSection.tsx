@@ -34,7 +34,7 @@ const SORT_LABEL: Record<string, string> = { deadline: "Дедлайн", name: "
  * Отчёт «Оперативки»: выбор шаблона, конструктор (колонки, группировка, фильтры), сохранение шаблона, экспорт.
  * Экран и файлы строятся из одной конфигурации, поэтому совпадают.
  */
-export function ReportSection({ onModel, refreshKey, cycleId }: { onModel?: (m: ReportModel | null) => void; refreshKey?: string; /** Если задан — отчёт строится по финальному снимку этого цикла, а не по живым данным. */ cycleId?: string }) {
+export function ReportSection({ onModel, refreshKey, cycleId, simple = false }: { onModel?: (m: ReportModel | null) => void; refreshKey?: string; /** Если задан — отчёт строится по финальному снимку этого цикла, а не по живым данным. */ cycleId?: string; /** Только чтение и выгрузка: без выбора шаблона и конструктора (для архива отправленных). */ simple?: boolean }) {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [saved, setSaved] = useState<ApiTemplate[]>([]);
   const [activeId, setActiveId] = useState<string>(DEFAULT_TEMPLATE_ID);
@@ -115,6 +115,8 @@ export function ReportSection({ onModel, refreshKey, cycleId }: { onModel?: (m: 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
+        {!simple && (
+          <>
         <Popover
           width={300}
           trigger={({ toggle }) => (
@@ -163,6 +165,8 @@ export function ReportSection({ onModel, refreshKey, cycleId }: { onModel?: (m: 
           <button onClick={() => setConfig(active.config)} className="flex h-9 items-center px-2 text-[12px] font-semibold text-primary hover:underline">
             Сбросить изменения
           </button>
+        )}
+          </>
         )}
         <div className="ml-auto">
           <ExportMenu endpoint={cycleId ? `/api/cycles/${cycleId}/export` : "/api/export/report"} params={exportParams} withPptx />

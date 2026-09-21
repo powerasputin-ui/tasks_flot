@@ -315,6 +315,20 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     return new Date(row.deadline) < new Date();
   }, []);
 
+  // Ссылка вида /table?item=<id> (например, из справки директора «Открыть в таблице») сразу открывает эту позицию
+  const itemParam = searchParams.get("item");
+  const openedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!itemParam || loading || openedFor.current === itemParam) return;
+    openedFor.current = itemParam;
+    void openById(itemParam);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("item");
+    router.replace(next.toString() ? `${pathname}?${next.toString()}` : pathname, { scroll: false });
+    // openById берёт актуальные строки из замыкания; повторно открывать не нужно
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemParam, loading]);
+
   async function openById(id: string) {
     const known = rows.find((r) => r.id === id);
     if (known) return setEditor({ row: known });

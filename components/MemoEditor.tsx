@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, EyeOff, FileDown, Info, Merge, Plus, RefreshCw, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, EyeOff, FileDown, Info, Merge, Plus, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { manualBullet, memoTitle, mergeBullets, sourceText, type BulletFlags, type MemoBullet, type MemoDoc, type SectionDef } from "@/lib/memo";
 import type { MemoSource } from "@/lib/memo-load";
@@ -145,6 +145,15 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
       [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
+  const removeSection = (sid: string) => {
+    const s = doc.sections.find((x) => x.id === sid);
+    if (!s) return;
+    const n = s.bullets.length;
+    // непустой раздел удаляем только после подтверждения; строки-источники вернутся в «Не вошло в справку»
+    if (n > 0 && !window.confirm(`Удалить раздел «${s.title}» и его пункты (${n})? Строки данных вернутся в «Не вошло в справку», написанный вручную текст пропадёт.`)) return;
+    change({ sections: doc.sections.filter((x) => x.id !== sid) });
+  };
+  const removeBullet = (sid: string, bid: string) => patchSection(sid, (bs) => bs.filter((b) => b.id !== bid));
   const moveSection = (i: number, d: -1 | 1) => {
     const j = i + d;
     if (j < 0 || j >= doc.sections.length) return;
@@ -298,6 +307,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                     <span className="flex opacity-0 transition-opacity group-hover/section:opacity-100">
                       <button onClick={() => moveSection(si, -1)} disabled={si === 0} className="btn-icon h-6 w-6 disabled:opacity-30" title="Раздел выше"><ArrowUp size={14} /></button>
                       <button onClick={() => moveSection(si, 1)} disabled={si === doc.sections.length - 1} className="btn-icon h-6 w-6 disabled:opacity-30" title="Раздел ниже"><ArrowDown size={14} /></button>
+                      <button onClick={() => removeSection(section.id)} className="btn-icon h-6 w-6" title="Удалить раздел" aria-label="Удалить раздел"><Trash2 size={14} /></button>
                     </span>
                   )}
                 </div>
@@ -319,6 +329,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                       onHide={() => patchBullet(section.id, b.id, { hidden: !b.hidden })}
                       onMerge={() => change(mergeBullets(doc, section.id, b.id, section.bullets[bi + 1].id, allSources))}
                       onAccept={() => void acceptSource(b.id)}
+                      onRemove={b.itemIds.length === 0 ? () => removeBullet(section.id, b.id) : undefined}
                     />
                   ))}
                 </ul>
@@ -377,6 +388,7 @@ function BulletRow({
   onHide,
   onMerge,
   onAccept,
+  onRemove,
 }: {
   bullet: MemoBullet;
   flags?: BulletFlags;
@@ -391,6 +403,8 @@ function BulletRow({
   onHide: () => void;
   onMerge: () => void;
   onAccept: () => void;
+  /** Только у пунктов, написанных вручную (без строк-источников): у остальных есть «Скрыть». */
+  onRemove?: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   // высота по тексту
@@ -453,6 +467,9 @@ function BulletRow({
                       {[s.ownerName, s.statusName, s.deadline ? `срок ${fmtDate(s.deadline)}` : null, s.trackName].filter(Boolean).join(" · ")}
                     </p>
                     {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface">{s.comment}</p>}
+                    <a href={`/table?item=${s.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-primary hover:underline">
+                      Открыть строку в таблице
+                    </a>
                   </div>
                 ))}
               </div>
@@ -465,6 +482,9 @@ function BulletRow({
             <button onClick={onDown} disabled={isLast} className="btn-icon h-6 w-6 disabled:opacity-30" title="Ниже" aria-label="Ниже"><ArrowDown size={14} /></button>
             {canMergeNext && (
               <button onClick={onMerge} className="btn-icon h-6 w-6" title="Объединить со следующим пунктом" aria-label="Объединить"><Merge size={14} /></button>
+            )}
+            {onRemove && (
+              <button onClick={onRemove} className="btn-icon h-6 w-6" title="Удалить пункт" aria-label="Удалить пункт"><Trash2 size={14} /></button>
             )}
             <button onClick={onHide} className="btn-icon h-6 w-6" title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
               {bullet.hidden ? <Undo2 size={14} /> : <EyeOff size={14} />}

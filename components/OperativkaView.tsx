@@ -282,7 +282,7 @@ export function OperativkaView() {
                   <p className="mb-3 text-[13px] text-on-surface-variant">
                     <span className="font-semibold text-on-surface">Оперативка №{selectedFinal.number}</span>{selectedFinal.directorate ? ` · ${selectedFinal.directorate}` : ""} · зафиксирована {fmt(selectedFinal.finalizedAt)}
                   </p>
-                  <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} />
+                  <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} simple />
                 </div>
               )}
             </div>
