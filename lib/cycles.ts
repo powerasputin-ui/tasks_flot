@@ -3,7 +3,7 @@ import type { Cycle, CycleStatus } from "@prisma/client";
 import { recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications";
 import { loadTableRows } from "@/lib/table-view";
-import type { Actor } from "@/lib/permissions";
+import { isDirectorial, type Actor } from "@/lib/permissions";
 
 /**
  * Цикл оперативки (ТЗ v4, раздел 5): OPEN → IN_REVIEW → FINAL.
@@ -40,7 +40,7 @@ export function reminderDue(deadline: Date, now: Date = new Date()): boolean {
   return now.getTime() >= deadline.getTime() - REMINDER_DAYS * DAY_MS;
 }
 
-const isCurator = (a: Actor) => a.role === "CURATOR";
+const isCurator = (a: Actor) => isDirectorial(a.role);
 
 export async function activeCycle(): Promise<Cycle | null> {
   return prisma.cycle.findFirst({ where: { status: { not: "FINAL" } }, orderBy: { number: "desc" } });
@@ -132,7 +132,7 @@ export type PersonSummary = { id: string; name: string; role: string; total: num
 /** Кто сколько заполнил и сколько отправил куратору (руководители и кураторы, заполняющие позиции). */
 export async function cycleSummary(): Promise<PersonSummary[]> {
   const [users, items] = await Promise.all([
-    prisma.user.findMany({ where: { isActive: true, role: { in: ["HEAD", "CURATOR"] } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { isActive: true, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
     prisma.operationalItem.findMany({ where: { archivedAt: null, responsibleId: { not: null } }, select: { responsibleId: true, operFlag: true } }),
   ]);
   return users.map((u) => {
@@ -152,7 +152,7 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
 
   const missing = (await cycleSummary()).filter((p) => p.sent === 0);
   if (missing.length === 0) return 0;
-  const curators = await prisma.user.findMany({ where: { role: "CURATOR", isActive: true }, select: { id: true } });
+  const curators = await prisma.user.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } });
   const names = missing.map((p) => p.name).join(", ");
   const due = cycle.deadline.toLocaleDateString("ru-RU");
   for (const c of curators) {

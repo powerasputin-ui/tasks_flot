@@ -19,6 +19,8 @@ const patchSchema = z.object({
  * Админ назначает любую роль, отключает пользователя, сбрасывает пароль. Куратор ведёт руководителей и, кроме того,
  * назначает руководителя куратором и снимает других кураторов (роль «руководитель ↔ куратор»).
  */
+const ROLE_NAME: Record<string, string> = { HEAD: "руководитель", DIRECTOR: "директор", ADMIN: "админ", EXECUTIVE: "ЗГД", SYSTEM_ADMIN: "технический администратор" };
+
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireFreshSession(); // роль из базы: назначение и снятие действуют сразу
   if (!canManageUsers(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -33,9 +35,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // Смена роли: правила — в checkRoleChange (куратор: только руководитель ↔ куратор, не себя, не последнего).
   const newRole = parsed.data.role && parsed.data.role !== target.role ? parsed.data.role : undefined;
   if (newRole) {
-    const activeCurators = await prisma.user.count({ where: { role: "CURATOR", isActive: true } });
-    const err = checkRoleChange(actor, { id, role: target.role, isActive: target.isActive }, newRole, activeCurators);
-    if (err) return NextResponse.json({ error: err }, { status: err === "FORBIDDEN" ? 403 : err === "LAST_CURATOR" ? 409 : 400 });
+    const activeAdmins = await prisma.user.count({ where: { role: "ADMIN", isActive: true } });
+    const err = checkRoleChange(actor, { id, role: target.role, isActive: target.isActive }, newRole, activeAdmins);
+    if (err) return NextResponse.json({ error: err }, { status: err === "FORBIDDEN" ? 403 : err === "LAST_ADMIN" ? 409 : 400 });
   }
   // Имя, пароль и отключение куратор может менять только у руководителей.
   const otherFields = parsed.data.name !== undefined || parsed.data.isActive !== undefined || parsed.data.password !== undefined;
@@ -44,7 +46,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   // Админ не может лишить себя доступа: иначе управлять системой станет некому.
-  if (id === session.userId && (parsed.data.isActive === false || (parsed.data.role && parsed.data.role !== "SYSTEM_ADMIN"))) {
+  if (id === session.userId && (parsed.data.isActive === false || (parsed.data.role && parsed.data.role !== target.role))) {
     return NextResponse.json({ error: "CANNOT_DEMOTE_SELF" }, { status: 400 });
   }
 
@@ -56,14 +58,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   });
   invalidateDicts();
   invalidateActor(id);
-  if (newRole && (newRole === "CURATOR" || target.role === "CURATOR")) {
+  if (newRole) {
     await createNotification({
       userId: id,
       type: "ROLE_CHANGED",
-      message:
-        newRole === "CURATOR"
-          ? "Вас назначили куратором: теперь вам доступны функции куратора. Обновите страницу, чтобы увидеть новое меню."
-          : "Вас сняли с кураторства: вы снова руководитель. Обновите страницу.",
+      message: `Вам изменили роль: теперь вы — ${ROLE_NAME[newRole] ?? newRole}. Обновите страницу, чтобы увидеть новое меню.`,
       link: "/table",
     });
   }

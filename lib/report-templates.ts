@@ -11,11 +11,11 @@ type Actor = { id: string; role: UserRole };
 
 /** Кто вообще может строить отчёты и хранить шаблоны. */
 export function canUseReports(role: UserRole): boolean {
-  return role === "HEAD" || role === "CURATOR" || role === "SYSTEM_ADMIN";
+  return role === "HEAD" || role === "DIRECTOR" || role === "ADMIN" || role === "SYSTEM_ADMIN";
 }
 
-export function canShareTemplates(role: UserRole): boolean {
-  return role === "CURATOR" || role === "SYSTEM_ADMIN";
+export function canShareTemplates(role: string): boolean {
+  return role === "DIRECTOR" || role === "ADMIN" || role === "SYSTEM_ADMIN";
 }
 
 export function canViewTemplate(actor: Actor, t: TemplateAccess): boolean {

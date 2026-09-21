@@ -9,7 +9,7 @@ import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
-import { canCreateItem, canDeleteItem } from "@/lib/permissions";
+import { canCreateItem, canDeleteItem, isDirectorial } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -63,7 +63,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [realMe, setMe] = useState<Me>(null);
   // Режим «Посмотреть как руководитель»: права и кнопки как у выбранного руководителя, запись отключена.
   const previewUser = usePreviewAs();
-  const preview = realMe?.role === "CURATOR" ? previewUser : null;
+  const preview = realMe && isDirectorial(realMe.role) ? previewUser : null;
   const me = useMemo<Me>(() => (preview && realMe ? { id: preview.id, role: "HEAD" } : realMe), [preview, realMe]);
   const previewBlock = () => setError("Режим просмотра: изменения отключены.");
   const [savedColumns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
@@ -117,7 +117,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   // Руководитель видит все позиции, правит только те, где он «Ответственный»; куратор правит всё.
   const isHead = me?.role === "HEAD";
   const canEditRow = useCallback(
-    (r: Row) => me?.role === "CURATOR" || (me?.role === "HEAD" && r.ownerId === me.id),
+    (r: Row) => (me ? isDirectorial(me.role) : false) || (me?.role === "HEAD" && r.ownerId === me.id),
     [me]
   );
 
@@ -178,10 +178,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   // Вид колонок (порядок, подписи, показ, «удалённые») общий для всех и хранится в базе; меняет его куратор.
   // Остальные видят вид куратора; ширину колонок они могут подтянуть на время сессии.
+  const myRole = me?.role;
   const canLayoutRef = useRef(false);
   useEffect(() => {
-    canLayoutRef.current = me?.role === "CURATOR" || me?.role === "SYSTEM_ADMIN";
-  }, [me?.role]);
+    canLayoutRef.current = (myRole ? isDirectorial(myRole) : false) || myRole === "SYSTEM_ADMIN";
+  }, [myRole]);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistColumns = useCallback((next: ColumnConfig[]) => {
     if (!canLayoutRef.current) return;
@@ -376,7 +377,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           <span className="inline-flex items-center gap-2">
             <Avatar name={row.ownerName} size={20} />
             <span className="truncate"><Highlight text={row.ownerName} query={q} /></span>
-            {row.ownerRole === "CURATOR" && <CuratorMark />}
+            {(row.ownerRole === "ADMIN" || row.ownerRole === "DIRECTOR") && <RoleMark role={row.ownerRole} />}
           </span>
         ) : (
           "—"
@@ -607,7 +608,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               <button onClick={() => { setEditor({ row: ctx.row }); setCtx(null); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
                 <Pencil size={14} className="text-outline" /> Открыть
               </button>
-              {me?.role === "CURATOR" && ctx.row.operFlag && !ctx.row.archived && (
+              {me && isDirectorial(me.role) && ctx.row.operFlag && !ctx.row.archived && (
                 <button onClick={() => returnRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
                   <Undo2 size={14} className="text-outline" /> Вернуть на доработку
                 </button>
@@ -662,11 +663,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   );
 }
 
-/** Метка «К» рядом с куратором (капитанская нашивка). */
-function CuratorMark() {
+/** Метка рядом с директором («Д») и админом («А») в списке ответственных. */
+function RoleMark({ role }: { role: string }) {
   return (
-    <span title="Куратор" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-primary text-[10px] font-bold leading-none text-white">
-      К
+    <span title={role === "DIRECTOR" ? "Директор" : "Админ"} className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-primary text-[10px] font-bold leading-none text-white">
+      {role === "DIRECTOR" ? "Д" : "А"}
     </span>
   );
 }

@@ -45,4 +45,4 @@ export const trackSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-export const ROLES = ["HEAD", "CURATOR", "MANAGEMENT", "SYSTEM_ADMIN"] as const;
+export const ROLES = ["HEAD", "DIRECTOR", "EXECUTIVE", "ADMIN", "SYSTEM_ADMIN"] as const;

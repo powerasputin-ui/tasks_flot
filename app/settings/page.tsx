@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, ShieldCheck, ShieldOff, Star, Trash2, Users } from "lucide-react";
+import { Columns3, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -77,8 +77,8 @@ export default function SettingsPage() {
         text:
           e === "NAME_TAKEN" ? "Такое название уже есть."
           : e === "EMAIL_TAKEN" ? "Такой e-mail уже зарегистрирован."
-          : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль: это может сделать другой куратор или администратор."
-          : e === "LAST_CURATOR" ? "Нельзя снять последнего куратора: в системе должен остаться хотя бы один."
+          : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль: это может сделать другой админ."
+          : e === "LAST_ADMIN" ? "Нельзя снять последнего админа: в системе должен остаться хотя бы один."
           : r.status === 403 ? "Недостаточно прав."
           : "Не удалось выполнить действие.",
       });
@@ -86,12 +86,12 @@ export default function SettingsPage() {
   };
 
   if (me === undefined) return <div className="p-6"><div className="skeleton h-6 w-1/3 rounded" /></div>;
-  const isAdmin = me?.role === "SYSTEM_ADMIN";
-  if (!isAdmin && me?.role !== "CURATOR") {
-    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны куратору и администратору системы.</div>;
+  const isAdmin = me?.role === "SYSTEM_ADMIN" || me?.role === "ADMIN";
+  if (!isAdmin && me?.role !== "DIRECTOR") {
+    return <div className="px-6 py-10 text-[13px] text-on-surface-variant">Настройки доступны директору и админу.</div>;
   }
 
-  // Куратор ведёт ответственных, треки и колонки таблицы; остальные справочники и роли — только администратор.
+  // Директор ведёт руководителей, треки и колонки таблицы; остальные справочники и роли — админ.
   const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
     { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
     { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
@@ -100,7 +100,7 @@ export default function SettingsPage() {
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
     { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
   ];
-  // Куратор ведёт колонки таблицы, ответственных и треки; администратор — всё.
+  // Директор ведёт колонки таблицы, руководителей и треки; админ — всё.
   const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
 
   return (
@@ -139,7 +139,7 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} meId={me?.id} />}
+        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} />}
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
@@ -174,7 +174,7 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Act; isAdmin: boolean; meId?: string }) {
+function UsersSection({ users, act, isAdmin }: { users: UserRow[]; act: Act; isAdmin: boolean }) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
@@ -182,44 +182,6 @@ function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Ac
 
   const patch = (id: string, body: Record<string, unknown>, okText?: string) => act(send(`/api/users/${id}`, "PATCH", body), okText);
 
-  // Назначение и снятие кураторов (для куратора; у администратора для этого есть выбор роли в строке)
-  const [roleConfirm, setRoleConfirm] = useState<{ id: string; to: "CURATOR" | "HEAD" } | null>(null);
-  const activeCurators = users.filter((x) => x.role === "CURATOR" && x.isActive).length;
-  const confirmBlock = (u: UserRow) => {
-    const to = roleConfirm!.to;
-    return (
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="max-w-xs text-right text-[12px] text-on-surface">
-          {to === "CURATOR" ? "Назначить куратором? Получит доступ ко всему, что есть у куратора." : "Снять с кураторства? Останется руководителем."}
-        </span>
-        <button
-          onClick={async () => {
-            await patch(u.id, { role: to }, to === "CURATOR" ? "Назначен куратором." : "Снят с кураторства.");
-            setRoleConfirm(null);
-          }}
-          className="btn-primary h-8"
-        >
-          {to === "CURATOR" ? "Да, назначить" : "Да, снять"}
-        </button>
-        <button onClick={() => setRoleConfirm(null)} className="btn-ghost h-8">Отмена</button>
-      </div>
-    );
-  };
-  const promoteButton = (u: UserRow) => (
-    <button onClick={() => setRoleConfirm({ id: u.id, to: "CURATOR" })} className="btn-ghost h-8" title="Дать доступ ко всему, что есть у куратора">
-      <ShieldCheck size={14} />
-      Назначить куратором
-    </button>
-  );
-  const demoteButton = (u: UserRow) => {
-    const blocked = u.id === meId ? "Нельзя снять себя" : activeCurators <= 1 ? "Это последний куратор" : "";
-    return (
-      <button onClick={() => setRoleConfirm({ id: u.id, to: "HEAD" })} disabled={!!blocked} className="btn-ghost h-8 disabled:opacity-50" title={blocked || "Оставить руководителем, без прав куратора"}>
-        <ShieldOff size={14} />
-        Снять с кураторства
-      </button>
-    );
-  };
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)) : users;
@@ -228,12 +190,12 @@ function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Ac
   return (
     <>
       <SectionHeader
-        title={isAdmin ? "Пользователи" : "Ответственные"}
-        hint={isAdmin ? "Роли назначаются здесь. Руководитель правит только свои позиции, куратор — все." : "Добавляйте, переименовывайте и отключайте ответственных. Отключённый не удаляется: его позиции и история сохраняются."}
+        title={isAdmin ? "Пользователи" : "Руководители"}
+        hint={isAdmin ? "Роли назначаются здесь. Руководитель правит только свои позиции, директор — все в своей дирекции; директоров и ЗГД назначает админ." : "Добавляйте, переименовывайте и отключайте руководителей. Отключённый не удаляется: его позиции и история сохраняются."}
         action={
           <button onClick={() => setCreating(true)} className="btn-primary">
             <Plus size={16} />
-            {isAdmin ? "Добавить пользователя" : "Добавить ответственного"}
+            {isAdmin ? "Добавить пользователя" : "Добавить руководителя"}
           </button>
         }
       />
@@ -266,8 +228,8 @@ function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Ac
                 <td className="px-4 py-3">
                   {isAdmin ? (
                     <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
-                      {Object.entries(ROLE_LABEL).map(([k, v]) => (
-                        <option key={k} value={k}>{k === "CURATOR" ? "Куратор (с правами руководителя)" : v}</option>
+                      {Object.entries(ROLE_LABEL).filter(([k]) => k !== "SYSTEM_ADMIN" || u.role === "SYSTEM_ADMIN").map(([k, v]) => (
+                        <option key={k} value={k}>{v}</option>
                       ))}
                     </select>
                   ) : (
@@ -278,9 +240,7 @@ function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Ac
                 <td className="px-4 py-3">
                   {isAdmin || u.role === "HEAD" ? (
                   <div className="flex items-center justify-end gap-1.5">
-                    {roleConfirm?.id === u.id ? (
-                      confirmBlock(u)
-                    ) : resetFor === u.id ? (
+                    {resetFor === u.id ? (
                       <>
                         <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Новый пароль (8+)" className="input h-8 w-36" />
                         <button
@@ -305,19 +265,13 @@ function UsersSection({ users, act, isAdmin, meId }: { users: UserRow[]; act: Ac
                         </button>
                         <button onClick={() => { setResetFor(u.id); setNewPassword(""); }} className="btn-icon h-8 w-8" title="Сменить пароль"><KeyRound size={15} /></button>
                         <button onClick={() => patch(u.id, { isActive: !u.isActive })} className="btn-ghost h-8">{u.isActive ? "Отключить" : "Включить"}</button>
-                        {!isAdmin && u.role === "HEAD" && u.isActive && promoteButton(u)}
                       </>
                     )}
                   </div>
                   ) : (
-                    roleConfirm?.id === u.id ? (
-                      confirmBlock(u)
-                    ) : (
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <span className="text-[12px] text-outline">Остальное — у администратора</span>
-                        {u.role === "CURATOR" && demoteButton(u)}
-                      </div>
-                    )
+                    <div className="flex justify-end">
+                      <span className="text-[12px] text-outline">Директоров и админов ведёт админ</span>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -343,8 +297,8 @@ function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean
 
   return (
     <Panel
-      title={isAdmin ? "Новый пользователь" : "Новый ответственный"}
-      subtitle="Самостоятельной регистрации нет — доступ выдаёт администратор или куратор"
+      title={isAdmin ? "Новый пользователь" : "Новый руководитель"}
+      subtitle="Самостоятельной регистрации нет — доступ выдаёт админ или директор"
       onClose={onClose}
       footer={
         <div className="flex gap-2">
@@ -366,8 +320,8 @@ function CreateUserPanel({ act, isAdmin, onClose }: { act: Act; isAdmin: boolean
         {isAdmin && (
         <FormField label="Роль">
           <select value={role} onChange={(e) => setRole(e.target.value)} className="select w-full">
-            {Object.entries(ROLE_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>{k === "CURATOR" ? "Куратор (с правами руководителя)" : v}</option>
+            {Object.entries(ROLE_LABEL).filter(([k]) => k !== "SYSTEM_ADMIN").map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
             ))}
           </select>
         </FormField>

@@ -4,5 +4,5 @@ import { getSession } from "@/lib/session";
 // Руководство работает только с финальными оперативками, остальные — с рабочей таблицей.
 export default async function Home() {
   const session = await getSession();
-  redirect(session?.role === "MANAGEMENT" ? "/operativka" : "/table");
+  redirect(session?.role === "EXECUTIVE" ? "/operativka" : "/table");
 }

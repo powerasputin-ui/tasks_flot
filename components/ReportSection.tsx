@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, Save, SlidersHorizontal, Trash2 } from "lucide-react";
+import { canShareTemplates } from "@/lib/report-templates";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FilterChip, type Option } from "@/components/FilterChips";
 import { ReportTree, SummaryTiles } from "@/components/ReportView";
@@ -53,8 +54,8 @@ export function ReportSection({ onModel, refreshKey, cycleId }: { onModel?: (m: 
   const active = templates.find((t) => t.id === activeId) ?? templates[0];
   const dirty = !same(config, active.config);
   const role = boot?.user?.role;
-  const canShare = role === "CURATOR" || role === "SYSTEM_ADMIN";
-  const canSave = role !== "MANAGEMENT"; // руководство шаблонов не хранит: у него только финалы
+  const canShare = !!role && canShareTemplates(role);
+  const canSave = role !== "EXECUTIVE"; // руководство шаблонов не хранит: у него только финалы
 
   const reloadTemplates = useCallback(async () => {
     const d = await fetch("/api/report-templates").then((r) => (r.ok ? r.json() : null)).catch(() => null);

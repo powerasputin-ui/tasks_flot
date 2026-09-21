@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const all = manager && new URL(request.url).searchParams.get("all") === "1";
   // Куратор в настройках видит «ответственных»: руководителей (ведёт их) и кураторов (у них права руководителя тоже есть; их ведёт администратор).
   const users = await prisma.user.findMany({
-    where: all ? (admin ? {} : { role: { in: ["HEAD", "CURATOR"] } }) : { isActive: true },
+    where: all ? (admin || session.role === "ADMIN" ? {} : { role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }) : { isActive: true },
     select: { id: true, name: true, role: true, isActive: true, ...(manager ? { email: true } : {}) },
     orderBy: { name: "asc" },
   });

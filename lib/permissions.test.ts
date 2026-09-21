@@ -6,54 +6,67 @@ import {
   canEditItem,
   canExportWorkTable,
   canManageDirectory,
-  checkRoleChange,
   canManageTracks,
   canManageUser,
   canManageUsers,
   canViewItems,
+  checkRoleChange,
+  isDirectorial,
   type Actor,
 } from "@/lib/permissions";
 
 const head: Actor = { id: "u1", role: "HEAD" };
-const curator: Actor = { id: "u2", role: "CURATOR" };
-const management: Actor = { id: "u3", role: "MANAGEMENT" };
-const admin: Actor = { id: "u4", role: "SYSTEM_ADMIN" };
+const director: Actor = { id: "d1", role: "DIRECTOR" };
+const admin: Actor = { id: "a1", role: "ADMIN" };
+const executive: Actor = { id: "e1", role: "EXECUTIVE" };
+const tech: Actor = { id: "t1", role: "SYSTEM_ADMIN" };
 
 describe("просмотр и правка позиций", () => {
-  it("руководитель видит все позиции, но правит только свои (где он ответственный)", () => {
+  it("руководитель видит позиции, но правит только свои (где он ответственный)", () => {
     expect(canViewItems("HEAD")).toBe(true);
     expect(canEditItem(head, { responsibleId: "u1" })).toBe(true);
     expect(canEditItem(head, { responsibleId: "u9" })).toBe(false);
     expect(canEditItem(head, { responsibleId: null })).toBe(false);
   });
 
-  it("куратор правит любые позиции, включая без ответственного", () => {
-    expect(canEditItem(curator, { responsibleId: "u1" })).toBe(true);
-    expect(canEditItem(curator, { responsibleId: null })).toBe(true);
+  it("директор и админ правят любые позиции, включая без ответственного", () => {
+    for (const a of [director, admin]) {
+      expect(canEditItem(a, { responsibleId: "u1" })).toBe(true);
+      expect(canEditItem(a, { responsibleId: null })).toBe(true);
+    }
   });
 
-  it("руководство не видит рабочие позиции (только финал, этап 4)", () => {
-    expect(canViewItems("MANAGEMENT")).toBe(false);
-    expect(canEditItem(management, { responsibleId: "u3" })).toBe(false);
+  it("ЗГД не видит рабочие позиции: только отправленные итоги", () => {
+    expect(canViewItems("EXECUTIVE")).toBe(false);
+    expect(canEditItem(executive, { responsibleId: "e1" })).toBe(false);
+    expect(canCreateItem("EXECUTIVE")).toBe(false);
   });
 
-  it("админ читает позиции, но не правит и не создаёт", () => {
+  it("технический администратор читает позиции, но не правит и не создаёт", () => {
     expect(canViewItems("SYSTEM_ADMIN")).toBe(true);
-    expect(canEditItem(admin, { responsibleId: "u4" })).toBe(false);
+    expect(canEditItem(tech, { responsibleId: "t1" })).toBe(false);
     expect(canCreateItem("SYSTEM_ADMIN")).toBe(false);
   });
 
-  it("создают позиции руководитель и куратор", () => {
+  it("создают позиции руководитель, директор и админ", () => {
     expect(canCreateItem("HEAD")).toBe(true);
-    expect(canCreateItem("CURATOR")).toBe(true);
-    expect(canCreateItem("MANAGEMENT")).toBe(false);
+    expect(canCreateItem("DIRECTOR")).toBe(true);
+    expect(canCreateItem("ADMIN")).toBe(true);
+  });
+
+  it("isDirectorial: только директор и админ", () => {
+    expect(isDirectorial("DIRECTOR")).toBe(true);
+    expect(isDirectorial("ADMIN")).toBe(true);
+    for (const r of ["HEAD", "EXECUTIVE", "SYSTEM_ADMIN"]) expect(isDirectorial(r)).toBe(false);
   });
 });
 
 describe("назначение ответственного", () => {
-  it("куратор назначает кого угодно, руководитель — только себя", () => {
-    expect(canAssignResponsible(curator, "u9")).toBe(true);
-    expect(canAssignResponsible(curator, null)).toBe(true);
+  it("директор и админ назначают кого угодно, руководитель — только себя", () => {
+    for (const a of [director, admin]) {
+      expect(canAssignResponsible(a, "u9")).toBe(true);
+      expect(canAssignResponsible(a, null)).toBe(true);
+    }
     expect(canAssignResponsible(head, "u1")).toBe(true);
     expect(canAssignResponsible(head, "u9")).toBe(false);
     expect(canAssignResponsible(head, null)).toBe(false);
@@ -61,102 +74,93 @@ describe("назначение ответственного", () => {
 });
 
 describe("справочники и экспорт", () => {
-  it("пользователи и справочники — только SYSTEM_ADMIN", () => {
+  it("технические справочники — только SYSTEM_ADMIN", () => {
     expect(canManageDirectory("SYSTEM_ADMIN")).toBe(true);
-    expect(canManageDirectory("CURATOR")).toBe(false);
-    expect(canManageDirectory("HEAD")).toBe(false);
+    for (const r of ["ADMIN", "DIRECTOR", "HEAD", "EXECUTIVE"] as const) expect(canManageDirectory(r)).toBe(false);
   });
 
-  it("экспорт рабочей таблицы: руководитель и куратор", () => {
-    expect(canExportWorkTable("HEAD")).toBe(true);
-    expect(canExportWorkTable("CURATOR")).toBe(true);
+  it("экспорт рабочей таблицы: руководитель, директор, админ", () => {
+    for (const r of ["HEAD", "DIRECTOR", "ADMIN"] as const) expect(canExportWorkTable(r)).toBe(true);
     expect(canExportWorkTable("SYSTEM_ADMIN")).toBe(false);
-    expect(canExportWorkTable("MANAGEMENT")).toBe(false);
+    expect(canExportWorkTable("EXECUTIVE")).toBe(false);
   });
 });
 
 describe("canDeleteItem", () => {
-  const head: Actor = { id: "u1", role: "HEAD" };
-  const curator: Actor = { id: "c1", role: "CURATOR" };
-
   it("руководитель удаляет только свои позиции", () => {
     expect(canDeleteItem(head, { responsibleId: "u1", createdById: "u1" })).toBe(true);
     expect(canDeleteItem(head, { responsibleId: "u2", createdById: "u1" })).toBe(false);
   });
 
-  it("куратор не удаляет чужие позиции, но удаляет свои", () => {
-    expect(canDeleteItem(curator, { responsibleId: "u1", createdById: "u1" })).toBe(false);
-    expect(canDeleteItem(curator, { responsibleId: "c1", createdById: "c1" })).toBe(true);
-    expect(canDeleteItem(curator, { responsibleId: null, createdById: "c1" })).toBe(true);
-    expect(canDeleteItem(curator, { responsibleId: null, createdById: "u1" })).toBe(false);
+  it("директор и админ не удаляют чужие позиции, но удаляют свои", () => {
+    for (const a of [director, admin]) {
+      expect(canDeleteItem(a, { responsibleId: "u1", createdById: "u1" })).toBe(false);
+      expect(canDeleteItem(a, { responsibleId: a.id, createdById: a.id })).toBe(true);
+      expect(canDeleteItem(a, { responsibleId: null, createdById: a.id })).toBe(true);
+      expect(canDeleteItem(a, { responsibleId: null, createdById: "u1" })).toBe(false);
+    }
   });
 
   it("остальным ролям удалять нельзя", () => {
-    expect(canDeleteItem({ id: "a", role: "SYSTEM_ADMIN" }, { responsibleId: "a", createdById: "a" })).toBe(false);
-    expect(canDeleteItem({ id: "m", role: "MANAGEMENT" }, { responsibleId: "m", createdById: "m" })).toBe(false);
+    expect(canDeleteItem(tech, { responsibleId: "t1", createdById: "t1" })).toBe(false);
+    expect(canDeleteItem(executive, { responsibleId: "e1", createdById: "e1" })).toBe(false);
   });
 });
 
 describe("управление пользователями", () => {
-  const curator: Actor = { id: "c1", role: "CURATOR" };
-  const admin: Actor = { id: "a1", role: "SYSTEM_ADMIN" };
-
-  it("раздел пользователей открыт куратору и администратору", () => {
-    expect(canManageUsers("CURATOR")).toBe(true);
-    expect(canManageUsers("SYSTEM_ADMIN")).toBe(true);
+  it("раздел пользователей открыт директору, админу и техническому администратору", () => {
+    for (const r of ["DIRECTOR", "ADMIN", "SYSTEM_ADMIN"] as const) expect(canManageUsers(r)).toBe(true);
     expect(canManageUsers("HEAD")).toBe(false);
-    expect(canManageUsers("MANAGEMENT")).toBe(false);
+    expect(canManageUsers("EXECUTIVE")).toBe(false);
   });
 
-  it("куратор ведёт только ответственных (HEAD), админ — всех", () => {
-    expect(canManageUser(curator, "HEAD")).toBe(true);
-    expect(canManageUser(curator, "CURATOR")).toBe(false);
-    expect(canManageUser(curator, "SYSTEM_ADMIN")).toBe(false);
-    expect(canManageUser(admin, "CURATOR")).toBe(true);
-    expect(canManageUser({ id: "u", role: "HEAD" }, "HEAD")).toBe(false);
+  it("директор ведёт только руководителей (HEAD); админ и технический администратор — всех", () => {
+    expect(canManageUser(director, "HEAD")).toBe(true);
+    for (const t of ["DIRECTOR", "ADMIN", "EXECUTIVE", "SYSTEM_ADMIN"] as const) expect(canManageUser(director, t)).toBe(false);
+    for (const t of ["HEAD", "DIRECTOR", "ADMIN", "EXECUTIVE"] as const) expect(canManageUser(admin, t)).toBe(true);
+    expect(canManageUser(tech, "ADMIN")).toBe(true);
+    expect(canManageUser(head, "HEAD")).toBe(false);
   });
 });
 
 describe("треки", () => {
-  it("треки ведут куратор и администратор", () => {
-    expect(canManageTracks("CURATOR")).toBe(true);
-    expect(canManageTracks("SYSTEM_ADMIN")).toBe(true);
+  it("треки ведут директор, админ и технический администратор", () => {
+    for (const r of ["DIRECTOR", "ADMIN", "SYSTEM_ADMIN"] as const) expect(canManageTracks(r)).toBe(true);
     expect(canManageTracks("HEAD")).toBe(false);
-    expect(canManageTracks("MANAGEMENT")).toBe(false);
+    expect(canManageTracks("EXECUTIVE")).toBe(false);
   });
 });
 
-describe("смена роли (назначить куратором / снять с кураторства)", () => {
-  const cur: Actor = { id: "c1", role: "CURATOR" };
-  const admin: Actor = { id: "a1", role: "SYSTEM_ADMIN" };
+describe("смена роли: админ назначает и снимает директоров и ЗГД", () => {
   const headT = { id: "h1", role: "HEAD" as const, isActive: true };
-  const curT = { id: "c2", role: "CURATOR" as const, isActive: true };
+  const dirT = { id: "d2", role: "DIRECTOR" as const, isActive: true };
+  const adminT = { id: "a2", role: "ADMIN" as const, isActive: true };
 
-  it("куратор назначает руководителя куратором", () => {
-    expect(checkRoleChange(cur, headT, "CURATOR", 2)).toBeNull();
+  it("админ назначает руководителя директором или ЗГД и снимает директора", () => {
+    expect(checkRoleChange(admin, headT, "DIRECTOR", 2)).toBeNull();
+    expect(checkRoleChange(admin, headT, "EXECUTIVE", 2)).toBeNull();
+    expect(checkRoleChange(admin, dirT, "HEAD", 2)).toBeNull();
   });
 
-  it("куратор снимает другого куратора, если останется хотя бы один", () => {
-    expect(checkRoleChange(cur, curT, "HEAD", 2)).toBeNull();
+  it("нельзя снять админа с себя и последнего активного админа", () => {
+    expect(checkRoleChange(admin, { id: "a1", role: "ADMIN", isActive: true }, "DIRECTOR", 3)).toBe("CANNOT_DEMOTE_SELF");
+    expect(checkRoleChange(admin, adminT, "DIRECTOR", 1)).toBe("LAST_ADMIN");
+    // отключённого админа снять можно: активных от этого не убавится
+    expect(checkRoleChange(admin, { ...adminT, isActive: false }, "HEAD", 1)).toBeNull();
+    expect(checkRoleChange(admin, adminT, "HEAD", 2)).toBeNull();
   });
 
-  it("нельзя снять себя и последнего активного куратора", () => {
-    expect(checkRoleChange(cur, { id: "c1", role: "CURATOR", isActive: true }, "HEAD", 3)).toBe("CANNOT_DEMOTE_SELF");
-    expect(checkRoleChange(cur, curT, "HEAD", 1)).toBe("LAST_CURATOR");
-    // отключённого куратора снять можно: активных от этого не убавится
-    expect(checkRoleChange(cur, { ...curT, isActive: false }, "HEAD", 1)).toBeNull();
+  it("админ не назначает и не снимает технического администратора", () => {
+    expect(checkRoleChange(admin, headT, "SYSTEM_ADMIN", 2)).toBe("FORBIDDEN");
+    expect(checkRoleChange(admin, { id: "t", role: "SYSTEM_ADMIN", isActive: true }, "HEAD", 2)).toBe("FORBIDDEN");
   });
 
-  it("куратор не назначает и не снимает администратора и руководство, руководитель и руководство ничего не меняют", () => {
-    expect(checkRoleChange(cur, headT, "SYSTEM_ADMIN", 2)).toBe("FORBIDDEN");
-    expect(checkRoleChange(cur, headT, "MANAGEMENT", 2)).toBe("FORBIDDEN");
-    expect(checkRoleChange(cur, { id: "a", role: "SYSTEM_ADMIN", isActive: true }, "HEAD", 2)).toBe("FORBIDDEN");
-    expect(checkRoleChange({ id: "u", role: "HEAD" }, headT, "CURATOR", 2)).toBe("FORBIDDEN");
-    expect(checkRoleChange({ id: "m", role: "MANAGEMENT" }, headT, "CURATOR", 2)).toBe("FORBIDDEN");
+  it("директор, руководитель и ЗГД роли не меняют", () => {
+    for (const a of [director, head, executive]) expect(checkRoleChange(a, headT, "DIRECTOR", 2)).toBe("FORBIDDEN");
   });
 
-  it("администратор может любую смену роли", () => {
-    expect(checkRoleChange(admin, headT, "SYSTEM_ADMIN", 1)).toBeNull();
-    expect(checkRoleChange(admin, curT, "HEAD", 1)).toBeNull();
+  it("технический администратор может любую смену роли", () => {
+    expect(checkRoleChange(tech, headT, "SYSTEM_ADMIN", 1)).toBeNull();
+    expect(checkRoleChange(tech, adminT, "HEAD", 1)).toBeNull();
   });
 });

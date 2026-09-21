@@ -3,20 +3,20 @@ import { canEditTemplate, canShareTemplates, canUseReports, canViewTemplate } fr
 
 const head = { id: "h1", role: "HEAD" as const };
 const other = { id: "h2", role: "HEAD" as const };
-const curator = { id: "c1", role: "CURATOR" as const };
+const curator = { id: "c1", role: "ADMIN" as const };
 const admin = { id: "a1", role: "SYSTEM_ADMIN" as const };
-const mgmt = { id: "m1", role: "MANAGEMENT" as const };
+const mgmt = { id: "m1", role: "EXECUTIVE" as const };
 
 describe("права на шаблоны отчётов", () => {
   it("строить отчёты и хранить шаблоны могут руководитель, куратор, администратор; руководство — нет", () => {
     expect(canUseReports("HEAD")).toBe(true);
-    expect(canUseReports("CURATOR")).toBe(true);
+    expect(canUseReports("ADMIN")).toBe(true);
     expect(canUseReports("SYSTEM_ADMIN")).toBe(true);
-    expect(canUseReports("MANAGEMENT")).toBe(false);
+    expect(canUseReports("EXECUTIVE")).toBe(false);
   });
 
   it("общие («для всех») создаёт только куратор или администратор", () => {
-    expect(canShareTemplates("CURATOR")).toBe(true);
+    expect(canShareTemplates("ADMIN")).toBe(true);
     expect(canShareTemplates("SYSTEM_ADMIN")).toBe(true);
     expect(canShareTemplates("HEAD")).toBe(false);
   });

@@ -56,7 +56,7 @@ type Actor = { id: string; role: string; name: string };
 let curator: Actor;
 let head: Actor;
 const admin: Actor = { id: "e2e-admin", role: "SYSTEM_ADMIN", name: "E2E admin" };
-const management: Actor = { id: "e2e-mgmt", role: "MANAGEMENT", name: "E2E management" };
+const management: Actor = { id: "e2e-mgmt", role: "EXECUTIVE", name: "E2E management" };
 
 const created = { items: [] as string[], columns: [] as string[], tracks: [] as string[], cycles: [] as string[], templates: [] as string[] };
 let originalLayout: unknown = undefined;
@@ -88,7 +88,7 @@ let colId = "";
 let trackId = "";
 
 beforeAll(async () => {
-  curator = await prisma.user.findFirstOrThrow({ where: { role: "CURATOR", isActive: true }, select: { id: true, name: true, role: true } });
+  curator = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN", isActive: true }, select: { id: true, name: true, role: true } });
   head = await prisma.user.findFirstOrThrow({ where: { role: "HEAD", isActive: true }, select: { id: true, name: true, role: true } });
   originalLayout = (await prisma.appSetting.findUnique({ where: { key: "table.columns" } }))?.value ?? null;
 });
@@ -385,7 +385,7 @@ describe("общий вид колонок таблицы", () => {
 describe("пользователи", () => {
   it("руководитель не управляет пользователями; куратор не создаёт кураторов и не правит не-ответственных", async () => {
     expect((await call(head, users.POST, "/api/users", { method: "POST", body: { name: "x", email: `${TAG}@e2e.local`, password: "longpassword1", role: "HEAD" } })).status).toBe(403);
-    expect((await call(curator, users.POST, "/api/users", { method: "POST", body: { name: "x", email: `${TAG}@e2e.local`, password: "longpassword1", role: "CURATOR" } })).status).toBe(403);
+    expect((await call(curator, users.POST, "/api/users", { method: "POST", body: { name: "x", email: `${TAG}@e2e.local`, password: "longpassword1", role: "ADMIN" } })).status).toBe(403);
     expect((await call(curator, user.PATCH, `/api/users/${curator.id}`, { method: "PATCH", id: curator.id, body: { isActive: false } })).status).toBe(403);
     expect(await prisma.user.findUnique({ where: { email: `${TAG}@e2e.local` } })).toBeNull();
   });
@@ -399,22 +399,22 @@ describe("пользователи", () => {
     const toAdmin = await call(curator, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "SYSTEM_ADMIN" } });
     expect(toAdmin.status).toBe(403);
     // руководитель не меняет чужие роли
-    const byHead = await call(head, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "CURATOR" } });
+    const byHead = await call(head, user.PATCH, `/api/users/${head.id}`, { method: "PATCH", id: head.id, body: { role: "ADMIN" } });
     expect(byHead.status).toBe(403);
     // имя/пароль/отключение другого куратора — по-прежнему только у администратора
-    const other = await prisma.user.findFirst({ where: { role: "CURATOR", isActive: true, id: { not: curator.id } }, select: { id: true } });
+    const other = await prisma.user.findFirst({ where: { role: "ADMIN", isActive: true, id: { not: curator.id } }, select: { id: true } });
     if (other) {
       const rename = await call(curator, user.PATCH, `/api/users/${other.id}`, { method: "PATCH", id: other.id, body: { name: "взлом" } });
       expect(rename.status).toBe(403);
     }
     // в базе роль не изменилась
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: curator.id } })).role).toBe("CURATOR");
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: curator.id } })).role).toBe("ADMIN");
     expect((await prisma.user.findUniqueOrThrow({ where: { id: head.id } })).role).toBe("HEAD");
   });
 
   it("куратор видит в списке ответственных руководителей и кураторов (но не администратора и руководство), e-mail виден ему, руководителю — нет", async () => {
     const c = await call(curator, users.GET, "/api/users?all=1");
-    expect(c.data.users.every((u: { role: string }) => u.role === "HEAD" || u.role === "CURATOR")).toBe(true);
+    expect(c.data.users.every((u: { role: string }) => u.role === "HEAD" || u.role === "ADMIN")).toBe(true);
     expect(c.data.users.some((u: { id: string }) => u.id === curator.id)).toBe(true);
     expect(c.data.users[0].email).toBeTruthy();
     const h = await call(head, users.GET, "/api/users?all=1");

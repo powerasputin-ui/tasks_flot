@@ -15,14 +15,15 @@ type Me = {
   id: string;
   name: string;
   email: string;
-  role: "HEAD" | "CURATOR" | "MANAGEMENT" | "SYSTEM_ADMIN";
+  role: "HEAD" | "DIRECTOR" | "ADMIN" | "EXECUTIVE" | "SYSTEM_ADMIN";
 } | null;
 
 export const ROLE_LABEL: Record<string, string> = {
   HEAD: "Руководитель",
-  CURATOR: "Руководитель и куратор",
-  MANAGEMENT: "Руководство",
-  SYSTEM_ADMIN: "Администратор",
+  DIRECTOR: "Директор",
+  ADMIN: "Админ",
+  EXECUTIVE: "ЗГД",
+  SYSTEM_ADMIN: "Технический администратор",
 };
 
 // Меню по ролям (TZ_v4, раздел 8).
@@ -32,12 +33,17 @@ export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>>
     { href: "/operativka", label: "Оперативка" },
     { href: "/archive", label: "Архив" },
   ],
-  CURATOR: [
+  DIRECTOR: [
     { href: "/operativka", label: "Оперативка" },
     { href: "/table", label: "Общая таблица" },
     { href: "/archive", label: "Архив" },
   ],
-  MANAGEMENT: [{ href: "/operativka", label: "Оперативка" }],
+  ADMIN: [
+    { href: "/operativka", label: "Оперативка" },
+    { href: "/table", label: "Общая таблица" },
+    { href: "/archive", label: "Архив" },
+  ],
+  EXECUTIVE: [{ href: "/operativka", label: "Оперативка" }],
   SYSTEM_ADMIN: [
     { href: "/table", label: "Таблица" },
     { href: "/archive", label: "Архив" },
@@ -128,7 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   // Режим просмотра доступен только куратору; в нём меню и кнопки такие же, как у руководителя.
-  const canPreview = me?.role === "CURATOR";
+  const canPreview = me?.role === "ADMIN" || me?.role === "DIRECTOR";
   const previewing = canPreview ? preview : null;
   const effRole = previewing ? "HEAD" : me?.role;
   const nav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
@@ -168,7 +174,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
           <div id="header-actions" className="flex items-center" />
           {me && <NotificationsBell />}
-          {(effRole === "SYSTEM_ADMIN" || effRole === "CURATOR") && (
+          {(effRole === "SYSTEM_ADMIN" || effRole === "ADMIN" || effRole === "DIRECTOR") && (
             <Link
               href="/settings"
               title="Настройки"

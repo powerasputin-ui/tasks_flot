@@ -5,6 +5,7 @@ import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { ReportSection } from "@/components/ReportSection";
 import { Popover } from "@/components/ui/Popover";
+import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
 import type { ReportModel } from "@/lib/report";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Play, Send } from "lucide-react";
@@ -14,7 +15,7 @@ type Person = { id: string; name: string; role: string; total: number; sent: num
 type Final = { id: string; number: number; deadline: string; finalizedAt: string | null };
 type Tab = "current" | "finals" | "control";
 
-const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка куратором", FINAL: "Зафиксирована" } as const;
+const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка директором", FINAL: "Зафиксирована" } as const;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
 const ERRORS: Record<string, string> = {
   CYCLE_EXISTS: "Активный цикл уже есть.",
@@ -68,7 +69,7 @@ export function OperativkaView() {
     const q = new URLSearchParams(window.location.search);
     const t = q.get("tab");
     const wanted: Tab = t === "finals" || t === "control" || t === "current" ? t : "current";
-    setTabState(role === "MANAGEMENT" ? "finals" : wanted);
+    setTabState(role === "EXECUTIVE" ? "finals" : wanted);
     setFinalIdState(q.get("final"));
   }, [role]);
 
@@ -100,8 +101,8 @@ export function OperativkaView() {
 
   // Режим «Посмотреть как руководитель»: кнопки куратора скрыты, как у руководителя
   const previewUser = usePreviewAs();
-  const isCurator = role === "CURATOR" && !previewUser;
-  const isManagement = role === "MANAGEMENT";
+  const isCurator = !!role && isDirectorial(role) && !previewUser;
+  const isManagement = role === "EXECUTIVE";
   const selectedFinal = finals.find((x) => x.id === finalId) ?? finals[0];
   const sentTotal = summary.reduce((s, p) => s + p.sent, 0);
   const missing = summary.filter((p) => p.sent === 0);
@@ -148,7 +149,7 @@ export function OperativkaView() {
                 {(close) => (
                   <div className="p-3">
                     <p className="text-[13px] font-semibold text-on-surface">Срок подачи</p>
-                    <p className="mt-1 text-[12px] text-on-surface-variant">За 2 дня до срока куратору придёт напоминание, кто ничего не подал.</p>
+                    <p className="mt-1 text-[12px] text-on-surface-variant">За 2 дня до срока директору придёт напоминание, кто ничего не подал.</p>
                     <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input mt-2 w-full" />
                     <button
                       onClick={() => {
@@ -258,7 +259,7 @@ export function OperativkaView() {
                     <tr key={p.id} className="border-t border-outline-variant/50">
                       <td className="px-4 py-3">
                         {p.name}
-                        {p.role === "CURATOR" && <span title="Куратор" className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">К</span>}
+                        {(p.role === "ADMIN" || p.role === "DIRECTOR") && <span title={p.role === "DIRECTOR" ? "Директор" : "Админ"} className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-[10px] font-bold text-white">{p.role === "DIRECTOR" ? "Д" : "А"}</span>}
                       </td>
                       <td className="px-4 py-3 text-center">{p.total}</td>
                       <td className="px-4 py-3 text-center">{p.sent}</td>
