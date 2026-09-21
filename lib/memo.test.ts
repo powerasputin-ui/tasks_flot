@@ -207,3 +207,13 @@ describe("вид справки: поля таблицы и автоматиче
     expect(doc.sections[0].bullets[0].text).toBe("Задача: Комментарий (Сухов)");
   });
 });
+
+describe("вид справки: любые столбцы таблицы, включая свои", () => {
+  it("оценка, привлекательность и значения своих колонок идут в скобках с подписями", async () => {
+    const { composeText, parseMemoConfig } = await import("@/lib/memo");
+    const src = { title: "Задача", comment: "Комментарий.", cost: "2 млн.$", attractivenessName: "P70", custom: { abc: "Срочно", zzz: "" } };
+    const labels = { "custom:abc": "Приоритет", "custom:zzz": "Пусто" };
+    expect(composeText(src, ["comment", "cost", "attractiveness", "custom:abc", "custom:zzz"], labels)).toBe("Комментарий. (оценка 2 млн.$; привлекательность P70; Приоритет: Срочно)");
+    expect(parseMemoConfig({ groupBy: "track", fields: ["comment", "custom:abc", "custom:", "что-то"] }).fields).toEqual(["comment", "custom:abc"]);
+  });
+});

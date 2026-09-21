@@ -44,10 +44,15 @@ export type SourceItem = {
 /** Раздел справки: в него входят треки и/или сегменты (при группировке по сегментам). */
 export type SectionDef = { id: string; title: string; trackIds: string[]; segmentIds?: string[] };
 
-/** Вид справки (настройка дирекции): как группировать разделы и какие поля таблицы попадают в текст пункта. */
+/**
+ * Вид справки (настройка дирекции): как группировать разделы и какие столбцы таблицы попадают в текст пункта.
+ * Поля — это столбцы таблицы: сегмент, трек, задача, комментарий, ответственный, дедлайн, статус, оценка, привлекательность
+ * и свои колонки (custom:<id>). Какие столбцы доступны, определяется актуальной таблицей (убранные не предлагаются).
+ */
 export type MemoGroupBy = "track" | "segment" | "custom";
-export type MemoField = "segment" | "track" | "task" | "comment" | "owner" | "deadline" | "status";
+export type MemoField = string;
 export type MemoConfig = { groupBy: MemoGroupBy | null; fields: MemoField[] };
+/** Стандартные поля справки (подписи по умолчанию; в настройках подписи берутся из таблицы). */
 export const MEMO_FIELDS: Array<{ key: MemoField; label: string }> = [
   { key: "segment", label: "Сегмент" },
   { key: "track", label: "Трек" },
@@ -56,14 +61,17 @@ export const MEMO_FIELDS: Array<{ key: MemoField; label: string }> = [
   { key: "owner", label: "Ответственный" },
   { key: "deadline", label: "Дедлайн" },
   { key: "status", label: "Статус" },
+  { key: "cost", label: "Оценка $" },
+  { key: "attractiveness", label: "Привлекательность" },
 ];
 /** По умолчанию как в вашей справке: только комментарий (а если его нет — название задачи). */
 export const DEFAULT_MEMO_CONFIG: MemoConfig = { groupBy: null, fields: ["comment"] };
 
+const FIELD_KEY = /^(segment|track|task|comment|owner|deadline|status|cost|attractiveness|custom:[\w-]{1,80})$/;
+
 export function parseMemoConfig(value: unknown): MemoConfig {
   const v = value as Partial<MemoConfig> | null;
-  const keys = new Set(MEMO_FIELDS.map((f) => f.key));
-  const fields = Array.isArray(v?.fields) ? (v!.fields.filter((f) => keys.has(f as MemoField)) as MemoField[]) : DEFAULT_MEMO_CONFIG.fields;
+  const fields = Array.isArray(v?.fields) ? v!.fields.filter((f) => typeof f === "string" && FIELD_KEY.test(f)) : DEFAULT_MEMO_CONFIG.fields;
   const groupBy = v?.groupBy === "track" || v?.groupBy === "segment" || v?.groupBy === "custom" ? v.groupBy : null;
   return { groupBy, fields: fields.length ? [...new Set(fields)] : DEFAULT_MEMO_CONFIG.fields };
 }
@@ -76,6 +84,10 @@ export type ComposeInput = {
   ownerName?: string | null;
   deadline?: string | Date | null;
   statusName?: string | null;
+  cost?: string | null;
+  attractivenessName?: string | null;
+  /** Значения своих колонок: { <id колонки>: значение }. */
+  custom?: Record<string, string>;
 };
 
 const ruDay = (d: string | Date) => {
@@ -84,15 +96,31 @@ const ruDay = (d: string | Date) => {
 };
 
 /**
- * Текст заготовки пункта из полей таблицы по настройке «вида справки»:
- * «Сегмент / Трек: Задача: Комментарий (Ответственный; срок 07.09.2026; Статус)». Пустые поля пропускаются;
- * если из выбранных основных полей (задача, комментарий) ничего нет — берётся название задачи, чтобы пункт не был пустым.
+ * Текст заготовки пункта из столбцов таблицы по настройке «вида справки»:
+ * «Сегмент / Трек: Задача: Комментарий (Ответственный; срок 07.09.2026; Статус; оценка …; Своя колонка: значение)».
+ * Пустые значения пропускаются; если основного текста (задача, комментарий) нет — берётся название задачи, чтобы пункт не был пустым.
+ * labels — подписи столбцов для своих колонок (ключ custom:<id>).
  */
-export function composeText(item: ComposeInput, fields: MemoField[]): string {
+export function composeText(item: ComposeInput, fields: MemoField[], labels: Record<string, string> = {}): string {
   const has = (f: MemoField) => fields.includes(f);
   const head = [has("segment") ? item.segmentName : null, has("track") ? item.trackName : null].filter(Boolean).join(" / ");
   const body = [has("task") ? clean(item.title) : "", has("comment") ? clean(item.comment ?? "") : ""].filter(Boolean).join(": ") || clean(item.title);
-  const extras = [has("owner") ? item.ownerName : null, has("deadline") && item.deadline ? `срок ${ruDay(item.deadline)}` : null, has("status") ? item.statusName : null].filter(Boolean).join("; ");
+  const custom = fields
+    .filter((f) => f.startsWith("custom:"))
+    .map((f) => {
+      const v = item.custom?.[f.slice("custom:".length)];
+      return v ? `${labels[f] ?? "поле"}: ${v}` : null;
+    });
+  const extras = [
+    has("owner") ? item.ownerName : null,
+    has("deadline") && item.deadline ? `срок ${ruDay(item.deadline)}` : null,
+    has("status") ? item.statusName : null,
+    has("cost") && item.cost ? `оценка ${item.cost}` : null,
+    has("attractiveness") && item.attractivenessName ? `привлекательность ${item.attractivenessName}` : null,
+    ...custom,
+  ]
+    .filter(Boolean)
+    .join("; ");
   return [head ? `${head}: ` : "", body, extras ? ` (${extras})` : ""].join("");
 }
 

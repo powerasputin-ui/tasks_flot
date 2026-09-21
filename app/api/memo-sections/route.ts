@@ -6,14 +6,11 @@ import { requireActor } from "@/lib/session";
 import { isDirectorial } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
 import { invalidateDirectorates } from "@/lib/directorates";
-import { loadMemoConfig, loadSources } from "@/lib/memo-load";
-import { MEMO_FIELDS } from "@/lib/memo";
-
-const fieldKeys = MEMO_FIELDS.map((f) => f.key) as [string, ...string[]];
+import { loadFieldOptions, loadMemoConfig, loadSources } from "@/lib/memo-load";
 const putSchema = z.object({
   shortName: z.string().trim().max(60).nullable().optional(),
   /** Вид справки: как группировать разделы и какие поля таблицы попадают в текст пункта. */
-  config: z.object({ groupBy: z.enum(["track", "segment", "custom"]).nullable(), fields: z.array(z.enum(fieldKeys)).min(1).max(fieldKeys.length) }).optional(),
+  config: z.object({ groupBy: z.enum(["track", "segment", "custom"]).nullable(), fields: z.array(z.string().regex(/^(segment|track|task|comment|owner|deadline|status|cost|attractiveness|custom:[\w-]{1,80})$/)).min(1).max(40) }).optional(),
   /** Свои разделы (только для группировки «свои»): название, порядок и состав треков. */
   sections: z.array(z.object({ id: z.string().optional(), title: z.string().trim().min(1).max(200), trackIds: z.array(z.string()).max(500) })).max(60).optional(),
 });
@@ -23,23 +20,26 @@ export async function GET() {
   const actor = await requireActor();
   if (!isDirectorial(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const directorateId = requireDirectorate(actor);
-  const [sections, tracks, dir, config, sources] = await Promise.all([
+  const [sections, tracks, dir, config, sources, fields] = await Promise.all([
     prisma.memoSection.findMany({ where: { directorateId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], include: { tracks: { select: { id: true } } } }),
     prisma.track.findMany({ where: { directorateId, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, segment: { select: { name: true } } } }),
     prisma.directorate.findUnique({ where: { id: directorateId }, select: { name: true, shortName: true } }),
     loadMemoConfig(directorateId),
     loadSources(directorateId),
+    loadFieldOptions(directorateId),
   ]);
   // для предпросмотра — реальная поданная строка с комментарием (иначе любая с комментарием, иначе любая)
   const sample = sources.find((s) => s.operFlag && s.comment) ?? sources.find((s) => s.comment) ?? sources[0] ?? null;
   return NextResponse.json({
     shortName: dir?.shortName ?? "",
     directorate: dir?.name ?? "",
-    config: { groupBy: config.groupBy ?? (sections.length ? "custom" : "track"), fields: config.fields },
-    fields: MEMO_FIELDS,
+    // «свои разделы» больше не настраиваются в интерфейсе: остаются только «по трекам» и «по сегментам» (старая настройка продолжает работать)
+    config: { groupBy: config.groupBy === "custom" ? (sections.length ? "custom" : "track") : config.groupBy ?? (sections.length ? "custom" : "track"), fields: config.fields.filter((f) => fields.some((o) => o.key === f)).length ? config.fields.filter((f) => fields.some((o) => o.key === f)) : ["comment"] },
+    fields,
     sections: sections.map((s) => ({ id: s.id, title: s.title, trackIds: s.tracks.map((t) => t.id) })),
     tracks: tracks.map((t) => ({ id: t.id, name: t.name, segmentName: t.segment?.name ?? null })),
-    sample: sample ? { title: sample.title, comment: sample.comment, segmentName: sample.segmentName, trackName: sample.trackName, ownerName: sample.ownerName, deadline: sample.deadline, statusName: sample.statusName } : null,
+    sample: sample ? { title: sample.title, comment: sample.comment, segmentName: sample.segmentName, trackName: sample.trackName, ownerName: sample.ownerName, deadline: sample.deadline, statusName: sample.statusName, cost: sample.cost ?? null, attractivenessName: sample.attractivenessName ?? null, custom: sample.custom ?? {} } : null,
+    labels: Object.fromEntries(fields.map((f) => [f.key, f.label])),
   });
 }
 

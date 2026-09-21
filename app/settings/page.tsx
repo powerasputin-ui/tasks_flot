@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Building2, ArrowDown, ArrowUp, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -252,12 +252,6 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                   ) : (
                     <span className="text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
                   )}
-                  {isAdmin && u.role === "HEAD" && (
-                    <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-[12px] text-on-surface-variant" title="Составитель готовит справку для ЗГД вместе с директором: видит «Оперативку» и колонку «В справку»">
-                      <input type="checkbox" checked={!!u.memoEditor} onChange={(e) => patch(u.id, { memoEditor: e.target.checked }, e.target.checked ? "Назначен составителем справки." : "Снят с составления справки.")} className="h-3.5 w-3.5 accent-primary" />
-                      Составитель справки
-                    </label>
-                  )}
                 </td>
                 <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
                 <td className="px-4 py-3">
@@ -276,6 +270,16 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                       </>
                     ) : (
                       <>
+                        {isAdmin && u.role === "HEAD" && (
+                          <button
+                            onClick={() => patch(u.id, { memoEditor: !u.memoEditor }, u.memoEditor ? "Снят с составления справки." : "Назначен составителем справки.")}
+                            className={`btn-icon h-8 w-8 ${u.memoEditor ? "bg-primary-soft text-primary" : ""}`}
+                            title={u.memoEditor ? "Снять с составления справки" : "Назначить составителем справки"}
+                            aria-label={u.memoEditor ? "Снять с составления справки" : "Назначить составителем справки"}
+                          >
+                            <FileText size={15} />
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             const name = window.prompt("Имя (Фамилия И.О.)", u.name)?.trim();
@@ -364,23 +368,19 @@ function CreateUserPanel({ act, isAdmin, directorates, currentDirectorate, onClo
   );
 }
 
-type MemoTrack = { id: string; name: string; segmentName: string | null };
-type SectionDraft = { key: string; id?: string; title: string };
-type MemoSample = { title: string; comment: string | null; segmentName: string | null; trackName: string | null; ownerName: string | null; deadline: string | null; statusName: string | null };
+type MemoSample = { title: string; comment: string | null; segmentName: string | null; trackName: string | null; ownerName: string | null; deadline: string | null; statusName: string | null; cost: string | null; attractivenessName: string | null; custom: Record<string, string> };
 
 /**
- * Вид справки: как разделить справку на разделы и какие поля таблицы попадают в текст каждого пункта.
- * Всё считается от таблицы: по умолчанию каждый трек — раздел, а текст пункта — комментарий (если его нет — название задачи).
+ * Вид справки: как разделить справку на разделы и какие столбцы таблицы попадают в текст пункта.
+ * Список столбцов берётся из вашей таблицы: убрали или добавили столбец в таблице — он так же пропал или появился здесь.
  */
 function MemoStructureSection({ act }: { act: Act }) {
   const [shortName, setShortName] = useState("");
-  const [groupBy, setGroupBy] = useState<"track" | "segment" | "custom">("track");
+  const [groupBy, setGroupBy] = useState<"track" | "segment">("track");
   const [fields, setFields] = useState<MemoField[]>(["comment"]);
-  const [allFields, setAllFields] = useState<Array<{ key: MemoField; label: string }>>([]);
+  const [options, setOptions] = useState<Array<{ key: MemoField; label: string }>>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
   const [sample, setSample] = useState<MemoSample | null>(null);
-  const [sections, setSections] = useState<SectionDraft[]>([]);
-  const [tracks, setTracks] = useState<MemoTrack[]>([]);
-  const [assign, setAssign] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -389,47 +389,34 @@ function MemoStructureSection({ act }: { act: Act }) {
       .then((d) => {
         if (!d) return;
         setShortName(d.shortName ?? "");
-        setGroupBy(d.config.groupBy);
+        setGroupBy(d.config.groupBy === "segment" ? "segment" : "track");
         setFields(d.config.fields);
-        setAllFields(d.fields);
+        setOptions(d.fields);
+        setLabels(d.labels);
         setSample(d.sample);
-        setTracks(d.tracks);
-        setSections(d.sections.map((x: { id: string; title: string }) => ({ key: x.id, id: x.id, title: x.title })));
-        const m: Record<string, string> = {};
-        for (const sec of d.sections as Array<{ id: string; trackIds: string[] }>) for (const t of sec.trackIds) m[t] = sec.id;
-        setAssign(m);
         setLoaded(true);
       });
   }, []);
 
-  const toggle = (k: MemoField) => setFields((f) => (f.includes(k) ? (f.length > 1 ? f.filter((x) => x !== k) : f) : [...f, k]));
-  const move = (i: number, d: -1 | 1) =>
-    setSections((s) => {
-      const j = i + d;
-      if (j < 0 || j >= s.length) return s;
-      const n = [...s];
-      [n[i], n[j]] = [n[j], n[i]];
-      return n;
+  // порядок в тексте пункта — как порядок столбцов в таблице
+  const toggle = (k: MemoField) =>
+    setFields((f) => {
+      const next = f.includes(k) ? f.filter((x) => x !== k) : [...f, k];
+      if (next.length === 0) return f;
+      return options.map((o) => o.key).filter((key) => next.includes(key));
     });
 
   const save = () =>
-    act(
-      send("/api/memo-sections", "PUT", {
-        shortName: shortName.trim() || null,
-        config: { groupBy, fields },
-        ...(groupBy === "custom" ? { sections: sections.map((x) => ({ id: x.id, title: x.title.trim() || "Раздел", trackIds: tracks.filter((t) => assign[t.id] === x.key).map((t) => t.id) })) } : {}),
-      }),
-      "Вид справки сохранён. Он применяется к новым оперативкам и к кнопке «Обновить из данных»."
-    );
+    act(send("/api/memo-sections", "PUT", { shortName: shortName.trim() || null, config: { groupBy, fields } }), "Вид справки сохранён. Он применяется к новым оперативкам и к кнопке «Обновить из данных».");
 
   if (!loaded) return <div className="skeleton h-40 rounded-lg" />;
-  const preview = sample ? composeText(sample, fields) : "Пример появится, когда в таблице будут строки.";
+  const preview = sample ? composeText(sample, fields, labels) : "Пример появится, когда в таблице будут строки.";
 
   return (
     <>
       <SectionHeader
         title="Вид справки"
-        hint="Что попадает в справку для ЗГД из таблицы и как она делится на разделы. Отметьте нужное — ниже сразу виден пример."
+        hint="Что из таблицы попадает в справку для ЗГД. Отметьте нужные столбцы — ниже сразу виден пример на реальной строке."
         action={
           <button onClick={save} className="btn-primary">
             Сохранить
@@ -437,32 +424,22 @@ function MemoStructureSection({ act }: { act: Act }) {
         }
       />
 
-      <div className="mb-6 max-w-md">
-        <label className="mb-1 block text-[12px] font-medium text-on-surface-variant">Короткое название дирекции для заголовка</label>
-        <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Например: РФ и КЭ" className="input w-full" maxLength={60} />
-        <p className="mt-1 text-[12px] text-on-surface-variant">Заголовок: «Статус текущих задач по дирекции {shortName.trim() || "…"} к ОС 21.09.2026».</p>
-      </div>
-
       <h3 className="label-caps mb-2">Разделы справки</h3>
-      <div className="mb-6 max-w-2xl space-y-1.5">
+      <div className="mb-6 flex max-w-2xl flex-wrap gap-2">
         {([
-          ["track", "По трекам", "Каждый трек из таблицы — свой раздел справки. Ничего настраивать не нужно."],
-          ["segment", "По сегментам", "Каждый сегмент — свой раздел; треки внутри сегмента идут одним списком."],
-          ["custom", "Свои разделы", "Вы сами задаёте названия разделов и какие треки в них входят (как в образце справки)."],
-        ] as const).map(([k, label, hint]) => (
-          <label key={k} className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 ${groupBy === k ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-low"}`}>
-            <input type="radio" name="groupBy" checked={groupBy === k} onChange={() => setGroupBy(k)} className="mt-1 accent-primary" />
-            <span>
-              <span className="block text-[13px] font-semibold text-on-surface">{label}</span>
-              <span className="block text-[12px] text-on-surface-variant">{hint}</span>
-            </span>
+          ["track", "По трекам"],
+          ["segment", "По сегментам"],
+        ] as const).map(([k, label]) => (
+          <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-[13px] font-semibold ${groupBy === k ? "border-primary bg-primary-soft text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-low"}`}>
+            <input type="radio" name="groupBy" checked={groupBy === k} onChange={() => setGroupBy(k)} className="accent-primary" />
+            {label}
           </label>
         ))}
       </div>
 
-      <h3 className="label-caps mb-2">Что из таблицы попадает в текст пункта</h3>
+      <h3 className="label-caps mb-2">Столбцы таблицы в тексте пункта</h3>
       <div className="mb-3 flex max-w-2xl flex-wrap gap-2">
-        {allFields.map((f) => (
+        {options.map((f) => (
           <label key={f.key} className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] ${fields.includes(f.key) ? "border-primary bg-primary-soft text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-low"}`}>
             <input type="checkbox" checked={fields.includes(f.key)} onChange={() => toggle(f.key)} className="accent-primary" />
             {f.label}
@@ -475,62 +452,11 @@ function MemoStructureSection({ act }: { act: Act }) {
         <p className="mt-1 text-[11px] text-on-surface-variant">Если комментария нет, вместо него берётся название задачи. Готовый текст всегда можно поправить в редакторе справки.</p>
       </div>
 
-      {groupBy === "custom" && (
-        <>
-          <h3 className="label-caps mb-2">Свои разделы</h3>
-          <ul className="mb-3 max-w-xl space-y-1.5">
-            {sections.map((x, i) => (
-              <li key={x.key} className="flex items-center gap-2">
-                <span className="w-6 text-right text-[13px] font-semibold text-on-surface-variant">{i + 1}.</span>
-                <input value={x.title} onChange={(e) => setSections((s) => s.map((y) => (y.key === x.key ? { ...y, title: e.target.value } : y)))} className="input flex-1" maxLength={200} />
-                <button onClick={() => move(i, -1)} disabled={i === 0} className="btn-icon h-8 w-8 disabled:opacity-30" aria-label="Выше"><ArrowUp size={15} /></button>
-                <button onClick={() => move(i, 1)} disabled={i === sections.length - 1} className="btn-icon h-8 w-8 disabled:opacity-30" aria-label="Ниже"><ArrowDown size={15} /></button>
-                <button
-                  onClick={() => {
-                    setSections((s) => s.filter((y) => y.key !== x.key));
-                    setAssign((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v !== x.key)));
-                  }}
-                  className="flex h-8 w-8 items-center justify-center rounded text-on-surface-variant hover:bg-status-red/10 hover:text-status-red"
-                  title="Удалить раздел"
-                  aria-label="Удалить раздел"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button onClick={() => setSections((s) => [...s, { key: `n${Date.now()}`, title: "Новый раздел" }])} className="btn-ghost mb-6 h-8">
-            <Plus size={14} /> Добавить раздел
-          </button>
-
-          <h3 className="label-caps mb-2">В какой раздел входит каждый трек</h3>
-          <div className="max-w-2xl overflow-hidden rounded-lg border border-outline-variant bg-surface">
-            <table className="w-full table-fixed border-collapse text-[13px]">
-              <tbody>
-                {tracks.map((t) => (
-                  <tr key={t.id} className="border-t border-outline-variant/50 first:border-t-0">
-                    <td className="px-4 py-2">
-                      <p className="font-medium text-on-surface">{t.name}</p>
-                      {t.segmentName && <p className="text-[11px] text-on-surface-variant">{t.segmentName}</p>}
-                    </td>
-                    <td className="w-64 px-4 py-2">
-                      <select value={sections.some((x) => x.key === assign[t.id]) ? assign[t.id] : ""} onChange={(e) => setAssign((m) => ({ ...m, [t.id]: e.target.value }))} className="select w-full">
-                        <option value="">— Прочие направления —</option>
-                        {sections.map((x, i) => (
-                          <option key={x.key} value={x.key}>{i + 1}. {x.title}</option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-                {tracks.length === 0 && (
-                  <tr><td className="px-4 py-6 text-center text-outline">Треков пока нет.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      <div className="max-w-md">
+        <label className="mb-1 block text-[12px] font-medium text-on-surface-variant">Короткое название дирекции для заголовка</label>
+        <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Например: РФ и КЭ" className="input w-full" maxLength={60} />
+        <p className="mt-1 text-[12px] text-on-surface-variant">Заголовок: «Статус текущих задач по дирекции {shortName.trim() || "…"} к ОС 21.09.2026».</p>
+      </div>
     </>
   );
 }
