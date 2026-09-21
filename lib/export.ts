@@ -77,6 +77,7 @@ export function buildPdf(title: string, subtitle: string | null, sections: Expor
 }
 
 function drawTable(doc: PDFKit.PDFDocument, headers: string[], rows: Cell[][]) {
+  if (headers.length === 0) return;
   const left = doc.page.margins.left;
   const width = doc.page.width - left - doc.page.margins.right;
   const colW = width / headers.length;

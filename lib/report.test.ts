@@ -200,3 +200,10 @@ describe("отчёт по финальному снимку", () => {
     expect(snapshotToRows("мусор").rows).toEqual([]);
   });
 });
+
+describe("колонки, целиком ушедшие в группировку", () => {
+  it("остаётся колонка «Задача», чтобы отчёт и PDF не ломались", () => {
+    const m = buildReport([row({ id: "1" })], { columns: ["segment", "track"], groupBy: ["segment", "track"] }, ctx);
+    expect(m.columns.map((c) => c.key)).toEqual(["name"]);
+  });
+});
