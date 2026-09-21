@@ -33,7 +33,8 @@ export async function GET() {
     select: { id: true, number: true, deadline: true, finalizedAt: true, directorateId: true },
   });
   const names = new Map((await listDirectorates()).map((d) => [d.id, d.name]));
-  const finals = rows.map(({ directorateId, ...f }) => ({ ...f, directorate: (directorateId && names.get(directorateId)) || null }));
+  const withMemo = new Set((await prisma.memoVersion.findMany({ where: { cycleId: { in: rows.map((r) => r.id) } }, select: { cycleId: true }, distinct: ["cycleId"] })).map((m) => m.cycleId));
+  const finals = rows.map(({ directorateId, ...f }) => ({ ...f, directorate: (directorateId && names.get(directorateId)) || null, hasMemo: withMemo.has(f.id) }));
   if (executive) return NextResponse.json({ cycle: null, summary: [], finals });
 
   const directorateId = requireDirectorate(actor);

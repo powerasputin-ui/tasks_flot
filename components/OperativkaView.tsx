@@ -5,6 +5,7 @@ import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { ReportSection } from "@/components/ReportSection";
 import { MemoEditor } from "@/components/MemoEditor";
+import { MemoArchive } from "@/components/MemoArchive";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
@@ -12,7 +13,7 @@ import { AlertTriangle, ClipboardCheck, Lock, Play } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
-type Final = { id: string; number: number; deadline: string; finalizedAt: string | null; directorate?: string | null };
+type Final = { id: string; number: number; deadline: string; finalizedAt: string | null; directorate?: string | null; hasMemo?: boolean };
 type Tab = "memo" | "finals";
 
 const STATUS_LABEL = { OPEN: "Идёт подача", IN_REVIEW: "Сборка директором", FINAL: "Зафиксирована" } as const;
@@ -44,6 +45,7 @@ export function OperativkaView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
+  const [note, setNote] = useState("");
   const [tab, setTabState] = useState<Tab | null>(null);
   const [finalId, setFinalIdState] = useState<string | null>(null);
 
@@ -107,7 +109,9 @@ export function OperativkaView() {
   const previewUser = usePreviewAs();
   const isCurator = !!role && isDirectorial(role) && !previewUser;
   const isManagement = role === "EXECUTIVE";
-  const selectedFinal = finals.find((x) => x.id === finalId) ?? finals[0];
+  // справки старого формата (до появления справки): таблица-снимок; новые открываются в «Архиве» как справка
+  const legacy = finals.filter((f) => !f.hasMemo);
+  const selectedFinal = legacy.find((x) => x.id === finalId) ?? legacy[0];
   const sentTotal = summary.reduce((s, p) => s + p.sent, 0);
   const missing = summary.filter((p) => p.sent === 0);
 
@@ -180,26 +184,27 @@ export function OperativkaView() {
                 width={340}
                 trigger={({ toggle }) => (
                   <button onClick={toggle} className="btn-primary">
-                    <Lock size={15} /> Финализировать
+                    <Lock size={15} /> Отправить ЗГД
                   </button>
                 )}
               >
                 {(close) => (
                   <div className="p-3">
-                    <p className="text-[13px] font-semibold text-on-surface">Зафиксировать оперативку №{cycle.number}?</p>
+                    <p className="text-[13px] font-semibold text-on-surface">Отправить справку ЗГД (оперативка №{cycle.number})?</p>
                     <p className="mt-1 text-[12px] text-on-surface-variant">
-                      В снимок войдут отправленные позиции ({sentTotal}). После этого снимок нельзя изменить, галки «Опер» сбросятся.
+                      Справка зафиксируется и уйдёт ЗГД, изменить её после этого нельзя (ЗГД может вернуть её вам). Позиции в справке: поданных директору — {sentTotal}. Галки «Опер» сбросятся.
                       {missing.length > 0 && ` Ничего не подали: ${missing.map((p) => p.name).join(", ")}.`}
                     </p>
+                    <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={2000} className="input mt-2 w-full" placeholder="Сопроводительное слово для ЗГД (необязательно)" />
                     <div className="mt-3 flex gap-2">
                       <button
                         onClick={() => {
                           close();
-                          act(`/api/cycles/${cycle.id}/finalize`);
+                          act(`/api/cycles/${cycle.id}/finalize`, { note });
                         }}
                         className="btn-primary h-8"
                       >
-                        Да, финализировать
+                        Да, отправить
                       </button>
                       <button onClick={close} className="btn-ghost h-8">Отмена</button>
                     </div>
@@ -248,37 +253,41 @@ export function OperativkaView() {
             </p>
           ))}
 
-        {tab === "finals" &&
-          (finals.length === 0 ? (
-            <p className="surface p-6 text-center text-[13px] text-on-surface-variant">Финальных оперативок пока нет.</p>
-          ) : (
-            <div className="grid gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
-              <ul className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
-                {finals.map((f) => (
-                  <li key={f.id} className="shrink-0">
-                    <button
-                      onClick={() => setFinalId(f.id)}
-                      className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
-                        selectedFinal?.id === f.id ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"
-                      }`}
-                    >
-                      <span className={`block text-[13px] font-semibold ${selectedFinal?.id === f.id ? "text-primary" : "text-on-surface"}`}>№{f.number}</span>
-                      <span className="block text-[12px] text-on-surface-variant">{fmt(f.finalizedAt)}</span>
-                      {isManagement && f.directorate && <span className="mt-0.5 block text-[11px] leading-tight text-on-surface-variant">{f.directorate}</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {selectedFinal && (
-                <div className="min-w-0">
-                  <p className="mb-3 text-[13px] text-on-surface-variant">
-                    <span className="font-semibold text-on-surface">Оперативка №{selectedFinal.number}</span>{selectedFinal.directorate ? ` · ${selectedFinal.directorate}` : ""} · зафиксирована {fmt(selectedFinal.finalizedAt)}
-                  </p>
-                  <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} simple />
+        {tab === "finals" && (
+          <div className="space-y-10">
+            <MemoArchive />
+            {legacy.length > 0 && (
+              <section>
+                <h3 className="label-caps mb-2">Старый формат (таблица)</h3>
+                <div className="grid gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
+                  <ul className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
+                    {legacy.map((f) => (
+                      <li key={f.id} className="shrink-0">
+                        <button
+                          onClick={() => setFinalId(f.id)}
+                          className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${selectedFinal?.id === f.id ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"}`}
+                        >
+                          <span className={`block text-[13px] font-semibold ${selectedFinal?.id === f.id ? "text-primary" : "text-on-surface"}`}>№{f.number}</span>
+                          <span className="block text-[12px] text-on-surface-variant">{fmt(f.finalizedAt)}</span>
+                          {isManagement && f.directorate && <span className="mt-0.5 block text-[11px] leading-tight text-on-surface-variant">{f.directorate}</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {selectedFinal && (
+                    <div className="min-w-0">
+                      <p className="mb-3 text-[13px] text-on-surface-variant">
+                        <span className="font-semibold text-on-surface">Оперативка №{selectedFinal.number}</span>
+                        {selectedFinal.directorate ? ` · ${selectedFinal.directorate}` : ""} · зафиксирована {fmt(selectedFinal.finalizedAt)}
+                      </p>
+                      <ReportSection key={selectedFinal.id} cycleId={selectedFinal.id} simple />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              </section>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import type { Cycle, CycleStatus } from "@prisma/client";
 import { recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications";
 import { loadTableRows } from "@/lib/table-view";
+import { prepareVersion } from "@/lib/memo-versions";
 import { isDirectorial, type Actor } from "@/lib/permissions";
 
 /**
@@ -70,7 +71,7 @@ export async function startReview(actor: Actor, id: string): Promise<CycleResult
  * Финализация: в неизменяемый снимок попадают отправленные (operFlag) неархивные позиции.
  * После этого галки «Опер» сбрасываются — следующий цикл начинается с чистого листа.
  */
-export async function finalizeCycle(actor: Actor, id: string): Promise<CycleResult<{ count: number }>> {
+export async function finalizeCycle(actor: Actor & { name: string }, id: string, note: string | null = null): Promise<CycleResult<{ count: number }>> {
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
   const cycle = await prisma.cycle.findFirst({ where: { id, directorateId: actor.directorateId ?? "" } });
   if (!cycle) return { ok: false, error: "NOT_FOUND" };
@@ -83,6 +84,10 @@ export async function finalizeCycle(actor: Actor, id: string): Promise<CycleResu
     JSON.stringify(sent.map((r) => ({ ...r, customFields: custom.map((c) => ({ name: c.name, type: c.type, value: r.customValues[c.id] ?? null })) })))
   );
 
+  // Справка (неизменяемая версия для ЗГД) фиксируется вместе со снимком строк
+  const { sourceItemIds: _unused, ...version } = await prepareVersion(cycle, actor, note?.trim() || null, await cycleSummary(cycle.directorateId ?? ""));
+  void _unused;
+
   await prisma.$transaction(async (tx) => {
     // условие по статусу защищает от двойной финализации
     const upd = await tx.cycle.updateMany({
@@ -94,7 +99,14 @@ export async function finalizeCycle(actor: Actor, id: string): Promise<CycleResu
       where: { id: { in: sent.map((r) => r.id) } },
       data: { operFlag: false, version: { increment: 1 } },
     });
+    await tx.memoVersion.create({ data: version });
   });
+
+  // ЗГД получает уведомление, что пришла справка
+  const executives = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
+  for (const e of executives) {
+    await createNotification({ userId: e.id, type: "MEMO_SENT", message: `Получена справка: ${version.title}${cycle.revision > 1 ? ` (ред. ${cycle.revision})` : ""}`, link: "/operativka?tab=finals" });
+  }
   return { ok: true, count: sent.length };
 }
 

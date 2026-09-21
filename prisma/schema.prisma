@@ -207,6 +207,8 @@ enum NotificationType {
   SUBMISSION_MISSING // «ФИО ничего не заполнил и не подал» (этап 3)
   ITEM_RETURNED // куратор вернул позицию на доработку
   ROLE_CHANGED // назначен куратором / снят с кураторства
+  MEMO_SENT // директор отправил справку ЗГД
+  MEMO_RETURNED // ЗГД вернул справку директору
 }
 
 model Notification {
@@ -232,14 +234,14 @@ enum CycleStatus {
 /// Цикл оперативки (один недельный период; активен не более одного).
 /// snapshot — неизменяемый снимок отправленных позиций на момент финализации.
 model Cycle {
-  id              String       @id @default(cuid())
+  id              String        @id @default(cuid())
   number          Int
   directorateId   String?
-  directorate     Directorate? @relation(fields: [directorateId], references: [id])
+  directorate     Directorate?  @relation(fields: [directorateId], references: [id])
   deadline        DateTime // срок подачи; за 2 дня до него куратору приходит напоминание «не подал»
-  status          CycleStatus  @default(OPEN)
+  status          CycleStatus   @default(OPEN)
   createdById     String
-  createdAt       DateTime     @default(now())
+  createdAt       DateTime      @default(now())
   reviewStartedAt DateTime?
   finalizedAt     DateTime?
   finalizedById   String?
@@ -247,7 +249,9 @@ model Cycle {
   snapshot        Json?
   meetingDate     DateTime? // дата оперативного совещания («к ОС …» в заголовке справки)
   memoDraft       Json? // черновик справки директора (см. lib/memo.ts)
-  memoVersion     Int          @default(0) // растёт при каждом сохранении черновика (защита от одновременной правки)
+  memoVersion     Int           @default(0) // растёт при каждом сохранении черновика (защита от одновременной правки)
+  revision        Int           @default(1) // ревизия справки: растёт, когда ЗГД возвращает её директору
+  versions        MemoVersion[]
 
   @@unique([directorateId, number])
   @@index([status])
@@ -327,6 +331,7 @@ model Directorate {
   customColumns   CustomColumn[]
   reportTemplates ReportTemplate[]
   memoSections    MemoSection[]
+  memoVersions    MemoVersion[]
 
   @@map("directorates")
 }
@@ -343,4 +348,31 @@ model MemoSection {
 
   @@index([directorateId])
   @@map("memo_sections")
+}
+
+/// Отправленная ЗГД версия справки: неизменяемый снимок (текст, строки-источники, участие подачи). Основа архива, поиска и сравнения.
+model MemoVersion {
+  id             String      @id @default(cuid())
+  cycleId        String
+  cycle          Cycle       @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  directorateId  String
+  directorate    Directorate @relation(fields: [directorateId], references: [id], onDelete: Cascade)
+  revision       Int
+  title          String
+  meetingDate    DateTime?
+  doc            Json // MemoDoc на момент отправки
+  sources        Json // строки-источники пунктов на момент отправки
+  participation  Json // кто сколько подал
+  note           String?
+  searchText     String // весь текст справки одной строкой — для поиска
+  sentById       String
+  sentByName     String
+  sentAt         DateTime    @default(now())
+  returnedAt     DateTime?
+  returnComment  String?
+  returnedByName String?
+
+  @@unique([cycleId, revision])
+  @@index([directorateId, sentAt])
+  @@map("memo_versions")
 }

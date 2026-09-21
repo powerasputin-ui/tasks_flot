@@ -58,6 +58,10 @@ import * as memoExport from "@/app/api/cycles/[id]/memo/export/route";
 import * as memoSections from "@/app/api/memo-sections/route";
 import * as memoInclude from "@/app/api/cycles/[id]/memo/include/route";
 import * as inclusion from "@/app/api/memo/inclusion/route";
+import * as archive from "@/app/api/memo-archive/route";
+import * as archiveOne from "@/app/api/memo-archive/[id]/route";
+import * as archiveExport from "@/app/api/memo-archive/[id]/export/route";
+import * as archiveReturn from "@/app/api/memo-archive/[id]/return/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -1014,5 +1018,110 @@ describe("составитель справки и решение «в спра�
     // закрываем цикл, чтобы не оставлять активный
     expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+  });
+});
+
+describe("отправка справки ЗГД, архив, возврат", () => {
+  let cycleId = "";
+  let itemId = "";
+  let versionId = "";
+  const word = `уникальноеслово${Date.now().toString(36)}`;
+
+  it("подготовка: цикл, поданная позиция, правка справки", async () => {
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    cycleId = start.data.id;
+    created.cycles.push(cycleId);
+    const it1 = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для архива`, operFlag: true, comment: `Подготовлено письмо ${word}.` } });
+    expect(it1.status).toBe(201);
+    itemId = it1.data.row.id;
+    created.items.push(itemId);
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    const doc = r.data.doc;
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: `Направлено письмо ${word} в адрес ГД.`, edited: true };
+    expect((await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc, version: r.data.version, meetingDate: "2026-09-14" } })).status).toBe(200);
+  });
+
+  it("отправка ЗГД: справка фиксируется версией; руководитель отправить не может", async () => {
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    expect((await call(headB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId, body: { note: "Прошу принять." } })).status).toBe(403);
+    const fin = await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId, body: { note: "Прошу принять." } });
+    expect(fin.status).toBe(200);
+    const v = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId } });
+    versionId = v.id;
+    expect(v.revision).toBe(1);
+    expect(v.note).toBe("Прошу принять.");
+    expect(v.title).toContain("14.09.2026");
+    // снимок не меняется от последующих правок данных
+    expect(v.searchText).toContain(word.toLowerCase());
+  });
+
+  it("архив: список, поиск по словам, фильтр дат; доступ только своей дирекции и ЗГД", async () => {
+    const all = await call(directorB, archive.GET, "/api/memo-archive");
+    expect(all.status).toBe(200);
+    const row = all.data.versions.find((x: { id: string }) => x.id === versionId);
+    expect(row.revision).toBe(1);
+    expect(row.bullets).toBe(1);
+    const found = await call(directorB, archive.GET, `/api/memo-archive?q=${q(word)}`);
+    expect(found.data.versions.map((x: { id: string }) => x.id)).toContain(versionId);
+    expect(found.data.versions[0].matches[0].text).toContain(word);
+    expect((await call(directorB, archive.GET, "/api/memo-archive?q=совсемнесуществующее")).data.versions).toHaveLength(0);
+    expect((await call(directorB, archive.GET, "/api/memo-archive?from=2026-10-01")).data.versions.some((x: { id: string }) => x.id === versionId)).toBe(false);
+    expect((await call(directorB, archive.GET, "/api/memo-archive?from=2026-09-01&to=2026-09-30")).data.versions.some((x: { id: string }) => x.id === versionId)).toBe(true);
+    // ЗГД видит все дирекции, чужая дирекция и обычный руководитель — нет
+    expect((await call(management, archive.GET, "/api/memo-archive")).data.versions.some((x: { id: string }) => x.id === versionId)).toBe(true);
+    expect((await call(director, archive.GET, "/api/memo-archive")).data.versions.some((x: { id: string }) => x.id === versionId)).toBe(false);
+    expect((await call(headB, archive.GET, "/api/memo-archive")).status).toBe(403);
+    expect((await call(headB, archiveOne.GET, `/api/memo-archive/${versionId}`, { id: versionId })).status).toBe(404);
+    expect((await call(director, archiveOne.GET, `/api/memo-archive/${versionId}`, { id: versionId })).status).toBe(404);
+  });
+
+  it("версия целиком и файлы; вернуть может только ЗГД", async () => {
+    const d = await call(directorB, archiveOne.GET, `/api/memo-archive/${versionId}`, { id: versionId });
+    expect(d.status).toBe(200);
+    expect(d.data.version.note).toBe("Прошу принять.");
+    expect(d.data.version.canReturn).toBe(false);
+    expect(d.data.version.doc.sections[0].bullets[0].text).toContain(word);
+    expect((await call(management, archiveOne.GET, `/api/memo-archive/${versionId}`, { id: versionId })).data.version.canReturn).toBe(true);
+    for (const f of ["pdf", "docx"]) {
+      const r = await call(directorB, archiveExport.GET, `/api/memo-archive/${versionId}/export?format=${f}`, { id: versionId });
+      expect(r.status).toBe(200);
+      expect((await r.res.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    }
+    expect((await call(directorB, archiveReturn.POST, `/api/memo-archive/${versionId}/return`, { method: "POST", id: versionId, body: { comment: "x" } })).status).toBe(403);
+    expect((await call(management, archiveReturn.POST, `/api/memo-archive/${versionId}/return`, { method: "POST", id: versionId, body: { comment: "  " } })).status).toBe(400);
+  });
+
+  it("возврат ЗГД: оперативка снова на «Сборке» (ред. 2), справка — копия, «Опер» вернулся; повторный возврат нельзя", async () => {
+    const back = await call(management, archiveReturn.POST, `/api/memo-archive/${versionId}/return`, { method: "POST", id: versionId, body: { comment: "Уточните сроки" } });
+    expect(back.status).toBe(200);
+    const cyc = await prisma.cycle.findUniqueOrThrow({ where: { id: cycleId } });
+    expect(cyc.status).toBe("IN_REVIEW");
+    expect(cyc.revision).toBe(2);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemId } })).operFlag).toBe(true);
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(r.data.doc.sections[0].bullets[0].text).toContain(word);
+    expect(r.data.editable).toBe(true);
+    const detail = await call(directorB, archiveOne.GET, `/api/memo-archive/${versionId}`, { id: versionId });
+    expect(detail.data.version.returnComment).toBe("Уточните сроки");
+    expect(detail.data.version.canReturn).toBe(false);
+    expect((await call(management, archiveReturn.POST, `/api/memo-archive/${versionId}/return`, { method: "POST", id: versionId, body: { comment: "ещё" } })).status).toBe(409);
+    expect(await prisma.notification.count({ where: { userId: directorB.id, type: "MEMO_RETURNED" } })).toBe(1);
+  });
+
+  it("повторная отправка: новая ревизия, старая версия неизменна", async () => {
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    const doc = r.data.doc;
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: `Исправлено: письмо ${word} направлено 15.09.`, edited: true };
+    expect((await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc, version: r.data.version } })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
+    const versions = await prisma.memoVersion.findMany({ where: { cycleId }, orderBy: { revision: "asc" } });
+    expect(versions.map((x) => x.revision)).toEqual([1, 2]);
+    expect(JSON.stringify(versions[0].doc)).toContain(`Направлено письмо ${word}`); // первая версия не изменилась
+    expect(JSON.stringify(versions[1].doc)).toContain("Исправлено");
+    const list = await call(directorB, archive.GET, "/api/memo-archive");
+    const latest = list.data.versions.find((x: { id: string }) => x.id === versions[1].id);
+    expect(latest.revision).toBe(2);
+    expect(latest.revisions).toBe(2);
   });
 });
