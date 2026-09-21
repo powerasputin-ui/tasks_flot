@@ -35,10 +35,73 @@ export type SourceItem = {
   operFlag: boolean;
   archived: boolean;
   trackId: string | null;
+  segmentId?: string | null;
   createdAt?: Date | string;
+  /** Готовый текст заготовки пункта, собранный по «виду справки» дирекции (поля таблицы). Если не задан — комментарий или название. */
+  text?: string;
 };
 
-export type SectionDef = { id: string; title: string; trackIds: string[] };
+/** Раздел справки: в него входят треки и/или сегменты (при группировке по сегментам). */
+export type SectionDef = { id: string; title: string; trackIds: string[]; segmentIds?: string[] };
+
+/** Вид справки (настройка дирекции): как группировать разделы и какие поля таблицы попадают в текст пункта. */
+export type MemoGroupBy = "track" | "segment" | "custom";
+export type MemoField = "segment" | "track" | "task" | "comment" | "owner" | "deadline" | "status";
+export type MemoConfig = { groupBy: MemoGroupBy | null; fields: MemoField[] };
+export const MEMO_FIELDS: Array<{ key: MemoField; label: string }> = [
+  { key: "segment", label: "Сегмент" },
+  { key: "track", label: "Трек" },
+  { key: "task", label: "Задача" },
+  { key: "comment", label: "Комментарий" },
+  { key: "owner", label: "Ответственный" },
+  { key: "deadline", label: "Дедлайн" },
+  { key: "status", label: "Статус" },
+];
+/** По умолчанию как в вашей справке: только комментарий (а если его нет — название задачи). */
+export const DEFAULT_MEMO_CONFIG: MemoConfig = { groupBy: null, fields: ["comment"] };
+
+export function parseMemoConfig(value: unknown): MemoConfig {
+  const v = value as Partial<MemoConfig> | null;
+  const keys = new Set(MEMO_FIELDS.map((f) => f.key));
+  const fields = Array.isArray(v?.fields) ? (v!.fields.filter((f) => keys.has(f as MemoField)) as MemoField[]) : DEFAULT_MEMO_CONFIG.fields;
+  const groupBy = v?.groupBy === "track" || v?.groupBy === "segment" || v?.groupBy === "custom" ? v.groupBy : null;
+  return { groupBy, fields: fields.length ? [...new Set(fields)] : DEFAULT_MEMO_CONFIG.fields };
+}
+
+export type ComposeInput = {
+  title: string;
+  comment: string | null;
+  segmentName?: string | null;
+  trackName?: string | null;
+  ownerName?: string | null;
+  deadline?: string | Date | null;
+  statusName?: string | null;
+};
+
+const ruDay = (d: string | Date) => {
+  const x = new Date(d);
+  return `${String(x.getUTCDate()).padStart(2, "0")}.${String(x.getUTCMonth() + 1).padStart(2, "0")}.${x.getUTCFullYear()}`;
+};
+
+/**
+ * Текст заготовки пункта из полей таблицы по настройке «вида справки»:
+ * «Сегмент / Трек: Задача: Комментарий (Ответственный; срок 07.09.2026; Статус)». Пустые поля пропускаются;
+ * если из выбранных основных полей (задача, комментарий) ничего нет — берётся название задачи, чтобы пункт не был пустым.
+ */
+export function composeText(item: ComposeInput, fields: MemoField[]): string {
+  const has = (f: MemoField) => fields.includes(f);
+  const head = [has("segment") ? item.segmentName : null, has("track") ? item.trackName : null].filter(Boolean).join(" / ");
+  const body = [has("task") ? clean(item.title) : "", has("comment") ? clean(item.comment ?? "") : ""].filter(Boolean).join(": ") || clean(item.title);
+  const extras = [has("owner") ? item.ownerName : null, has("deadline") && item.deadline ? `срок ${ruDay(item.deadline)}` : null, has("status") ? item.statusName : null].filter(Boolean).join("; ");
+  return [head ? `${head}: ` : "", body, extras ? ` (${extras})` : ""].join("");
+}
+
+/** Разделы «автоматом»: без ручной настройки каждый трек (или сегмент) — свой раздел, в порядке справочника. */
+export function autoDefs(groupBy: "track" | "segment", tracks: Array<{ id: string; name: string }>, segments: Array<{ id: string; name: string }>): SectionDef[] {
+  return groupBy === "track"
+    ? tracks.map((t) => ({ id: `track:${t.id}`, title: t.name, trackIds: [t.id] }))
+    : segments.map((g) => ({ id: `segment:${g.id}`, title: g.name, trackIds: [], segmentIds: [g.id] }));
+}
 
 export const OTHER_SECTION_ID = "other";
 export const OTHER_SECTION_TITLE = "Прочие направления";
@@ -53,8 +116,8 @@ export function hashText(s: string): string {
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /** Заготовка пункта из строки: её комментарий, а если он пуст — название задачи. */
-export function sourceText(item: Pick<SourceItem, "title" | "comment">): string {
-  return clean(item.comment ?? "") || clean(item.title);
+export function sourceText(item: Pick<SourceItem, "title" | "comment" | "text">): string {
+  return item.text?.trim() || clean(item.comment ?? "") || clean(item.title);
 }
 
 const isEligible = (i: SourceItem) => i.operFlag && !i.archived;
@@ -70,8 +133,11 @@ function bulletFor(item: SourceItem): MemoBullet {
 
 /** Раздел структуры, в который входит трек (или null — «Прочие направления»). */
 function sectionOf(item: SourceItem, defs: SectionDef[]): SectionDef | null {
-  if (!item.trackId) return null;
-  return defs.find((d) => d.trackIds.includes(item.trackId!)) ?? null;
+  return (
+    (item.trackId && defs.find((d) => d.trackIds.includes(item.trackId!))) ||
+    (item.segmentId && defs.find((d) => d.segmentIds?.includes(item.segmentId!))) ||
+    null
+  );
 }
 
 function emptySection(def: SectionDef | null): MemoSectionDoc {

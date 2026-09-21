@@ -165,3 +165,45 @@ describe("решение «в справку» из таблицы", () => {
     expect(undecided(doc, items).map((i) => i.id)).toEqual(["bb"]);
   });
 });
+
+describe("вид справки: поля таблицы и автоматические разделы", () => {
+  const src = { title: "Финализация КП", comment: "Получены индикативы.", segmentName: "Строительный флот", trackName: "Баржа", ownerName: "Сухов В.А.", deadline: "2026-09-07T00:00:00Z", statusName: "В работе" };
+
+  it("по умолчанию — комментарий; нет комментария — название задачи", async () => {
+    const { composeText } = await import("@/lib/memo");
+    expect(composeText(src, ["comment"])).toBe("Получены индикативы.");
+    expect(composeText({ ...src, comment: null }, ["comment"])).toBe("Финализация КП");
+  });
+
+  it("выбранные поля собираются в порядке: сегмент / трек: задача: комментарий (ответственный; срок; статус)", async () => {
+    const { composeText } = await import("@/lib/memo");
+    expect(composeText(src, ["task", "comment"])).toBe("Финализация КП: Получены индикативы.");
+    expect(composeText(src, ["segment", "track", "comment"])).toBe("Строительный флот / Баржа: Получены индикативы.");
+    expect(composeText(src, ["comment", "owner", "deadline", "status"])).toBe("Получены индикативы. (Сухов В.А.; срок 07.09.2026; В работе)");
+    // пустые поля пропускаются
+    expect(composeText({ ...src, ownerName: null, deadline: null }, ["comment", "owner", "deadline", "status"])).toBe("Получены индикативы. (В работе)");
+  });
+
+  it("настройка разбирается устойчиво: мусор → значения по умолчанию, повторы убираются", async () => {
+    const { parseMemoConfig } = await import("@/lib/memo");
+    expect(parseMemoConfig(null)).toEqual({ groupBy: null, fields: ["comment"] });
+    expect(parseMemoConfig({ groupBy: "segment", fields: ["task", "task", "нет", "comment"] })).toEqual({ groupBy: "segment", fields: ["task", "comment"] });
+    expect(parseMemoConfig({ groupBy: "мусор", fields: [] })).toEqual({ groupBy: null, fields: ["comment"] });
+  });
+
+  it("разделы автоматом: по трекам или по сегментам; строка попадает в раздел своего трека/сегмента", async () => {
+    const { autoDefs } = await import("@/lib/memo");
+    const byTrack = autoDefs("track", [{ id: "t1", name: "Баржа" }, { id: "t2", name: "Буксиры" }], []);
+    expect(byTrack.map((d) => d.title)).toEqual(["Баржа", "Буксиры"]);
+    const items = [item("a", { trackId: "t2" }), item("bb", { trackId: null })];
+    expect(buildDraft(items, byTrack).sections.map((s) => s.title)).toEqual(["Буксиры", "Прочие направления"]);
+    const bySegment = autoDefs("segment", [], [{ id: "g1", name: "Строительный флот" }]);
+    const doc = buildDraft([{ ...item("a", { trackId: "t9" }), segmentId: "g1" }], bySegment);
+    expect(doc.sections.map((s) => s.title)).toEqual(["Строительный флот"]); // трек не в справочнике разделов, но сегмент подошёл
+  });
+
+  it("готовый текст (по виду справки) используется как заготовка пункта", () => {
+    const doc = buildDraft([{ ...item("a", { comment: "Комментарий" }), text: "Задача: Комментарий (Сухов)" }], defs);
+    expect(doc.sections[0].bullets[0].text).toBe("Задача: Комментарий (Сухов)");
+  });
+});

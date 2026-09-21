@@ -316,12 +316,13 @@ model ReportTemplate {
 
 /// Дирекция: у каждой свои люди, позиции, сегменты, треки, циклы и колонки. Статусы и привлекательность общие.
 model Directorate {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  shortName String? // короткое название для заголовка справки («РФ и КЭ»)
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  name       String   @unique
+  shortName  String? // короткое название для заголовка справки («РФ и КЭ»)
+  memoConfig Json? // вид справки: группировка разделов и поля таблицы в тексте пункта (см. lib/memo.ts)
+  isActive   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
 
   users           User[]
   items           OperationalItem[]

@@ -1125,3 +1125,36 @@ describe("отправка справки ЗГД, архив, возврат", (
     expect(latest.revisions).toBe(2);
   });
 });
+
+describe("вид справки: разделы по трекам и поля таблицы", () => {
+  let cycleId = "";
+  it("по трекам и с полями «задача + комментарий + ответственный»: раздел = название трека, текст собирается по настройке", async () => {
+    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "track", fields: ["task", "comment", "owner"] } } });
+    expect(put.status).toBe(200);
+    const got = await call(directorB, memoSections.GET, "/api/memo-sections");
+    expect(got.data.config).toEqual({ groupBy: "track", fields: ["task", "comment", "owner"] });
+    expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "track", fields: ["comment"] } } })).status).toBe(403);
+    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "track", fields: ["нет-такого"] } } })).status).toBe(400);
+
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    cycleId = start.data.id;
+    created.cycles.push(cycleId);
+    const track = await prisma.track.findFirstOrThrow({ where: { directorateId: dirB, name: { contains: TAG } } });
+    const it1 = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} авто`, trackId: track.id, operFlag: true, comment: "Комментарий." } });
+    expect(it1.status).toBe(201);
+    created.items.push(it1.data.row.id);
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(r.status).toBe(200);
+    expect(r.data.doc.sections[0].title).toBe(track.name);
+    expect(r.data.doc.sections[0].bullets[0].text).toBe(`${TAG} авто: Комментарий. (${headB.name})`);
+    expect(r.data.unmappedTracks).toEqual([]);
+  });
+
+  it("по сегментам без разделов вручную: всё в «Прочие направления», если у строки нет сегмента", async () => {
+    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "segment", fields: ["comment"] } } })).status).toBe(200);
+    const r = await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
+    expect(r.status).toBe(200);
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+  });
+});
