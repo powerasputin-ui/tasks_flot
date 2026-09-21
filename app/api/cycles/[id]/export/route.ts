@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { exportResponse, parseExportFormat, renderExport } from "@/lib/export";
 import { renderPptx, renderReportPptx } from "@/lib/export-pptx";
 import { buildFinalReport, resolveReportConfig } from "@/lib/report-load";
-import { reportFileHeader, reportToSections } from "@/lib/report-export";
+import { reportFileHeader, reportPdfHeader, reportToSections } from "@/lib/report-export";
 
 type SnapRow = {
   segmentName: string | null;
@@ -52,8 +52,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         },
       });
     }
-    const head = reportFileHeader(model);
-    return exportResponse(format!, await renderExport(format!, { title: head.title, subtitle: head.subtitle, sections: reportToSections(model) }), `operativka-${cycle.number}`);
+    const pdf = format === "pdf";
+  const head = pdf ? reportPdfHeader(model) : reportFileHeader(model);
+    return exportResponse(format!, await renderExport(format!, { title: head.title, subtitle: head.subtitle, sections: reportToSections(model, { summary: !pdf }) }), `operativka-${cycle.number}`);
   }
 
   const rows = (cycle.snapshot ?? []) as unknown as SnapRow[];

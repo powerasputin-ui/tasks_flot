@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { canUseReports } from "@/lib/report-templates";
 import { buildLiveReport, resolveReportConfig } from "@/lib/report-load";
-import { reportFileHeader, reportToSections } from "@/lib/report-export";
+import { reportFileHeader, reportPdfHeader, reportToSections } from "@/lib/report-export";
 import { exportResponse, parseExportFormat, renderExport } from "@/lib/export";
 import { renderReportPptx } from "@/lib/export-pptx";
 
@@ -38,7 +38,8 @@ export async function GET(request: NextRequest) {
       },
     });
   }
-  const head = reportFileHeader(model);
-  const body = await renderExport(format!, { title: head.title, subtitle: head.subtitle, sections: reportToSections(model) });
+  const pdf = format === "pdf";
+  const head = pdf ? reportPdfHeader(model) : reportFileHeader(model);
+  const body = await renderExport(format!, { title: head.title, subtitle: head.subtitle, sections: reportToSections(model, { summary: !pdf }) });
   return exportResponse(format!, body, `operativka-${stamp}`);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildReport } from "@/lib/report";
-import { reportFileHeader, reportToSections } from "@/lib/report-export";
+import { reportFileHeader, reportPdfHeader, reportToSections } from "@/lib/report-export";
 import { SYSTEM_TEMPLATES } from "@/lib/report-config";
 import type { TableRow } from "@/lib/table-view";
 
@@ -48,5 +48,17 @@ describe("reportToSections", () => {
     const h = reportFileHeader(model);
     expect(h.title).toBe("Дирекция X");
     expect(h.subtitle).toContain("позиций: 2");
+  });
+});
+
+describe("PDF: шапка и состав", () => {
+  const model = buildReport([row({ id: "1" })], SYSTEM_TEMPLATES[0].config, { ...ctx, directorate: "Дирекция по развитию флота и коммерческой эксплуатации" });
+  it("название документа и дата, без сводки; таблица называется «Оперативка»", () => {
+    const h = reportPdfHeader(model);
+    expect(h.title).toBe("Статус текущих задач дирекции развития флота и коммерческой эксплуатации");
+    expect(h.subtitle).toBe("21.09.2026");
+    const sections = reportToSections(model, { summary: false });
+    expect(sections).toHaveLength(1);
+    expect(sections[0].title).toBe("Оперативка");
   });
 });

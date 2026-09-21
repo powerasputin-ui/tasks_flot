@@ -5,10 +5,10 @@ import { groupLevelLabel, type ReportGroup, type ReportModel } from "@/lib/repor
  * Модель отчёта → секции для CSV / Excel / PDF (те же, что у остальных выгрузок).
  * Заголовки групп идут отдельными строками с числом позиций (с отступом по уровню), комментарий — строкой под задачей.
  */
-export function reportToSections(model: ReportModel): ExportSection[] {
+export function reportToSections(model: ReportModel, opts: { summary?: boolean } = {}): ExportSection[] {
   const sections: ExportSection[] = [];
 
-  if (model.showSummary) {
+  if (model.showSummary && opts.summary !== false) {
     const s = model.summary;
     sections.push({
       title: "Статус текущих задач",
@@ -48,4 +48,12 @@ const ruDateTime = (iso: string) => new Date(iso).toLocaleString("ru-RU", { day:
 /** Заголовок и подзаголовок файла. */
 export function reportFileHeader(model: ReportModel): { title: string; subtitle: string } {
   return { title: model.directorate, subtitle: `${model.title} · сформировано ${ruDateTime(model.generatedAt)} · позиций: ${model.summary.total}` };
+}
+
+/** Шапка PDF: название документа и дата; название отчёта («Оперативка») идёт заголовком таблицы. */
+export function reportPdfHeader(model: ReportModel): { title: string; subtitle: string } {
+  const isDefault = model.directorate.startsWith("Дирекция по развитию флота");
+  const who = isDefault ? "дирекции развития флота и коммерческой эксплуатации" : model.directorate;
+  const date = new Date(model.generatedAt).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return { title: `Статус текущих задач ${who}`, subtitle: date };
 }
