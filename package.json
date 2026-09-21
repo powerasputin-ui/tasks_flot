@@ -15,7 +15,10 @@
     "create-admin": "tsx scripts/create-admin.ts",
     "import-tracks": "tsx scripts/import-tracks.ts",
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "db:local": "node scripts/local-db.mjs",
+    "db:pull": "tsx scripts/pull-prod-data.ts",
+    "db:prod:migrate": "node scripts/prod-migrate.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",
@@ -38,6 +41,7 @@
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "embedded-postgres": "^17.10.0-beta.17",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "prisma": "^6.3.0",
