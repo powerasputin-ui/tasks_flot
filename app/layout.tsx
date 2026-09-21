@@ -1,12 +1,6 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin", "cyrillic"],
-});
 
 export const metadata: Metadata = {
   title: "ГШП Оперативка",
@@ -15,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ru" className={`${inter.variable} h-full antialiased`}>
+    <html lang="ru" className="h-full antialiased">
       <body className="flex h-full flex-col overflow-hidden">
         <AppShell>{children}</AppShell>
       </body>
