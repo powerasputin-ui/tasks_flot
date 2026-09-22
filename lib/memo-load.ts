@@ -3,7 +3,7 @@ import { getDicts } from "@/lib/dictionaries";
 import { directorateName } from "@/lib/directorates";
 import { canCompileMemo, type Actor } from "@/lib/permissions";
 import { isInScope } from "@/lib/scope";
-import { autoDefs, buildDraft, composeText, memoTitle, parseMemoConfig, parseMemoDoc, syncWithSources, type BulletFlags, type MemoConfig, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
+import { autoDefs, buildDraft, composeText, parseMemoConfig, resolveTitle, parseMemoDoc, syncWithSources, type BulletFlags, type MemoConfig, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
 import { Prisma, type Cycle } from "@prisma/client";
 import { DEFAULT_COLUMNS, normalizeColumns, withCustomColumns, type ColumnConfig, type CustomCol } from "@/lib/table-columns";
 
@@ -145,5 +145,5 @@ export async function loadMemo(cycle: Cycle): Promise<MemoState> {
     if (r.count === 1) version += 1;
   }
   const dir = { name: (await directorateName(cycle.directorateId)) ?? "", shortName: (await prisma.directorate.findUnique({ where: { id: directorateId }, select: { shortName: true } }))?.shortName };
-  return { cycle, doc: synced.doc, version, flags: Object.fromEntries(synced.flags), sources, title: memoTitle(dir, cycle.meetingDate), defs };
+  return { cycle, doc: synced.doc, version, flags: Object.fromEntries(synced.flags), sources, title: resolveTitle(synced.doc, dir, cycle.meetingDate), defs };
 }

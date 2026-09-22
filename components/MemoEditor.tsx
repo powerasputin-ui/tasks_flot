@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, EyeOff, FileDown, Info, Merge, Plus, RefreshCw, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, EyeOff, FileDown, Info, Merge, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
+import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { manualBullet, memoTitle, mergeBullets, sourceText, type BulletFlags, type MemoBullet, type MemoDoc, type SectionDef } from "@/lib/memo";
 import type { MemoSource } from "@/lib/memo-load";
 
@@ -138,9 +139,10 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   if (!data || !doc) return <div className="skeleton h-64 rounded-lg" />;
 
   const editable = data.editable && !readOnly;
-  const title = memoTitle(data.directorate ?? { name: "" }, meeting || null);
+  // пока новая дата совещания не сохранилась на сервере, заголовок-заглушка считается тут же, чтобы поле не «дёргалось»
+  const autoTitle = memoTitle(data.directorate ?? { name: "" }, meeting || null);
 
-  const patchSection = (sid: string, fn: (b: MemoBullet[]) => MemoBullet[]) => change({ sections: doc.sections.map((s) => (s.id === sid ? { ...s, bullets: fn(s.bullets) } : s)) });
+  const patchSection = (sid: string, fn: (b: MemoBullet[]) => MemoBullet[]) => change({ ...doc, sections: doc.sections.map((s) => (s.id === sid ? { ...s, bullets: fn(s.bullets) } : s)) });
   const patchBullet = (sid: string, bid: string, patch: Partial<MemoBullet>) => patchSection(sid, (bs) => bs.map((b) => (b.id === bid ? { ...b, ...patch } : b)));
   const moveBullet = (sid: string, i: number, d: -1 | 1) =>
     patchSection(sid, (bs) => {
@@ -156,7 +158,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
     const n = s.bullets.length;
     // непустой раздел удаляем только после подтверждения; строки-источники вернутся в «Не вошло в справку»
     if (n > 0 && !window.confirm(`Удалить раздел «${s.title}» и его пункты (${n})? Строки данных вернутся в «Не вошло в справку», написанный вручную текст пропадёт.`)) return;
-    change({ sections: doc.sections.filter((x) => x.id !== sid) });
+    change({ ...doc, sections: doc.sections.filter((x) => x.id !== sid) });
   };
   const removeBullet = (sid: string, bid: string) => patchSection(sid, (bs) => bs.filter((b) => b.id !== bid));
   const moveSection = (i: number, d: -1 | 1) => {
@@ -164,7 +166,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
     if (j < 0 || j >= doc.sections.length) return;
     const next = [...doc.sections];
     [next[i], next[j]] = [next[j], next[i]];
-    change({ sections: next });
+    change({ ...doc, sections: next });
   };
   const addBullet = (sid: string, text = "", itemIds: string[] = []) => patchSection(sid, (bs) => [...bs, manualBullet(text, itemIds, allSources)]);
 
@@ -175,10 +177,10 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
     let base = doc;
     if (!target) {
       target = def ? { id: def.id, title: def.title, kind: "section" as const, bullets: [] } : { id: "other", title: "Прочие направления", kind: "other" as const, bullets: [] };
-      base = { sections: [...doc.sections, target] };
+      base = { ...doc, sections: [...doc.sections, target] };
     }
     const tid = target.id;
-    change({ sections: base.sections.map((x) => (x.id === tid ? { ...x, bullets: [...x.bullets, { ...manualBullet(sourceText(s), [s.id], allSources), origin: "auto" as const, edited: false }] } : x)) });
+    change({ ...base, sections: base.sections.map((x) => (x.id === tid ? { ...x, bullets: [...x.bullets, { ...manualBullet(sourceText(s), [s.id], allSources), origin: "auto" as const, edited: false }] } : x)) });
   };
 
   const setMeetingDate = (v: string) => {
@@ -262,6 +264,23 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
           <span className="ml-auto flex items-center gap-2">
             <SaveState state={save} onReload={() => void load()} />
             {editable && (
+              <Popover
+                align="right"
+                width={380}
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="btn-ghost h-8" title="Что из таблицы попадает в справку и как она делится на разделы">
+                    <Settings2 size={14} /> Вид справки
+                  </button>
+                )}
+              >
+                {() => (
+                  <div className="max-h-[75vh] overflow-y-auto p-4">
+                    <MemoViewSettings compact />
+                  </div>
+                )}
+              </Popover>
+            )}
+            {editable && (
               <button onClick={() => void refresh()} className="btn-ghost h-8" title="Добавить в справку новые поданные позиции; ваши правки не затрагиваются">
                 <RefreshCw size={14} /> Обновить из данных
               </button>
@@ -291,7 +310,14 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
         )}
 
         <article className="mx-auto max-w-[820px] rounded-lg border border-outline-variant bg-surface px-6 py-8 shadow-sm sm:px-12">
-          <h2 className="mb-8 text-center text-[15px] font-medium text-on-surface">{title}</h2>
+          <input
+            value={doc.title ?? ""}
+            disabled={!editable}
+            onChange={(e) => change({ ...doc, title: e.target.value })}
+            placeholder={autoTitle}
+            aria-label="Заголовок справки"
+            className="mb-8 block w-full rounded-sm bg-transparent px-1 text-center text-[15px] font-medium text-on-surface outline-none placeholder:text-on-surface hover:bg-surface-low focus:bg-surface-low"
+          />
 
           {doc.sections.length === 0 && <p className="py-10 text-center text-[13px] text-on-surface-variant">Пока нет поданных позиций. Когда руководители поставят «Опер», нажмите «Обновить из данных».</p>}
 
@@ -304,7 +330,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                   <input
                     value={section.title}
                     disabled={!editable}
-                    onChange={(e) => change({ sections: doc.sections.map((x) => (x.id === section.id ? { ...x, title: e.target.value } : x)) })}
+                    onChange={(e) => change({ ...doc, sections: doc.sections.map((x) => (x.id === section.id ? { ...x, title: e.target.value } : x)) })}
                     className="min-w-0 flex-1 rounded-sm bg-transparent px-1 text-[15px] font-bold text-on-surface outline-none hover:bg-surface-low focus:bg-surface-low"
                     aria-label="Название раздела"
                   />
@@ -350,7 +376,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
 
           {editable && (
             <button
-              onClick={() => change({ sections: [...doc.sections, { id: `s_${Date.now().toString(36)}`, title: "Новый раздел", kind: "section", bullets: [] }] })}
+              onClick={() => change({ ...doc, sections: [...doc.sections, { id: `s_${Date.now().toString(36)}`, title: "Новый раздел", kind: "section", bullets: [] }] })}
               className="mt-2 flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline"
             >
               <Plus size={14} /> Добавить раздел

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OTHER_SECTION_ID, acceptSource, buildDraft, manualBullet, memoTitle, mergeBullets, notIncluded, parseMemoDoc, refreshDraft, sourceText, syncWithSources, visibleSections, type SectionDef, type SourceItem } from "@/lib/memo";
+import { OTHER_SECTION_ID, acceptSource, buildDraft, manualBullet, memoTitle, mergeBullets, notIncluded, parseMemoDoc, refreshDraft, resolveTitle, setIncluded, sourceText, syncWithSources, visibleSections, type SectionDef, type SourceItem } from "@/lib/memo";
 
 const item = (id: string, o: Partial<SourceItem> = {}): SourceItem => ({ id, title: `Задача ${id}`, comment: null, operFlag: true, archived: false, trackId: "t1", createdAt: `2026-09-0${id.length}T10:00:00Z`, ...o });
 const defs: SectionDef[] = [
@@ -215,5 +215,33 @@ describe("вид справки: любые столбцы таблицы, вк�
     const labels = { "custom:abc": "Приоритет", "custom:zzz": "Пусто" };
     expect(composeText(src, ["comment", "cost", "attractiveness", "custom:abc", "custom:zzz"], labels)).toBe("Комментарий. (оценка 2 млн.$; привлекательность P70; Приоритет: Срочно)");
     expect(parseMemoConfig({ groupBy: "track", fields: ["comment", "custom:abc", "custom:", "что-то"] }).fields).toEqual(["comment", "custom:abc"]);
+  });
+});
+
+describe("заголовок, вписанный директором вручную", () => {
+  const items = [item("a", { comment: "Первое." }), item("bb", { comment: "Второе." })];
+  const dir = { name: "Дирекция по развитию флота", shortName: "РФ и КЭ" };
+
+  it("resolveTitle: пусто/не задано — заголовок собирается сам; иначе — вписанный текст", () => {
+    expect(resolveTitle({ title: undefined }, dir, "2026-09-14")).toBe("Статус текущих задач по дирекции РФ и КЭ к ОС 14.09.2026");
+    expect(resolveTitle({ title: "   " }, dir, "2026-09-14")).toBe("Статус текущих задач по дирекции РФ и КЭ к ОС 14.09.2026");
+    expect(resolveTitle({ title: "Особая справка для совещания" }, dir, "2026-09-14")).toBe("Особая справка для совещания");
+  });
+
+  it("сохранённый заголовок переживает объединение, слияние источников, «обновить из данных» и решение «в справку»", () => {
+    const raw = { ...buildDraft(items, defs), title: "Мой заголовок" };
+    expect(refreshDraft(raw, items, defs).doc.title).toBe("Мой заголовок");
+    expect(syncWithSources(raw, items).doc.title).toBe("Мой заголовок");
+    const [a, b] = raw.sections[0].bullets;
+    expect(mergeBullets(raw, "s1", a.id, b.id, items).title).toBe("Мой заголовок");
+    expect(acceptSource(raw, a.id, items).title).toBe("Мой заголовок");
+    expect(setIncluded(raw, items[0], false, defs, items).title).toBe("Мой заголовок");
+    expect(setIncluded(raw, item("ccc", { trackId: "t2" }), true, defs, items).title).toBe("Мой заголовок");
+  });
+
+  it("разбор из базы: пустая строка не считается вписанным заголовком, обычный текст — считается", () => {
+    expect(parseMemoDoc({ sections: [], title: "   " })?.title).toBeUndefined();
+    expect(parseMemoDoc({ sections: [], title: "Особая справка" })?.title).toBe("Особая справка");
+    expect(parseMemoDoc({ sections: [] })?.title).toBeUndefined();
   });
 });

@@ -45,7 +45,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const doc = parseMemoDoc(body?.doc);
   if (!doc || typeof body?.version !== "number") return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
   const bullets = doc.sections.reduce((n, s) => n + s.bullets.length, 0);
-  if (doc.sections.length > MEMO_LIMITS.sections || bullets > MEMO_LIMITS.bullets || doc.sections.some((s) => s.title.length > MEMO_LIMITS.titleLength || s.bullets.some((b) => b.text.length > MEMO_LIMITS.textLength))) {
+  if (
+    doc.sections.length > MEMO_LIMITS.sections ||
+    bullets > MEMO_LIMITS.bullets ||
+    (doc.title && doc.title.length > MEMO_LIMITS.titleLength) ||
+    doc.sections.some((s) => s.title.length > MEMO_LIMITS.titleLength || s.bullets.some((b) => b.text.length > MEMO_LIMITS.textLength))
+  ) {
     return NextResponse.json({ error: "INVALID_INPUT", message: "Справка слишком большая." }, { status: 400 });
   }
   let meetingDate: Date | null | undefined;

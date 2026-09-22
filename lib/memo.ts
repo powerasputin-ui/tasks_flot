@@ -26,7 +26,11 @@ export type MemoSectionDoc = {
   bullets: MemoBullet[];
 };
 
-export type MemoDoc = { sections: MemoSectionDoc[] };
+export type MemoDoc = {
+  sections: MemoSectionDoc[];
+  /** Заголовок, вписанный директором вручную. Пусто/не задано — заголовок собирается сам (см. memoTitle). */
+  title?: string;
+};
 
 export type SourceItem = {
   id: string;
@@ -213,7 +217,7 @@ export function refreshDraft(doc: MemoDoc, items: SourceItem[], defs: SectionDef
     used.add(item.id);
     added++;
   }
-  return { doc: { sections: orderSections(sections, defs) }, added };
+  return { doc: { ...doc, sections: orderSections(sections, defs) }, added };
 }
 
 export type BulletFlags = {
@@ -252,19 +256,20 @@ export function syncWithSources(doc: MemoDoc, items: SourceItem[]): { doc: MemoD
       return b;
     }),
   }));
-  return { doc: { sections }, flags, autoUpdated };
+  return { doc: { ...doc, sections }, flags, autoUpdated };
 }
 
 /** Принять новый источник: пометка «источник изменился» снимается (текст остаётся как есть). */
 export function acceptSource(doc: MemoDoc, bulletId: string, items: SourceItem[]): MemoDoc {
   const byId = new Map(items.map((i) => [i.id, i]));
-  return { sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.id === bulletId ? { ...b, sourceHash: hashText(combinedSource(b.itemIds, byId)) } : b)) })) };
+  return { ...doc, sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.id === bulletId ? { ...b, sourceHash: hashText(combinedSource(b.itemIds, byId)) } : b)) })) };
 }
 
 /** Объединить пункт `bId` в пункт `aId` того же раздела: тексты склеиваются, источники объединяются. */
 export function mergeBullets(doc: MemoDoc, sectionId: string, aId: string, bId: string, items: SourceItem[]): MemoDoc {
   const byId = new Map(items.map((i) => [i.id, i]));
   return {
+    ...doc,
     sections: doc.sections.map((s) => {
       if (s.id !== sectionId) return s;
       const a = s.bullets.find((x) => x.id === aId);
@@ -305,11 +310,16 @@ export function visibleSections(doc: MemoDoc): MemoSectionDoc[] {
 
 const ruDate = (d: Date) => `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
 
-/** Заголовок справки: «Статус текущих задач по дирекции РФ и КЭ к ОС 14.09.2026». */
+/** Заголовок справки по умолчанию: «Статус текущих задач по дирекции РФ и КЭ к ОС 14.09.2026». */
 export function memoTitle(dir: { name: string; shortName?: string | null }, meetingDate: Date | string | null): string {
   const who = dir.shortName?.trim() ? `по дирекции ${dir.shortName.trim()}` : `— ${dir.name}`;
   const date = meetingDate ? ` к ОС ${ruDate(new Date(meetingDate))}` : "";
   return `Статус текущих задач ${who}${date}`;
+}
+
+/** Заголовок справки: то, что вписал директор, а если ничего не вписал — собирается сам (memoTitle). */
+export function resolveTitle(doc: Pick<MemoDoc, "title">, dir: { name: string; shortName?: string | null }, meetingDate: Date | string | null): string {
+  return doc.title?.trim() || memoTitle(dir, meetingDate);
 }
 
 /** Документ из неизвестного JSON (например, из базы): ненадёжное значение превращается в пустую справку. */
@@ -317,6 +327,7 @@ export function parseMemoDoc(value: unknown): MemoDoc | null {
   const v = value as MemoDoc | null;
   if (!v || !Array.isArray(v.sections)) return null;
   return {
+    ...(typeof v.title === "string" && v.title.trim() ? { title: v.title } : {}),
     sections: v.sections.map((s) => ({
       id: String(s.id),
       title: String(s.title ?? ""),
@@ -344,7 +355,7 @@ export function setIncluded(doc: MemoDoc, item: SourceItem, include: boolean, de
   const byId = new Map(items.map((i) => [i.id, i]));
   if (include) {
     const has = doc.sections.some((s) => s.bullets.some((b) => b.itemIds.includes(item.id)));
-    if (has) return { sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.itemIds.includes(item.id) ? { ...b, hidden: false } : b)) })) };
+    if (has) return { ...doc, sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.itemIds.includes(item.id) ? { ...b, hidden: false } : b)) })) };
     const def = sectionOf(item, defs);
     const key = def?.id ?? OTHER_SECTION_ID;
     const sections = doc.sections.map((s) => ({ ...s, bullets: [...s.bullets] }));
@@ -354,9 +365,10 @@ export function setIncluded(doc: MemoDoc, item: SourceItem, include: boolean, de
       sections.push(target);
     }
     target.bullets.push(bulletFor(item));
-    return { sections: orderSections(sections, defs) };
+    return { ...doc, sections: orderSections(sections, defs) };
   }
   return {
+    ...doc,
     sections: doc.sections.map((s) => ({
       ...s,
       bullets: s.bullets.map((b) => {

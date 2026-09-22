@@ -7,7 +7,7 @@ import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
 import { ColumnsSettings } from "@/components/ColumnsSettings";
 import { clearBootstrap } from "@/lib/client-bootstrap";
-import { composeText, type MemoField } from "@/lib/memo";
+import { MemoViewSettings } from "@/components/MemoViewSettings";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
@@ -155,7 +155,7 @@ export default function SettingsPage() {
 
         {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} />}
         {section === "directorates" && <DirectoratesSection directorates={directorates} act={act} />}
-        {section === "memo" && <MemoStructureSection act={act} />}
+        {section === "memo" && <MemoStructureSection />}
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
@@ -372,95 +372,15 @@ function CreateUserPanel({ act, isAdmin, directorates, currentDirectorate, onClo
   );
 }
 
-type MemoSample = { title: string; comment: string | null; segmentName: string | null; trackName: string | null; ownerName: string | null; deadline: string | null; statusName: string | null; cost: string | null; attractivenessName: string | null; custom: Record<string, string> };
-
 /**
- * Вид справки: как разделить справку на разделы и какие столбцы таблицы попадают в текст пункта.
- * Список столбцов берётся из вашей таблицы: убрали или добавили столбец в таблице — он так же пропал или появился здесь.
+ * Вид справки: как разделить справку на разделы (нумерация) и какие столбцы таблицы попадают в текст пункта —
+ * это два разных решения, MemoViewSettings их так и показывает. Та же панель открывается прямо из экрана «Оперативка».
  */
-function MemoStructureSection({ act }: { act: Act }) {
-  const [shortName, setShortName] = useState("");
-  const [groupBy, setGroupBy] = useState<"track" | "segment">("track");
-  const [fields, setFields] = useState<MemoField[]>(["comment"]);
-  const [options, setOptions] = useState<Array<{ key: MemoField; label: string }>>([]);
-  const [labels, setLabels] = useState<Record<string, string>>({});
-  const [sample, setSample] = useState<MemoSample | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/memo-sections")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d) return;
-        setShortName(d.shortName ?? "");
-        setGroupBy(d.config.groupBy === "segment" ? "segment" : "track");
-        setFields(d.config.fields);
-        setOptions(d.fields);
-        setLabels(d.labels);
-        setSample(d.sample);
-        setLoaded(true);
-      });
-  }, []);
-
-  // порядок в тексте пункта — как порядок столбцов в таблице
-  const toggle = (k: MemoField) =>
-    setFields((f) => {
-      const next = f.includes(k) ? f.filter((x) => x !== k) : [...f, k];
-      if (next.length === 0) return f;
-      return options.map((o) => o.key).filter((key) => next.includes(key));
-    });
-
-  const save = () =>
-    act(send("/api/memo-sections", "PUT", { shortName: shortName.trim() || null, config: { groupBy, fields } }), "Вид справки сохранён. Он применяется к новым оперативкам и к кнопке «Обновить из данных».");
-
-  if (!loaded) return <div className="skeleton h-40 rounded-lg" />;
-  const preview = sample ? composeText(sample, fields, labels) : "Пример появится, когда в таблице будут строки.";
-
+function MemoStructureSection() {
   return (
     <>
-      <SectionHeader
-        title="Вид справки"
-        hint="Что из таблицы попадает в справку для ЗГД. Отметьте нужные столбцы — ниже сразу виден пример на реальной строке."
-        action={
-          <button onClick={save} className="btn-primary">
-            Сохранить
-          </button>
-        }
-      />
-
-      <h3 className="label-caps mb-2">Разделы справки</h3>
-      <div className="mb-6 flex max-w-2xl flex-wrap gap-2">
-        {([
-          ["track", "По трекам"],
-          ["segment", "По сегментам"],
-        ] as const).map(([k, label]) => (
-          <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-[13px] font-semibold ${groupBy === k ? "border-primary bg-primary-soft text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-low"}`}>
-            <input type="radio" name="groupBy" checked={groupBy === k} onChange={() => setGroupBy(k)} className="accent-primary" />
-            {label}
-          </label>
-        ))}
-      </div>
-
-      <h3 className="label-caps mb-2">Столбцы таблицы в тексте пункта</h3>
-      <div className="mb-3 flex max-w-2xl flex-wrap gap-2">
-        {options.map((f) => (
-          <label key={f.key} className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] ${fields.includes(f.key) ? "border-primary bg-primary-soft text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-low"}`}>
-            <input type="checkbox" checked={fields.includes(f.key)} onChange={() => toggle(f.key)} className="accent-primary" />
-            {f.label}
-          </label>
-        ))}
-      </div>
-      <div className="mb-6 max-w-2xl rounded-md border border-outline-variant bg-surface-low px-4 py-3">
-        <p className="label-caps mb-1">Так будет выглядеть пункт</p>
-        <p className="text-[14px] leading-[1.55] text-on-surface">• {preview}</p>
-        <p className="mt-1 text-[11px] text-on-surface-variant">Если комментария нет, вместо него берётся название задачи. Готовый текст всегда можно поправить в редакторе справки.</p>
-      </div>
-
-      <div className="max-w-md">
-        <label className="mb-1 block text-[12px] font-medium text-on-surface-variant">Короткое название дирекции для заголовка</label>
-        <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Например: РФ и КЭ" className="input w-full" maxLength={60} />
-        <p className="mt-1 text-[12px] text-on-surface-variant">Заголовок: «Статус текущих задач по дирекции {shortName.trim() || "…"} к ОС 21.09.2026».</p>
-      </div>
+      <SectionHeader title="Вид справки" hint="Что из таблицы попадает в справку для ЗГД. Отметьте нужное — ниже сразу виден пример на реальной строке. Настраивать можно и прямо в «Оперативке»." />
+      <MemoViewSettings />
     </>
   );
 }
