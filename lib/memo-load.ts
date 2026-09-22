@@ -3,7 +3,7 @@ import { getDicts } from "@/lib/dictionaries";
 import { directorateName } from "@/lib/directorates";
 import { canCompileMemo, type Actor } from "@/lib/permissions";
 import { isInScope } from "@/lib/scope";
-import { autoDefs, buildDraft, composeText, parseMemoConfig, resolveTitle, parseMemoDoc, syncWithSources, type BulletFlags, type MemoConfig, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
+import { buildDraft, composeText, parseMemoConfig, resolveTitle, parseMemoDoc, syncWithSources, tracksToSections, type BulletFlags, type MemoConfig, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
 import { Prisma, type Cycle } from "@prisma/client";
 import { DEFAULT_COLUMNS, normalizeColumns, withCustomColumns, type ColumnConfig, type CustomCol } from "@/lib/table-columns";
 
@@ -26,7 +26,6 @@ export function canEditMemo(actor: Actor, cycle: { directorateId: string | null 
   return canCompileMemo(actor) && isInScope(actor, cycle);
 }
 
-/** Вид справки дирекции: группировка разделов и поля текста пункта. */
 /** Столбцы таблицы, которые можно включить в текст пункта: те, что сейчас есть в таблице (убранные и скрытые не предлагаются), в порядке таблицы. */
 const COLUMN_TO_FIELD: Record<string, string> = { track: "track", name: "task", comment: "comment", owner: "owner", deadline: "deadline", status: "status", cost: "cost", attractiveness: "attractiveness" };
 export async function loadFieldOptions(directorateId: string): Promise<Array<{ key: string; label: string }>> {
@@ -49,21 +48,10 @@ export async function loadMemoConfig(directorateId: string): Promise<MemoConfig>
   return parseMemoConfig(d?.memoConfig);
 }
 
-/**
- * Разделы справки. По умолчанию — автоматически: каждый трек (или сегмент, если так настроено) — свой раздел.
- * «Свои разделы» (вручную заданные названия и состав треков) используются, когда выбрана такая группировка
- * или когда они уже были заданы раньше, а группировка не выбрана.
- */
-export async function loadSectionDefs(directorateId: string, cfg?: MemoConfig): Promise<SectionDef[]> {
-  const config = cfg ?? (await loadMemoConfig(directorateId));
-  const custom = await prisma.memoSection.findMany({ where: { directorateId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], include: { tracks: { select: { id: true }, orderBy: { sortOrder: "asc" } } } });
-  const mode = config.groupBy ?? (custom.length ? "custom" : "track");
-  if (mode === "custom") return custom.map((s) => ({ id: s.id, title: s.title, trackIds: s.tracks.map((t) => t.id) }));
-  const [tracks, segments] = await Promise.all([
-    prisma.track.findMany({ where: { directorateId, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
-    prisma.segment.findMany({ where: { directorateId, isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true } }),
-  ]);
-  return autoDefs(mode, tracks, segments);
+/** Разделы справки: не настраиваются, каждый трек — свой раздел («1. …», «2. …» в порядке справочника треков). */
+export async function loadSectionDefs(directorateId: string): Promise<SectionDef[]> {
+  const tracks = await prisma.track.findMany({ where: { directorateId, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true } });
+  return tracksToSections(tracks);
 }
 
 /** Все активные позиции дирекции (для сверки со справкой и списка «не вошло»). */
@@ -127,7 +115,7 @@ export type MemoState = {
 export async function loadMemo(cycle: Cycle): Promise<MemoState> {
   const directorateId = cycle.directorateId ?? "";
   const cfg = await loadMemoConfig(directorateId);
-  const [defs, sources] = await Promise.all([loadSectionDefs(directorateId, cfg), loadSources(directorateId, cfg)]);
+  const [defs, sources] = await Promise.all([loadSectionDefs(directorateId), loadSources(directorateId, cfg)]);
   let doc = parseMemoDoc(cycle.memoDraft);
   let version = cycle.memoVersion;
 

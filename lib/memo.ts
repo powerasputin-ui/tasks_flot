@@ -45,17 +45,17 @@ export type SourceItem = {
   text?: string;
 };
 
-/** Раздел справки: в него входят треки и/или сегменты (при группировке по сегментам). */
-export type SectionDef = { id: string; title: string; trackIds: string[]; segmentIds?: string[] };
+/** Раздел справки: в него входит один трек (справка всегда делится на разделы по трекам, без настройки). */
+export type SectionDef = { id: string; title: string; trackIds: string[] };
 
 /**
- * Вид справки (настройка дирекции): как группировать разделы и какие столбцы таблицы попадают в текст пункта.
- * Поля — это столбцы таблицы: сегмент, трек, задача, комментарий, ответственный, дедлайн, статус, оценка, привлекательность
- * и свои колонки (custom:<id>). Какие столбцы доступны, определяется актуальной таблицей (убранные не предлагаются).
+ * Вид справки (настройка дирекции): какие столбцы таблицы попадают в текст пункта. Это единственная настройка —
+ * сегмент, трек, задача, комментарий, ответственный, дедлайн, статус, оценка, привлекательность и свои колонки
+ * (custom:<id>) отмечаются независимо друг от друга. Какие столбцы доступны, определяется актуальной таблицей
+ * (убранные из таблицы не предлагаются). На разделы («1. …», «2. …») справка делится по трекам всегда, это не настраивается.
  */
-export type MemoGroupBy = "track" | "segment" | "custom";
 export type MemoField = string;
-export type MemoConfig = { groupBy: MemoGroupBy | null; fields: MemoField[] };
+export type MemoConfig = { fields: MemoField[] };
 /** Стандартные поля справки (подписи по умолчанию; в настройках подписи берутся из таблицы). */
 export const MEMO_FIELDS: Array<{ key: MemoField; label: string }> = [
   { key: "segment", label: "Сегмент" },
@@ -69,15 +69,14 @@ export const MEMO_FIELDS: Array<{ key: MemoField; label: string }> = [
   { key: "attractiveness", label: "Привлекательность" },
 ];
 /** По умолчанию как в вашей справке: только комментарий (а если его нет — название задачи). */
-export const DEFAULT_MEMO_CONFIG: MemoConfig = { groupBy: null, fields: ["comment"] };
+export const DEFAULT_MEMO_CONFIG: MemoConfig = { fields: ["comment"] };
 
 const FIELD_KEY = /^(segment|track|task|comment|owner|deadline|status|cost|attractiveness|custom:[\w-]{1,80})$/;
 
 export function parseMemoConfig(value: unknown): MemoConfig {
   const v = value as Partial<MemoConfig> | null;
   const fields = Array.isArray(v?.fields) ? v!.fields.filter((f) => typeof f === "string" && FIELD_KEY.test(f)) : DEFAULT_MEMO_CONFIG.fields;
-  const groupBy = v?.groupBy === "track" || v?.groupBy === "segment" || v?.groupBy === "custom" ? v.groupBy : null;
-  return { groupBy, fields: fields.length ? [...new Set(fields)] : DEFAULT_MEMO_CONFIG.fields };
+  return { fields: fields.length ? [...new Set(fields)] : DEFAULT_MEMO_CONFIG.fields };
 }
 
 export type ComposeInput = {
@@ -128,11 +127,9 @@ export function composeText(item: ComposeInput, fields: MemoField[], labels: Rec
   return [head ? `${head}: ` : "", body, extras ? ` (${extras})` : ""].join("");
 }
 
-/** Разделы «автоматом»: без ручной настройки каждый трек (или сегмент) — свой раздел, в порядке справочника. */
-export function autoDefs(groupBy: "track" | "segment", tracks: Array<{ id: string; name: string }>, segments: Array<{ id: string; name: string }>): SectionDef[] {
-  return groupBy === "track"
-    ? tracks.map((t) => ({ id: `track:${t.id}`, title: t.name, trackIds: [t.id] }))
-    : segments.map((g) => ({ id: `segment:${g.id}`, title: g.name, trackIds: [], segmentIds: [g.id] }));
+/** Разделы справки: каждый трек — свой раздел, в порядке справочника. */
+export function tracksToSections(tracks: Array<{ id: string; name: string }>): SectionDef[] {
+  return tracks.map((t) => ({ id: `track:${t.id}`, title: t.name, trackIds: [t.id] }));
 }
 
 export const OTHER_SECTION_ID = "other";
@@ -163,13 +160,9 @@ function bulletFor(item: SourceItem): MemoBullet {
   return { id: newId("b"), text: t, itemIds: [item.id], origin: "auto", edited: false, hidden: false, sourceHash: hashText(t) };
 }
 
-/** Раздел структуры, в который входит трек (или null — «Прочие направления»). */
+/** Раздел, в который входит трек строки (или null — «Прочие направления», если у строки нет трека). */
 function sectionOf(item: SourceItem, defs: SectionDef[]): SectionDef | null {
-  return (
-    (item.trackId && defs.find((d) => d.trackIds.includes(item.trackId!))) ||
-    (item.segmentId && defs.find((d) => d.segmentIds?.includes(item.segmentId!))) ||
-    null
-  );
+  return (item.trackId && defs.find((d) => d.trackIds.includes(item.trackId!))) || null;
 }
 
 function emptySection(def: SectionDef | null): MemoSectionDoc {

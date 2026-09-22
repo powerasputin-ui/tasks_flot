@@ -166,7 +166,7 @@ describe("решение «в справку» из таблицы", () => {
   });
 });
 
-describe("вид справки: поля таблицы и автоматические разделы", () => {
+describe("вид справки: столбцы таблицы в тексте пункта, разделы всегда по трекам", () => {
   const src = { title: "Финализация КП", comment: "Получены индикативы.", segmentName: "Строительный флот", trackName: "Баржа", ownerName: "Сухов В.А.", deadline: "2026-09-07T00:00:00Z", statusName: "В работе" };
 
   it("по умолчанию — комментарий; нет комментария — название задачи", async () => {
@@ -175,31 +175,29 @@ describe("вид справки: поля таблицы и автоматиче
     expect(composeText({ ...src, comment: null }, ["comment"])).toBe("Финализация КП");
   });
 
-  it("выбранные поля собираются в порядке: сегмент / трек: задача: комментарий (ответственный; срок; статус)", async () => {
+  it("Сегмент и Трек — обычные столбцы: можно отметить любые вместе, они добавляются в начало текста", async () => {
     const { composeText } = await import("@/lib/memo");
     expect(composeText(src, ["task", "comment"])).toBe("Финализация КП: Получены индикативы.");
     expect(composeText(src, ["segment", "track", "comment"])).toBe("Строительный флот / Баржа: Получены индикативы.");
+    expect(composeText(src, ["track", "comment"])).toBe("Баржа: Получены индикативы.");
     expect(composeText(src, ["comment", "owner", "deadline", "status"])).toBe("Получены индикативы. (Сухов В.А.; срок 07.09.2026; В работе)");
     // пустые поля пропускаются
     expect(composeText({ ...src, ownerName: null, deadline: null }, ["comment", "owner", "deadline", "status"])).toBe("Получены индикативы. (В работе)");
   });
 
-  it("настройка разбирается устойчиво: мусор → значения по умолчанию, повторы убираются", async () => {
+  it("настройка — только список столбцов; разбирается устойчиво: мусор → значения по умолчанию, повторы убираются", async () => {
     const { parseMemoConfig } = await import("@/lib/memo");
-    expect(parseMemoConfig(null)).toEqual({ groupBy: null, fields: ["comment"] });
-    expect(parseMemoConfig({ groupBy: "segment", fields: ["task", "task", "нет", "comment"] })).toEqual({ groupBy: "segment", fields: ["task", "comment"] });
-    expect(parseMemoConfig({ groupBy: "мусор", fields: [] })).toEqual({ groupBy: null, fields: ["comment"] });
+    expect(parseMemoConfig(null)).toEqual({ fields: ["comment"] });
+    expect(parseMemoConfig({ fields: ["task", "task", "нет", "comment"] })).toEqual({ fields: ["task", "comment"] });
+    expect(parseMemoConfig({ fields: [] })).toEqual({ fields: ["comment"] });
   });
 
-  it("разделы автоматом: по трекам или по сегментам; строка попадает в раздел своего трека/сегмента", async () => {
-    const { autoDefs } = await import("@/lib/memo");
-    const byTrack = autoDefs("track", [{ id: "t1", name: "Баржа" }, { id: "t2", name: "Буксиры" }], []);
-    expect(byTrack.map((d) => d.title)).toEqual(["Баржа", "Буксиры"]);
+  it("разделы: не настраиваются, всегда по трекам; строка без трека попадает в «Прочие направления»", async () => {
+    const { tracksToSections } = await import("@/lib/memo");
+    const bySections = tracksToSections([{ id: "t1", name: "Баржа" }, { id: "t2", name: "Буксиры" }]);
+    expect(bySections.map((d) => d.title)).toEqual(["Баржа", "Буксиры"]);
     const items = [item("a", { trackId: "t2" }), item("bb", { trackId: null })];
-    expect(buildDraft(items, byTrack).sections.map((s) => s.title)).toEqual(["Буксиры", "Прочие направления"]);
-    const bySegment = autoDefs("segment", [], [{ id: "g1", name: "Строительный флот" }]);
-    const doc = buildDraft([{ ...item("a", { trackId: "t9" }), segmentId: "g1" }], bySegment);
-    expect(doc.sections.map((s) => s.title)).toEqual(["Строительный флот"]); // трек не в справочнике разделов, но сегмент подошёл
+    expect(buildDraft(items, bySections).sections.map((s) => s.title)).toEqual(["Буксиры", "Прочие направления"]);
   });
 
   it("готовый текст (по виду справки) используется как заготовка пункта", () => {
@@ -214,7 +212,7 @@ describe("вид справки: любые столбцы таблицы, вк�
     const src = { title: "Задача", comment: "Комментарий.", cost: "2 млн.$", attractivenessName: "P70", custom: { abc: "Срочно", zzz: "" } };
     const labels = { "custom:abc": "Приоритет", "custom:zzz": "Пусто" };
     expect(composeText(src, ["comment", "cost", "attractiveness", "custom:abc", "custom:zzz"], labels)).toBe("Комментарий. (оценка 2 млн.$; привлекательность P70; Приоритет: Срочно)");
-    expect(parseMemoConfig({ groupBy: "track", fields: ["comment", "custom:abc", "custom:", "что-то"] }).fields).toEqual(["comment", "custom:abc"]);
+    expect(parseMemoConfig({ fields: ["comment", "custom:abc", "custom:", "что-то"] }).fields).toEqual(["comment", "custom:abc"]);
   });
 });
 

@@ -837,21 +837,17 @@ describe("справка директора", () => {
   let version = 0;
   const ids: string[] = [];
 
-  it("структура справки: директор задаёт разделы и короткое название; чужие и руководитель не могут", async () => {
+  it("вид справки: директор задаёт короткое название и отмеченные столбцы; чужие и руководитель не могут", async () => {
     const t = await call(directorB, tracks.POST, "/api/tracks", { method: "POST", body: { name: `${TAG}-трек справки` } });
     expect(t.status).toBe(201);
     trackA = t.data.track.id;
     created.tracks.push(trackA);
-    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { shortName: "ТД", sections: [{ title: `${TAG} Первый раздел`, trackIds: [trackA] }] } });
+    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { shortName: "ТД", config: { fields: ["comment"] } } });
     expect(put.status).toBe(200);
     const got = await call(directorB, memoSections.GET, "/api/memo-sections");
     expect(got.data.shortName).toBe("ТД");
-    expect(got.data.sections).toHaveLength(1);
-    expect(got.data.sections[0].trackIds).toEqual([trackA]);
-    // трек из другой дирекции в структуру не попадёт
-    const foreignTrack = await prisma.track.findFirst({ where: { directorateId: curator.directorateId }, select: { id: true } });
-    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { sections: [{ title: "x", trackIds: [foreignTrack!.id] }] } })).status).toBe(400);
-    expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { sections: [] } })).status).toBe(403);
+    expect(got.data.config).toEqual({ fields: ["comment"] });
+    expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["comment"] } } })).status).toBe(403);
     expect((await call(headB, memoSections.GET, "/api/memo-sections")).status).toBe(403);
   });
 
@@ -877,7 +873,7 @@ describe("справка директора", () => {
     expect(r.status).toBe(200);
     version = r.data.version;
     const titles = r.data.doc.sections.map((x: { title: string }) => x.title);
-    expect(titles[0]).toContain("Первый раздел");
+    expect(titles[0]).toBe(`${TAG}-трек справки`); // раздел — сам трек, без ручной настройки
     expect(titles[titles.length - 1]).toBe("Прочие направления");
     expect(r.data.doc.sections[0].bullets.map((b: { text: string }) => b.text)).toEqual(["Первый комментарий.", "Второй комментарий."]);
     expect(r.data.notIncluded.map((i: { id: string }) => i.id)).toContain(ids[3]);
@@ -1126,15 +1122,15 @@ describe("отправка справки ЗГД, архив, возврат", (
   });
 });
 
-describe("вид справки: разделы по трекам и поля таблицы", () => {
+describe("вид справки: разделы всегда по трекам, столбцы — любое сочетание", () => {
   let cycleId = "";
-  it("по трекам и с полями «задача + комментарий + ответственный»: раздел = название трека, текст собирается по настройке", async () => {
-    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "track", fields: ["task", "comment", "owner"] } } });
+  it("столбцы «задача + комментарий + ответственный»: раздел = название трека (не настраивается), текст собирается по отмеченным столбцам", async () => {
+    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["task", "comment", "owner"] } } });
     expect(put.status).toBe(200);
     const got = await call(directorB, memoSections.GET, "/api/memo-sections");
-    expect(got.data.config).toEqual({ groupBy: "track", fields: ["task", "comment", "owner"] });
-    expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "track", fields: ["comment"] } } })).status).toBe(403);
-    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "track", fields: ["нет-такого"] } } })).status).toBe(400);
+    expect(got.data.config).toEqual({ fields: ["task", "comment", "owner"] });
+    expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["comment"] } } })).status).toBe(403);
+    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["нет-такого"] } } })).status).toBe(400);
 
     const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
     cycleId = start.data.id;
@@ -1150,10 +1146,13 @@ describe("вид справки: разделы по трекам и поля т
     expect(r.data.unmappedTracks).toEqual([]);
   });
 
-  it("по сегментам без разделов вручную: всё в «Прочие направления», если у строки нет сегмента", async () => {
-    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { groupBy: "segment", fields: ["comment"] } } })).status).toBe(200);
+  it("Сегмент и Трек можно отметить одновременно — оба идут в текст пункта; раздел всё равно по треку", async () => {
+    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["segment", "track", "comment"] } } })).status).toBe(200);
+    const track = await prisma.track.findFirstOrThrow({ where: { directorateId: dirB, name: { contains: TAG } } });
     const r = await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
     expect(r.status).toBe(200);
+    const got = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(got.data.doc.sections[0].title).toBe(track.name); // раздел не поменялся
     expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
   });

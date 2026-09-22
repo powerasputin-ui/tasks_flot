@@ -6,10 +6,11 @@ import { usePreviewAs } from "@/lib/preview-as";
 import { ReportSection } from "@/components/ReportSection";
 import { MemoEditor } from "@/components/MemoEditor";
 import { MemoArchive } from "@/components/MemoArchive";
+import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
-import { AlertTriangle, ClipboardCheck, Lock, Play } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Lock, Play, Settings2 } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
@@ -215,22 +216,41 @@ export function OperativkaView() {
           </div>
         </div>
 
-        <nav className="mt-3 flex gap-1 overflow-x-auto" role="tablist">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
-              className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 pb-2.5 pt-1 text-[13px] font-semibold transition-colors ${
-                tab === t.id ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
-              }`}
+        <div className="mt-3 flex items-center gap-2">
+          <nav className="flex flex-1 gap-1 overflow-x-auto" role="tablist">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => setTab(t.id)}
+                className={`-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 pb-2.5 pt-1 text-[13px] font-semibold transition-colors ${
+                  tab === t.id ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                {t.label}
+                {t.badge && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${t.warn ? "bg-status-red/10 text-status-red" : "bg-surface-high text-on-surface-variant"}`}>{t.badge}</span>}
+              </button>
+            ))}
+          </nav>
+          {tab === "memo" && directorial && (
+            <Popover
+              align="right"
+              width={380}
+              trigger={({ toggle }) => (
+                <button onClick={toggle} className="btn-ghost mb-1 h-8 shrink-0" title="Какие столбцы таблицы попадают в текст справки">
+                  <Settings2 size={14} /> Вид справки
+                </button>
+              )}
             >
-              {t.label}
-              {t.badge && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${t.warn ? "bg-status-red/10 text-status-red" : "bg-surface-high text-on-surface-variant"}`}>{t.badge}</span>}
-            </button>
-          ))}
-        </nav>
+              {() => (
+                <div className="max-h-[75vh] overflow-y-auto p-4">
+                  <MemoViewSettings compact />
+                </div>
+              )}
+            </Popover>
+          )}
+        </div>
       </header>
 
       <div className="p-6">

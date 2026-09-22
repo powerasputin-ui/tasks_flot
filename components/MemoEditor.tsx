@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, EyeOff, FileDown, Info, Merge, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, EyeOff, FileDown, Info, Merge, Plus, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
-import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { manualBullet, memoTitle, mergeBullets, sourceText, type BulletFlags, type MemoBullet, type MemoDoc, type SectionDef } from "@/lib/memo";
 import type { MemoSource } from "@/lib/memo-load";
 
@@ -263,23 +262,6 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
           </label>
           <span className="ml-auto flex items-center gap-2">
             <SaveState state={save} onReload={() => void load()} />
-            {editable && (
-              <Popover
-                align="right"
-                width={380}
-                trigger={({ toggle }) => (
-                  <button onClick={toggle} className="btn-ghost h-8" title="Что из таблицы попадает в справку и как она делится на разделы">
-                    <Settings2 size={14} /> Вид справки
-                  </button>
-                )}
-              >
-                {() => (
-                  <div className="max-h-[75vh] overflow-y-auto p-4">
-                    <MemoViewSettings compact />
-                  </div>
-                )}
-              </Popover>
-            )}
             {editable && (
               <button onClick={() => void refresh()} className="btn-ghost h-8" title="Добавить в справку новые поданные позиции; ваши правки не затрагиваются">
                 <RefreshCw size={14} /> Обновить из данных

@@ -7,14 +7,13 @@ import { composeText, type MemoField } from "@/lib/memo";
 type Sample = { title: string; comment: string | null; segmentName: string | null; trackName: string | null; ownerName: string | null; deadline: string | null; statusName: string | null; cost: string | null; attractivenessName: string | null; custom: Record<string, string> };
 
 /**
- * Вид справки дирекции: как разбить на разделы (нумерация 1, 2, 3…) и какие столбцы таблицы попадают в текст
- * КАЖДОГО пункта внутри раздела — это разные вещи, поэтому в интерфейсе они разделены заголовками.
- * Список столбцов берётся из настоящей таблицы (Настройки → Колонки таблицы): что там есть, то и здесь можно отметить.
+ * Вид справки дирекции: какие столбцы таблицы попадают в текст пункта — единственная настройка. Список столбцов
+ * берётся из настоящей таблицы (Настройки → Колонки таблицы): что там есть, то и здесь можно отметить, в любом
+ * сочетании. На разделы («1. …», «2. …») справка делится по трекам — это фиксировано и не настраивается.
  * Используется и в Настройках (полный вид), и как быстрая панель прямо на экране «Оперативка» (compact).
  */
 export function MemoViewSettings({ compact = false, onSaved }: { compact?: boolean; onSaved?: () => void }) {
   const [shortName, setShortName] = useState("");
-  const [groupBy, setGroupBy] = useState<"track" | "segment">("track");
   const [fields, setFields] = useState<MemoField[]>(["comment"]);
   const [options, setOptions] = useState<Array<{ key: MemoField; label: string }>>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
@@ -29,7 +28,6 @@ export function MemoViewSettings({ compact = false, onSaved }: { compact?: boole
       .then((d) => {
         if (!d) return;
         setShortName(d.shortName ?? "");
-        setGroupBy(d.config.groupBy === "segment" ? "segment" : "track");
         setFields(d.config.fields);
         setOptions(d.fields);
         setLabels(d.labels);
@@ -49,7 +47,7 @@ export function MemoViewSettings({ compact = false, onSaved }: { compact?: boole
   async function save() {
     setSaving(true);
     setMessage(null);
-    const r = await fetch("/api/memo-sections", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shortName: shortName.trim() || null, config: { groupBy, fields } }) });
+    const r = await fetch("/api/memo-sections", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shortName: shortName.trim() || null, config: { fields } }) });
     setSaving(false);
     if (r.ok) {
       setMessage("Сохранено. Новые пункты будут собираться уже так.");
@@ -66,23 +64,8 @@ export function MemoViewSettings({ compact = false, onSaved }: { compact?: boole
   return (
     <div className={compact ? "space-y-4" : ""}>
       <div>
-        <h3 className={heading}>Разделы справки (нумерация 1, 2, 3…)</h3>
-        {!compact && <p className="mb-2 text-[12px] text-on-surface-variant">Каждый раздел — отдельный подзаголовок; какие столбцы попадают в сам пункт — ниже, это не связано с разделами.</p>}
-        <div className={`flex flex-wrap gap-2 ${compact ? "mt-1.5" : "mb-6 max-w-2xl"}`}>
-          {([
-            ["track", "По трекам"],
-            ["segment", "По сегментам"],
-          ] as const).map(([k, label]) => (
-            <label key={k} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-[13px] font-semibold ${groupBy === k ? "border-primary bg-primary-soft text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-low"}`}>
-              <input type="radio" name={`groupBy${compact ? "-compact" : ""}`} checked={groupBy === k} onChange={() => setGroupBy(k)} className="accent-primary" />
-              {label}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div>
         <h3 className={heading}>Столбцы таблицы в тексте пункта</h3>
+        {!compact && <p className="mb-2 text-[12px] text-on-surface-variant">Отметьте, что войдёт в справку. На разделы («1. …», «2. …») справка делится по трекам.</p>}
         <div className={`flex flex-wrap gap-2 ${compact ? "mt-1.5" : "mb-3 max-w-2xl"}`}>
           {options.map((f) => (
             <label key={f.key} className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[13px] ${fields.includes(f.key) ? "border-primary bg-primary-soft text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-low"}`}>
