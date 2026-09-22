@@ -59,7 +59,7 @@ export function Popover({
           className={`animate-fade-in absolute z-50 rounded-lg border border-outline-variant bg-surface py-1 shadow-xl ${
             align === "right" ? "right-0" : "left-0"
           } ${direction === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}
-          style={{ minWidth: width ?? 200 }}
+          style={{ width: width ?? 200, maxWidth: "92vw" }}
         >
           {children(() => setOpen(false))}
         </div>
