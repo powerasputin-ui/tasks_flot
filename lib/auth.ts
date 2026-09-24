@@ -15,6 +15,8 @@ export type SessionPayload = {
   userId: string;
   role: UserRole;
   email: string;
+  /** Когда токен выдан (секунды) — для отзыва сессий. */
+  iat?: number;
 };
 
 /** Хэш-пустышка: для несуществующего логина пароль всё равно сверяется, чтобы время ответа не выдавало, есть ли такой пользователь. */
@@ -42,10 +44,17 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
     if (typeof payload.userId !== "string" || typeof payload.role !== "string" || typeof payload.email !== "string") {
       return null;
     }
-    return { userId: payload.userId, role: payload.role as UserRole, email: payload.email };
+    return { userId: payload.userId, role: payload.role as UserRole, email: payload.email, iat: typeof payload.iat === "number" ? payload.iat : undefined };
   } catch {
     return null;
   }
+}
+
+/** Токен, выданный до отзыва сессий (смена пароля, отключение, смена роли), недействителен, даже если подпись верна. */
+export function isRevoked(session: { iat?: number }, validAfter: Date | null | undefined): boolean {
+  if (!validAfter) return false;
+  if (session.iat === undefined) return true; // токен без времени выдачи после отзыва не принимаем
+  return session.iat < Math.floor(validAfter.getTime() / 1000);
 }
 
 export { SESSION_COOKIE, SESSION_TTL_SECONDS };

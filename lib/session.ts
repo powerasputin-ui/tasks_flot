@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, verifySessionToken, type SessionPayload } from "@/lib/auth";
+import { SESSION_COOKIE, isRevoked, verifySessionToken, type SessionPayload } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/lib/permissions";
 import { DIRECTORATE_COOKIE, VIEW_AS_COOKIE, listDirectorates } from "@/lib/directorates";
@@ -15,7 +15,19 @@ export async function getSession(): Promise<SessionPayload | null> {
 export async function requireSession(): Promise<SessionPayload> {
   const session = await getSession();
   if (!session) throw new AuthError("UNAUTHENTICATED");
+  await assertSessionCurrent(session);
   return session;
+}
+
+async function assertSessionCurrent(session: SessionPayload): Promise<void> {
+  const hit = validityCache.get(session.userId);
+  let rec = hit && Date.now() - hit.at < ACTOR_TTL_MS ? hit : null;
+  if (!rec) {
+    const u = await prisma.user.findUnique({ where: { id: session.userId }, select: { isActive: true, sessionsValidAfter: true } });
+    rec = { at: Date.now(), active: !!u?.isActive, validAfter: u?.sessionsValidAfter ?? null };
+    validityCache.set(session.userId, rec);
+  }
+  if (!rec.active || isRevoked(session, rec.validAfter)) throw new AuthError("UNAUTHENTICATED");
 }
 
 /**
@@ -26,7 +38,8 @@ export async function requireSession(): Promise<SessionPayload> {
 // Проверка пользователя в базе стоит целого обмена с базой на КАЖДЫЙ запрос. Держим результат в памяти
 // 30 секунд: смена роли или отключение действуют не позже чем через полминуты (у самого сервера — сразу, см. invalidateActor).
 const ACTOR_TTL_MS = 30_000;
-const actorCache = new Map<string, { at: number; actor: Actor & { name: string } }>();
+const actorCache = new Map<string, { at: number; actor: Actor & { name: string }; validAfter: Date | null }>();
+const validityCache = new Map<string, { at: number; active: boolean; validAfter: Date | null }>();
 
 /** Дирекция админа: выбранная в куке (если такая есть и активна), иначе его собственная, иначе первая по списку. */
 async function adminDirectorate(home: string | null | undefined): Promise<string | null> {
@@ -39,8 +52,13 @@ async function adminDirectorate(home: string | null | undefined): Promise<string
 
 /** Сбросить кэш проверки (после смены роли/отключения пользователя). Без аргумента — для всех. */
 export function invalidateActor(userId?: string): void {
-  if (userId) actorCache.delete(userId);
-  else actorCache.clear();
+  if (userId) {
+    actorCache.delete(userId);
+    validityCache.delete(userId);
+  } else {
+    actorCache.clear();
+    validityCache.clear();
+  }
 }
 
 /** Настоящий человек за сессией, даже если включён режим «Посмотреть как». */
@@ -82,17 +100,20 @@ async function resolveDirectorate(base: Actor & { name: string }): Promise<Actor
 async function loadActor(): Promise<Actor & { name: string }> {
   const session = await requireSession();
   const hit = actorCache.get(session.userId);
-  if (hit && Date.now() - hit.at < ACTOR_TTL_MS) return hit.actor;
+  if (hit && Date.now() - hit.at < ACTOR_TTL_MS) {
+    if (isRevoked(session, hit.validAfter)) throw new AuthError("UNAUTHENTICATED");
+    return hit.actor;
+  }
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, role: true, isActive: true, directorateId: true, memoEditor: true },
+    select: { id: true, name: true, role: true, isActive: true, directorateId: true, memoEditor: true, sessionsValidAfter: true },
   });
-  if (!user || !user.isActive) {
+  if (!user || !user.isActive || isRevoked(session, user.sessionsValidAfter)) {
     actorCache.delete(session.userId);
     throw new AuthError("UNAUTHENTICATED");
   }
   const actor = { id: user.id, name: user.name, role: user.role, directorateId: user.directorateId, memoEditor: user.memoEditor };
-  actorCache.set(session.userId, { at: Date.now(), actor });
+  actorCache.set(session.userId, { at: Date.now(), actor, validAfter: user.sessionsValidAfter });
   return actor;
 }
 

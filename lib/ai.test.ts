@@ -1,4 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+const dns = vi.hoisted(() => ({ addrs: [{ address: "93.184.216.34", family: 4 }] as Array<{ address: string; family: number }> }));
+vi.mock("node:dns/promises", () => ({ lookup: async () => dns.addrs }));
 import { AiError, buildContext, complete, decryptKey, encryptKey, keyHint, normalizeBaseUrl, parseConsolidated, simpleMerge, streamText, type AiConfig, type MemoForAi } from "@/lib/ai";
 import { consolidatedToDoc } from "@/lib/ai-shared";
 
@@ -150,5 +153,67 @@ describe("normalizeBaseUrl: безопасность адреса", () => {
       if (was.allow === undefined) delete env.AI_ALLOW_PRIVATE_URLS;
       else env.AI_ALLOW_PRIVATE_URLS = was.allow;
     }
+  });
+});
+
+describe("SSRF: DNS и редиректы", () => {
+  const cfg: AiConfig = { provider: "openai", baseUrl: "https://api.example.com/v1", model: "m", apiKey: "KEY" };
+  const withEnv = async (fn: () => Promise<void>) => {
+    const env = process.env as Record<string, string | undefined>;
+    const was = { node: env.NODE_ENV, allow: env.AI_ALLOW_PRIVATE_URLS };
+    env.NODE_ENV = "production";
+    delete env.AI_ALLOW_PRIVATE_URLS;
+    try {
+      await fn();
+    } finally {
+      env.NODE_ENV = was.node;
+      if (was.allow === undefined) delete env.AI_ALLOW_PRIVATE_URLS;
+      else env.AI_ALLOW_PRIVATE_URLS = was.allow;
+      dns.addrs = [{ address: "93.184.216.34", family: 4 }];
+    }
+  };
+
+  it("имя выглядит внешним, но разрешается во внутренний адрес — запрос не уходит", async () => {
+    await withEnv(async () => {
+      const f = vi.fn(async () => Response.json({ choices: [{ message: { content: "ок" } }] }));
+      vi.stubGlobal("fetch", f);
+      for (const address of ["10.0.0.7", "127.0.0.1", "169.254.169.254", "192.168.0.1", "172.16.5.5", "100.64.0.1", "::1", "::ffff:10.1.1.1"]) {
+        dns.addrs = [{ address, family: address.includes(":") ? 6 : 4 }];
+        const e = await complete(cfg, { system: "S", messages: [] }).catch((x) => x);
+        expect(e).toBeInstanceOf(AiError);
+        expect(e.message).toContain("внутренн");
+      }
+      // один из адресов внутренний — тоже блок
+      dns.addrs = [{ address: "93.184.216.34", family: 4 }, { address: "10.0.0.1", family: 4 }];
+      expect(await complete(cfg, { system: "S", messages: [] }).catch((x) => x)).toBeInstanceOf(AiError);
+      expect(f).not.toHaveBeenCalled();
+      // внешний адрес — идёт
+      dns.addrs = [{ address: "93.184.216.34", family: 4 }];
+      expect(await complete(cfg, { system: "S", messages: [] })).toBe("ок");
+    });
+  });
+
+  it("редирект не выполняется (внешний адрес не может перенаправить сервер внутрь); тело ошибки провайдера пользователю не отдаётся", async () => {
+    const f = vi.fn(async (_u: string, init: RequestInit) => {
+      expect(init.redirect).toBe("manual");
+      return new Response("", { status: 302, headers: { location: "http://169.254.169.254/latest" } });
+    });
+    vi.stubGlobal("fetch", f);
+    const e = await complete(cfg, { system: "S", messages: [] }).catch((x) => x);
+    expect(e.code).toBe("PROVIDER");
+    expect(e.message).toContain("перенаправлением");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("INTERNAL SECRET DATA from server", { status: 500 })));
+    const e2 = await complete(cfg, { system: "S", messages: [] }).catch((x) => x);
+    expect(e2.message).not.toContain("SECRET");
+    expect(e2.message).toContain("500");
+  });
+
+  it("отдельный AI_KEY_SECRET: ключ, зашифрованный им, не расшифровывается без него", () => {
+    const env = process.env as Record<string, string | undefined>;
+    env.AI_KEY_SECRET = "separate-secret";
+    const enc = encryptKey("sk-abc");
+    expect(decryptKey(enc)).toBe("sk-abc");
+    delete env.AI_KEY_SECRET;
+    expect(() => decryptKey(enc)).toThrow();
   });
 });

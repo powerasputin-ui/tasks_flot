@@ -64,6 +64,7 @@ import * as archiveExport from "@/app/api/memo-archive/[id]/export/route";
 import * as archiveReturn from "@/app/api/memo-archive/[id]/return/route";
 import * as archiveTable from "@/app/api/memo-archive/[id]/table/route";
 import { hitRateLimit } from "@/lib/rate-limit";
+import * as notif from "@/app/api/notifications/[id]/route";
 import * as cycleRemind from "@/app/api/cycles/[id]/remind/route";
 import * as aiSettings from "@/app/api/ai/settings/route";
 import * as aiSettingsTest from "@/app/api/ai/settings/test/route";
@@ -1428,5 +1429,50 @@ describe("ограничение частоты запросов и защита
     state.actor = null;
     const r = await tracks.GET(new NextRequest("http://localhost/api/tracks"));
     expect(r.status).toBe(401);
+  });
+});
+
+describe("отзыв сессий и гонки", () => {
+  it("isRevoked: токен, выданный до отзыва, недействителен; выданный после — действителен", async () => {
+    const { isRevoked } = await import("@/lib/auth");
+    const at = new Date("2026-09-24T10:00:00Z");
+    const sec = Math.floor(at.getTime() / 1000);
+    expect(isRevoked({ iat: sec - 60 }, at)).toBe(true);
+    expect(isRevoked({ iat: sec }, at)).toBe(false); // вход в ту же секунду после смены пароля проходит
+    expect(isRevoked({ iat: sec + 5 }, at)).toBe(false);
+    expect(isRevoked({ iat: sec - 60 }, null)).toBe(false);
+    expect(isRevoked({}, at)).toBe(true); // токен без времени выдачи после отзыва не принимаем
+  });
+
+  it("смена пароля, отключение и смена роли выставляют отметку отзыва сессий", async () => {
+    const created = await call(curator, users.POST, "/api/users", { method: "POST", body: { name: `${TAG} revoke`, email: `${TAG}.revoke@e2e.local`, password: "Password-12345", role: "HEAD", directorateId: curator.directorateId } });
+    expect(created.status).toBe(201);
+    const uid = created.data.user.id;
+    const get = async () => (await prisma.user.findUniqueOrThrow({ where: { id: uid }, select: { sessionsValidAfter: true } })).sessionsValidAfter;
+    expect(await get()).toBeNull();
+    expect((await call(curator, user.PATCH, `/api/users/${uid}`, { method: "PATCH", id: uid, body: { name: "Новое имя" } })).status).toBe(200);
+    expect(await get()).toBeNull(); // обычная правка сессии не трогает
+    expect((await call(curator, user.PATCH, `/api/users/${uid}`, { method: "PATCH", id: uid, body: { password: "Another-pass-777" } })).status).toBe(200);
+    const first = await get();
+    expect(first).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await call(curator, user.PATCH, `/api/users/${uid}`, { method: "PATCH", id: uid, body: { isActive: false } })).status).toBe(200);
+    expect((await get())!.getTime()).toBeGreaterThan(first!.getTime());
+  });
+
+  it("десять одновременных «Начать оперативку» создают ровно одну активную оперативку", async () => {
+    await prisma.cycle.deleteMany({ where: { directorateId: dirB!, status: { not: "FINAL" } } });
+    const res = await Promise.all(Array.from({ length: 10 }, () => call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } })));
+    expect(res.filter((r) => r.status === 201)).toHaveLength(1);
+    expect(res.filter((r) => r.status === 409)).toHaveLength(9);
+    const active = await prisma.cycle.findMany({ where: { directorateId: dirB!, status: { not: "FINAL" } }, select: { id: true } });
+    expect(active).toHaveLength(1);
+    created.cycles.push(active[0].id);
+  });
+
+  it("чужое уведомление «не существует» (404), а не «запрещено»", async () => {
+    const n = await prisma.notification.create({ data: { userId: headB.id, type: "ITEM_RETURNED", message: `${TAG} чужое` } });
+    expect((await call(head, notif.PATCH, `/api/notifications/${n.id}`, { method: "PATCH", id: n.id, body: { isRead: true } })).status).toBe(404);
+    expect((await call(headB, notif.PATCH, `/api/notifications/${n.id}`, { method: "PATCH", id: n.id, body: { isRead: true } })).status).toBe(200);
   });
 });

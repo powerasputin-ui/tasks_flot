@@ -11,10 +11,8 @@ async function PATCHHandler(request: NextRequest, { params }: { params: Promise<
   const { id } = await params;
 
   const existing = await prisma.notification.findUnique({ where: { id } });
-  if (!existing) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  if (existing.userId !== session.userId) {
-    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  }
+  // чужое уведомление «не существует»: по ответу нельзя узнать, есть ли оно вообще
+  if (!existing || existing.userId !== session.userId) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const body = await request.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);

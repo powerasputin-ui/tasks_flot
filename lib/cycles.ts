@@ -54,10 +54,15 @@ export async function createCycle(actor: Actor, deadline: Date): Promise<CycleRe
   if (Number.isNaN(deadline.getTime())) return { ok: false, error: "INVALID_INPUT" };
   const directorateId = actor.directorateId;
   if (!directorateId) return { ok: false, error: "FORBIDDEN" };
-  if (await activeCycle(directorateId)) return { ok: false, error: "CYCLE_EXISTS" };
-  const last = await prisma.cycle.findFirst({ where: { directorateId }, orderBy: { number: "desc" }, select: { number: true } });
-  const cycle = await prisma.cycle.create({ data: { number: (last?.number ?? 0) + 1, directorateId, deadline, createdById: actor.id } });
-  return { ok: true, id: cycle.id };
+  // Два одновременных запроса не должны завести две активные оперативки: проверка и создание идут под блокировкой дирекции.
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`cycle:${directorateId}`}))`;
+    if (await tx.cycle.findFirst({ where: { directorateId, status: { not: "FINAL" } }, select: { id: true } })) return null;
+    const last = await tx.cycle.findFirst({ where: { directorateId }, orderBy: { number: "desc" }, select: { number: true } });
+    return tx.cycle.create({ data: { number: (last?.number ?? 0) + 1, directorateId, deadline, createdById: actor.id } });
+  });
+  if (!created) return { ok: false, error: "CYCLE_EXISTS" };
+  return { ok: true, id: created.id };
 }
 
 export async function startReview(actor: Actor, id: string): Promise<CycleResult> {

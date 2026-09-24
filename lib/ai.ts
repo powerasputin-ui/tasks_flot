@@ -3,6 +3,8 @@
  * Ключ хранится зашифрованным и уходит только на сервер приложения; в браузер не отдаётся.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { visibleSections, type MemoDoc } from "@/lib/memo";
 import type { VersionSource } from "@/lib/memo-archive";
 import type { Consolidated, ConsolidatedItem, ConsolidatedTopic } from "@/lib/ai-shared";
@@ -27,8 +29,9 @@ export class AiError extends Error {
 // ---------- шифрование ключа ----------
 
 function encKey(): Buffer {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new AiError("NOT_CONFIGURED", "На сервере не задан AUTH_SECRET: ключ ИИ сохранить нельзя.");
+  // отдельный секрет для ключей ИИ (AI_KEY_SECRET) — чтобы смена AUTH_SECRET не ломала сохранённые ключи; иначе берётся AUTH_SECRET
+  const secret = process.env.AI_KEY_SECRET || process.env.AUTH_SECRET;
+  if (!secret) throw new AiError("NOT_CONFIGURED", "На сервере не задан секрет для шифрования ключей (AUTH_SECRET или AI_KEY_SECRET): ключ ИИ сохранить нельзя.");
   return createHash("sha256").update(`ai-key:${secret}`).digest();
 }
 
@@ -59,6 +62,21 @@ function isMetadataHost(h: string): boolean {
 /** Внутренние адреса (localhost, частные сети): для облачной сборки запрещены, если явно не разрешены AI_ALLOW_PRIVATE_URLS=1 (например, локальный Ollama на своём сервере). */
 function isPrivateHost(h: string): boolean {
   return h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local") || /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === "::1" || /^f[cd][0-9a-f]{2}:/.test(h);
+}
+
+/** Разрешённый DNS-ответ указывает на служебный/внутренний адрес (защита от «доменов-перевёртышей», у которых имя внешнее, а адрес внутренний). */
+function isBlockedAddress(ip: string): boolean {
+  const a = ip.toLowerCase().replace(/^::ffff:/, "");
+  if (isMetadataHost(a)) return true;
+  if (process.env.NODE_ENV === "production" && process.env.AI_ALLOW_PRIVATE_URLS !== "1") return isPrivateHost(a) || /^0\./.test(a) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a) || a === "::";
+  return false;
+}
+
+/** Перед запросом к ИИ имя хоста разрешается в адреса, и если хоть один служебный/внутренний — запрос не идёт. */
+async function assertPublicHost(url: string): Promise<void> {
+  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+  const addrs = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((x) => x.address);
+  if (addrs.some(isBlockedAddress)) throw new AiError("PROVIDER", "Адрес API указывает на внутреннюю сеть — запрос заблокирован.");
 }
 
 /** Адрес API: только http(s), без хвостовых «/», без адресов метаданных и (в облаке) внутренних сетей. */
@@ -114,19 +132,22 @@ function build(cfg: AiConfig, req: Req, stream: boolean): { url: string; init: R
 
 async function send(cfg: AiConfig, req: Req, stream: boolean): Promise<Response> {
   const { url, init } = build(cfg, req, stream);
+  await assertPublicHost(url);
   let res: Response;
   try {
-    res = await fetch(url, init);
+    // редиректы не выполняем: иначе внешний адрес мог бы перенаправить сервер на внутренний
+    res = await fetch(url, { ...init, redirect: "manual" });
   } catch (e) {
     if (req.signal?.aborted) throw e;
     throw new AiError("NETWORK", "Не удалось связаться с ИИ: проверьте адрес API и интернет.");
   }
   if (res.ok) return res;
-  const detail = (await res.text().catch(() => "")).slice(0, 300);
+  await res.body?.cancel().catch(() => {}); // тело ответа провайдера пользователю не показываем — оно может содержать чужие данные
   if (res.status === 401 || res.status === 403) throw new AiError("BAD_KEY", "ИИ отклонил ключ (неверный или без доступа к модели).");
   if (res.status === 429) throw new AiError("RATE_LIMIT", "Превышен лимит запросов у провайдера ИИ. Попробуйте позже.");
   if (res.status === 404) throw new AiError("PROVIDER", "Модель или адрес API не найдены. Проверьте название модели и адрес.");
-  throw new AiError("PROVIDER", `Ошибка провайдера ИИ (${res.status}). ${detail}`.trim());
+  if (res.status >= 300 && res.status < 400) throw new AiError("PROVIDER", "Провайдер ИИ ответил перенаправлением — такие адреса не поддерживаются. Проверьте адрес API.");
+  throw new AiError("PROVIDER", `Ошибка провайдера ИИ (${res.status}).`);
 }
 
 /** Ответ целиком (проверка связи, сводка). */

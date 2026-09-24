@@ -71,7 +71,8 @@ async function PATCHHandler(request: NextRequest, { params }: { params: Promise<
   const { password, ...rest } = parsed.data;
   const user = await prisma.user.update({
     where: { id },
-    data: { ...rest, ...(password ? { passwordHash: await hashPassword(password) } : {}) },
+    // смена пароля, отключение и смена роли отзывают все выданные сессии: украденная кука перестаёт работать
+    data: { ...rest, ...(password ? { passwordHash: await hashPassword(password) } : {}), ...(password || rest.isActive === false || newRole ? { sessionsValidAfter: new Date() } : {}) },
     select: { id: true, name: true, email: true, role: true, isActive: true },
   });
   invalidateDicts();
