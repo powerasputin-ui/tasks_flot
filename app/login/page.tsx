@@ -24,7 +24,9 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) {
-        setError("Неверный e-mail или пароль");
+        // слишком много попыток — сервер сам пишет, через сколько можно повторить; иначе человек решит, что забыл пароль
+        const d = await res.json().catch(() => null);
+        setError(res.status === 429 ? d?.message ?? "Слишком много попыток входа. Попробуйте позже." : res.status === 401 || res.status === 400 ? "Неверный e-mail или пароль" : "Сервер временно недоступен. Повторите попытку.");
         return;
       }
       router.push("/");

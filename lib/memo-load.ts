@@ -3,7 +3,7 @@ import { getDicts } from "@/lib/dictionaries";
 import { directorateName } from "@/lib/directorates";
 import { canCompileMemo, type Actor } from "@/lib/permissions";
 import { isInScope } from "@/lib/scope";
-import { buildDraft, composeText, hideMissingSources, parseMemoConfig, resolveTitle, parseMemoDoc, resyncSections, segmentsToSections, stripSectionHead, syncWithSources, tracksToSections, type BulletFlags, type MemoConfig, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
+import { buildDraft, composeText, hideMissingSources, parseMemoConfig, refreshDraft, resolveTitle, parseMemoDoc, resyncSections, segmentsToSections, stripSectionHead, syncWithSources, tracksToSections, type BulletFlags, type MemoConfig, type MemoDoc, type SectionDef, type SourceItem } from "@/lib/memo";
 import { Prisma, type Cycle } from "@prisma/client";
 import { DEFAULT_COLUMNS, normalizeColumns, withCustomColumns, type ColumnConfig, type CustomCol } from "@/lib/table-columns";
 
@@ -157,4 +157,17 @@ export async function loadMemo(cycle: Cycle): Promise<MemoState> {
   }
   const dir = { name: (await directorateName(cycle.directorateId)) ?? "", shortName: (await prisma.directorate.findUnique({ where: { id: directorateId }, select: { shortName: true } }))?.shortName };
   return { cycle, doc: finalDoc, version, flags: Object.fromEntries(synced.flags), sources, title: resolveTitle(finalDoc, dir, cycle.meetingDate), defs };
+}
+
+/**
+ * «Обновить из данных»: поданные строки, которых ещё нет в справке, становятся новыми пунктами; правки директора не трогаются.
+ * Возвращает число добавленных пунктов и новую версию черновика или null, если справку в это время изменили (конфликт).
+ */
+export async function refreshMemoDraft(cycle: Cycle): Promise<{ added: number; version: number } | null> {
+  const state = await loadMemo(cycle);
+  const defs = await loadSectionDefs(cycle.directorateId ?? "");
+  const sources = await loadSources(cycle.directorateId ?? "", undefined, defs);
+  const { doc, added } = refreshDraft(state.doc, sources, defs);
+  const res = await prisma.cycle.updateMany({ where: { id: cycle.id, memoVersion: state.version }, data: { memoDraft: doc as unknown as Prisma.InputJsonValue, memoVersion: { increment: 1 } } });
+  return res.count === 1 ? { added, version: state.version + 1 } : null;
 }

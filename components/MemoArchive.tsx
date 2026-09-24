@@ -108,7 +108,7 @@ export function MemoArchive({
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-sm">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти в справках: слово, судно, задача…" className="input w-full pl-9" maxLength={200} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти в справках: слово, судно, задача…" aria-label="Поиск по справкам" className="input w-full pl-9" maxLength={200} />
         </div>
         <label className="flex items-center gap-1.5 text-[13px] text-on-surface-variant">
           с <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input h-9" />

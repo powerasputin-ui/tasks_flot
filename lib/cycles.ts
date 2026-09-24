@@ -6,6 +6,7 @@ import { recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications";
 import { loadTableRows } from "@/lib/table-view";
 import { prepareVersion } from "@/lib/memo-versions";
+import { refreshMemoDraft } from "@/lib/memo-load";
 import { isDirectorial, type Actor } from "@/lib/permissions";
 
 /**
@@ -70,7 +71,10 @@ export async function startReview(actor: Actor, id: string): Promise<CycleResult
   const cycle = await prisma.cycle.findFirst({ where: { id, directorateId: actor.directorateId ?? "" } });
   if (!cycle) return { ok: false, error: "NOT_FOUND" };
   if (!canTransition(cycle.status, "IN_REVIEW")) return { ok: false, error: "BAD_STATE" };
-  await prisma.cycle.update({ where: { id }, data: { status: "IN_REVIEW", reviewStartedAt: new Date() } });
+  const started = await prisma.cycle.update({ where: { id }, data: { status: "IN_REVIEW", reviewStartedAt: new Date() } });
+  // «Сборка»: справка догоняет поданное. Черновик мог быть создан раньше, когда почти ничего не было подано, — без этого
+  // директор отправил бы ЗГД справку без поданных позиций. Правки директора не трогаются.
+  await refreshMemoDraft(started).catch(() => null);
   return { ok: true };
 }
 
@@ -170,10 +174,13 @@ export async function cycleSummary(directorateId: string): Promise<PersonSummary
     prisma.user.findMany({ where: { directorateId, isActive: true, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
     prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null, responsibleId: { not: null } }, select: { responsibleId: true, operFlag: true } }),
   ]);
-  return users.map((u) => {
-    const mine = items.filter((i) => i.responsibleId === u.id);
-    return { id: u.id, name: u.name, role: u.role, total: mine.length, sent: mine.filter((i) => i.operFlag).length };
-  });
+  return users
+    .map((u) => {
+      const mine = items.filter((i) => i.responsibleId === u.id);
+      return { id: u.id, name: u.name, role: u.role, total: mine.length, sent: mine.filter((i) => i.operFlag).length };
+    })
+    // директор и админ без своих позиций — не «участники подачи»: им нечего подавать, в «не подали» и в напоминания они не попадают
+    .filter((p) => p.role === "HEAD" || p.total > 0);
 }
 
 /**

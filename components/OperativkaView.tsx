@@ -13,7 +13,7 @@ import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
-import { AlertTriangle, Bot, ClipboardCheck, Lock, Play } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, ClipboardCheck, Lock, Play } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
@@ -50,6 +50,7 @@ export function OperativkaView() {
   const [error, setError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
   const [note, setNote] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTabState] = useState<Tab | null>(null);
   const [finalId, setFinalIdState] = useState<string | null>(null);
   // открытая в «Архиве» справка и её вид (текст / таблица на дату) — тоже в адресе, чтобы ссылка открывала ровно это
@@ -125,12 +126,17 @@ export function OperativkaView() {
     syncUrl({ ...url, tab: "finals", view: v });
   };
 
-  async function act(url: string, body?: unknown) {
+  // okText — что показать человеку, когда действие прошло: без этого «Отправить ЗГД» меняет только значок статуса
+  async function act(url: string, body?: unknown, okText?: string) {
     setError(null);
+    setNotice(null);
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     if (!res.ok) {
       const d = await res.json().catch(() => null);
-      setError(ERRORS[d?.error] ?? "Не удалось выполнить действие.");
+      setError(d?.message ?? ERRORS[d?.error] ?? "Не удалось выполнить действие.");
+    } else if (okText) {
+      setNotice(okText);
+      setTimeout(() => setNotice((n) => (n === okText ? null : n)), 9000);
     }
     await load();
   }
@@ -207,7 +213,7 @@ export function OperativkaView() {
                     <button
                       onClick={() => {
                         close();
-                        act("/api/cycles", { deadline });
+                        act("/api/cycles", { deadline }, "Оперативка начата. Руководители могут подавать позиции — отметьте, кому напомнить, в «Справке».");
                       }}
                       disabled={!deadline}
                       className="btn-primary mt-3 w-full justify-center"
@@ -219,7 +225,7 @@ export function OperativkaView() {
               </Popover>
             )}
             {isCurator && cycle?.status === "OPEN" && (
-              <button onClick={() => act(`/api/cycles/${cycle.id}/review`)} className="btn-primary">
+              <button onClick={() => act(`/api/cycles/${cycle.id}/review`, undefined, "Сборка началась: справка собрана из поданных позиций. Руководители больше не меняют поданное — правьте текст и отправляйте ЗГД.")} className="btn-primary">
                 <ClipboardCheck size={15} /> Начать сборку
               </button>
             )}
@@ -245,7 +251,7 @@ export function OperativkaView() {
                       <button
                         onClick={() => {
                           close();
-                          act(`/api/cycles/${cycle.id}/finalize`, { note });
+                          act(`/api/cycles/${cycle.id}/finalize`, { note }, "Справка отправлена ЗГД. Оперативка зафиксирована, найти её можно во вкладке «Архив».");
                         }}
                         className="btn-primary h-8"
                       >
@@ -280,8 +286,18 @@ export function OperativkaView() {
 
       <div className={`p-6 ${aiUser && tab === "finals" ? "pb-28" : ""}`}>
         {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
+          <div role="alert" className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
             <AlertTriangle size={15} /> {error}
+          </div>
+        )}
+        {notice && (
+          <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-md border border-status-emerald/30 bg-status-emerald/10 px-3 py-2 text-[13px] text-on-surface">
+            <span className="flex items-start gap-2">
+              <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-status-emerald" /> {notice}
+            </span>
+            <button onClick={() => setNotice(null)} className="shrink-0 text-[12px] font-semibold text-primary hover:underline">
+              Скрыть
+            </button>
           </div>
         )}
 

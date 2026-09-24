@@ -1369,6 +1369,18 @@ describe("напоминание не подавшим", () => {
     expect(all.data.skippedRecent).toBeGreaterThanOrEqual(1);
   });
 
+  it("директор и админ без своих позиций не считаются «не подавшими»; с позициями — участвуют", async () => {
+    const { cycleSummary } = await import("@/lib/cycles");
+    const before = await cycleSummary(dirB);
+    expect(before.some((p) => p.role === "DIRECTOR" && p.total === 0)).toBe(false);
+    const own = await call(directorB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} позиция директора`, responsibleId: directorB.id } });
+    expect(own.status).toBe(201);
+    created.items.push(own.data.row.id);
+    const after = await cycleSummary(dirB);
+    expect(after.find((p) => p.id === directorB.id)).toMatchObject({ role: "DIRECTOR", total: 1, sent: 0 });
+    await prisma.operationalItem.update({ where: { id: own.data.row.id }, data: { archivedAt: new Date() } });
+  });
+
   it("кто уже подал — не получает напоминания; после отправки ЗГД напоминать нельзя", async () => {
     const it1 = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для напоминания`, operFlag: true } });
     expect(it1.status).toBe(201);
@@ -1474,5 +1486,33 @@ describe("отзыв сессий и гонки", () => {
     const n = await prisma.notification.create({ data: { userId: headB.id, type: "ITEM_RETURNED", message: `${TAG} чужое` } });
     expect((await call(head, notif.PATCH, `/api/notifications/${n.id}`, { method: "PATCH", id: n.id, body: { isRead: true } })).status).toBe(404);
     expect((await call(headB, notif.PATCH, `/api/notifications/${n.id}`, { method: "PATCH", id: n.id, body: { isRead: true } })).status).toBe(200);
+  });
+});
+
+describe("сборка догоняет поданное", () => {
+  it("справка открыта пустой, потом руководитель подал — «Начать сборку» добавляет поданное, правки директора не теряются", async () => {
+    let cyc = await prisma.cycle.findFirst({ where: { directorateId: dirB, status: { not: "FINAL" } } });
+    if (!cyc) {
+      const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+      expect(start.status).toBe(201);
+      created.cycles.push(start.data.id);
+      cyc = await prisma.cycle.findUniqueOrThrow({ where: { id: start.data.id } });
+    }
+    expect(cyc.status).toBe("OPEN");
+    const first = await call(directorB, memo.GET, `/api/cycles/${cyc.id}/memo`, { id: cyc.id }); // черновик сохраняется на этом моменте
+    const before = JSON.stringify(first.data.doc);
+    const late = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} поданная позже`, operFlag: true, comment: `Позднее-${TAG}` } });
+    expect(late.status).toBe(201);
+    created.items.push(late.data.row.id);
+    expect(before).not.toContain(`Позднее-${TAG}`);
+    // директор успел отредактировать заголовок в черновике
+    const doc = first.data.doc;
+    doc.title = "Мой заголовок директора";
+    expect((await call(directorB, memo.PUT, `/api/cycles/${cyc.id}/memo`, { method: "PUT", id: cyc.id, body: { doc, version: first.data.version } })).status).toBe(200);
+
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cyc.id}/review`, { method: "POST", id: cyc.id })).status).toBe(200);
+    const after = await call(directorB, memo.GET, `/api/cycles/${cyc.id}/memo`, { id: cyc.id });
+    expect(JSON.stringify(after.data.doc)).toContain(`Позднее-${TAG}`); // поданное догнало
+    expect(after.data.doc.title).toBe("Мой заголовок директора"); // правки не потеряны
   });
 });
