@@ -1,5 +1,6 @@
 "use client";
 
+import { ShowMore, useChunk } from "@/components/ui/ShowMore";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -383,9 +384,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : segmentRefs.find((s) => s.id === id)?.name ?? "Сегмент");
   const selectedName = segments.length === 0 ? "Все сегменты" : segments.length <= 2 ? segments.map(segmentName).join(" · ") : `Сегментов выбрано: ${segments.length}`;
   // При нескольких сегментах (или «все») строки группируются по сегментам — так их удобно сравнивать.
+  // Большая таблица показывается порциями; правка строки порцию не сбрасывает, смена фильтра/поиска/сортировки — сбрасывает.
+  const chunk = useChunk(visibleRows.length, [trackIds, statusIds, attractivenessIds, ownerIds, operFlags, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir, segments]);
+  const shownRows = useMemo(() => visibleRows.slice(0, chunk.limit), [visibleRows, chunk.limit]);
   const groups = useMemo(
-    () => (segments.length === 1 ? null : groupBySegment(visibleRows, segmentRefs.map((s) => s.id))),
-    [visibleRows, segments, segmentRefs]
+    () => (segments.length === 1 ? null : groupBySegment(shownRows, segmentRefs.map((s) => s.id))),
+    [shownRows, segments, segmentRefs]
   );
   const operCount = visibleRows.filter((r) => r.operFlag).length;
   const lastUpdated = visibleRows.reduce<string | null>((m, r) => (!m || r.updatedAt > m ? r.updatedAt : m), null);
@@ -637,7 +641,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                     </tr>
                   ))}
                 {!loading &&
-                  (groups ?? [{ id: "", rows: visibleRows }]).map((group) => (
+                  (groups ?? [{ id: "", rows: shownRows }]).map((group) => (
                     <Fragment key={group.id || "flat"}>
                       {groups && (
                         <tr className="bg-surface-low">
@@ -673,6 +677,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                   ))}
               </tbody>
             </table>
+
+            {!loading && !error && <ShowMore chunk={chunk} total={visibleRows.length} />}
 
             {!loading && !error && visibleRows.length === 0 && (
               <EmptyState query={q} filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />

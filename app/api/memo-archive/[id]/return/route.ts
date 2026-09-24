@@ -26,7 +26,10 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   if (await prisma.cycle.findFirst({ where: { directorateId: v.directorateId, status: { not: "FINAL" } }, select: { id: true } })) return NextResponse.json({ error: "CYCLE_EXISTS" }, { status: 409 });
 
   const doc = parseMemoDoc(v.doc) ?? { sections: [] };
-  const itemIds = doc.sections.flatMap((s) => s.bullets.filter((b) => !b.hidden).flatMap((b) => b.itemIds));
+  // «Опер» возвращается всем строкам, поданным в этой версии (по снимку таблицы), а не только вошедшим в справку: иначе
+  // скрытые и убранные директором строки теряют «подано», и пакет после возврата оказывается меньше отправленного.
+  const submittedInSnapshot = Array.isArray(v.rows) ? (v.rows as unknown as Array<{ id: string; submitted?: boolean }>).filter((r) => r.submitted).map((r) => r.id) : [];
+  const itemIds = [...new Set([...doc.sections.flatMap((s) => s.bullets.filter((b) => !b.hidden).flatMap((b) => b.itemIds)), ...submittedInSnapshot])];
 
   await prisma.$transaction(async (tx) => {
     const marked = await tx.memoVersion.updateMany({ where: { id, returnedAt: null }, data: { returnedAt: new Date(), returnComment: comment, returnedByName: actor.name } });

@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canViewVersion } from "@/lib/memo-versions";
 import { exportResponse, parseExportFormat, renderExport } from "@/lib/export";
-import { archiveTableSections, filterArchiveRows, legacyArchiveTable, type ArchiveLayout, type ArchiveRow, type ArchiveTable, type ArchiveView } from "@/lib/archive-table";
+import { archiveTableSections, filterArchiveRows, type ArchiveView } from "@/lib/archive-table";
+import { loadVersionTable } from "@/lib/archive-table-load";
 import { withApiErrors } from "@/lib/api-guard";
 
 /**
@@ -16,19 +17,7 @@ async function GETHandler(request: NextRequest, { params }: { params: Promise<{ 
   const v = await prisma.memoVersion.findUnique({ where: { id }, include: { cycle: { select: { number: true, snapshot: true } } } });
   if (!v || !canViewVersion(actor, v)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const takenAt = v.sentAt.toISOString();
-  let table: ArchiveTable;
-  if (Array.isArray(v.rows) && v.columns && typeof v.columns === "object") {
-    table = { mode: "full", takenAt, ...(v.columns as unknown as ArchiveLayout), rows: v.rows as unknown as ArchiveRow[] };
-  } else {
-    // справка отправлена до того, как стали сохранять таблицу целиком: Cycle.snapshot относится к последней отправке цикла
-    const last = await prisma.memoVersion.findFirst({ where: { cycleId: v.cycleId }, orderBy: { revision: "desc" }, select: { id: true } });
-    const inMemo = (Array.isArray(v.sources) ? (v.sources as Array<{ id: string }>) : []).map((s) => s.id);
-    table =
-      last?.id === v.id && Array.isArray(v.cycle.snapshot)
-        ? legacyArchiveTable(v.cycle.snapshot, inMemo, takenAt)
-        : { mode: "none", takenAt, columns: [], segments: [], rows: [] };
-  }
+  const table = await loadVersionTable(v, v.cycle.snapshot);
 
   const sp = new URL(request.url).searchParams;
   if (!sp.has("format")) return NextResponse.json(table);

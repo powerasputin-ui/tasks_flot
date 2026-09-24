@@ -1040,6 +1040,9 @@ function BulletFragment({
   // пункт собрался из строки, но в «Виде справки» не отмечено ничего текстового — объясняем, почему он пустой
   const emptyByView = !bullet.text.trim() && bullet.itemIds.length > 0 && !bullet.edited;
   const showHint = last && hasHint(bullet, flags);
+  // кнопки действий пункта попадают в Tab только пока фокус внутри пункта: иначе на странице сотни лишних остановок
+  const [inside, setInside] = useState(false);
+  const tab = inside ? 0 : -1;
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
@@ -1068,7 +1071,14 @@ function BulletFragment({
   };
 
   return (
-    <div className={`group/item relative flex items-start ${bullet.hidden ? "opacity-45" : ""}`} style={{ columnGap: MARKER_GAP }}>
+    <div
+      className={`group/item relative flex items-start ${bullet.hidden ? "opacity-45" : ""}`}
+      style={{ columnGap: MARKER_GAP }}
+      onFocus={() => setInside(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setInside(false);
+      }}
+    >
       <span className="shrink-0 select-none text-on-surface" style={{ ...TEXT_STYLE, width: MARKER_W }}>
         {first ? "•" : ""}
       </span>
@@ -1152,7 +1162,7 @@ function BulletFragment({
               align="right"
               width={340}
               trigger={({ toggle }) => (
-                <button onClick={toggle} className={ICON} title="Источник: строки данных" aria-label="Источник">
+                <button tabIndex={tab} onClick={toggle} className={ICON} title="Источник: строки данных" aria-label="Источник">
                   <Info size={14} />
                 </button>
               )}
@@ -1177,16 +1187,16 @@ function BulletFragment({
           )}
           {editable && (
             <>
-              <button onClick={onUp} disabled={isFirst} className={ICON} title="Выше" aria-label="Выше"><ArrowUp size={14} /></button>
-              <button onClick={onDown} disabled={isLast} className={ICON} title="Ниже" aria-label="Ниже"><ArrowDown size={14} /></button>
+              <button tabIndex={tab} onClick={onUp} disabled={isFirst} className={ICON} title="Выше" aria-label="Выше"><ArrowUp size={14} /></button>
+              <button tabIndex={tab} onClick={onDown} disabled={isLast} className={ICON} title="Ниже" aria-label="Ниже"><ArrowDown size={14} /></button>
               {canMergeNext && (
-                <button onClick={onMerge} className={ICON} title="Объединить со следующим пунктом" aria-label="Объединить"><Merge size={14} /></button>
+                <button tabIndex={tab} onClick={onMerge} className={ICON} title="Объединить со следующим пунктом" aria-label="Объединить"><Merge size={14} /></button>
               )}
-              <button onClick={onHide} className={ICON} title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
+              <button tabIndex={tab} onClick={onHide} className={ICON} title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
                 {bullet.hidden ? <Undo2 size={14} /> : <EyeOff size={14} />}
               </button>
               {onRemove && (
-                <button onClick={onRemove} className={DANGER} title="Удалить пункт" aria-label="Удалить пункт"><Trash2 size={14} /></button>
+                <button tabIndex={tab} onClick={onRemove} className={DANGER} title="Удалить пункт" aria-label="Удалить пункт"><Trash2 size={14} /></button>
               )}
             </>
           )}

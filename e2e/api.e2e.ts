@@ -63,6 +63,8 @@ import * as archiveOne from "@/app/api/memo-archive/[id]/route";
 import * as archiveExport from "@/app/api/memo-archive/[id]/export/route";
 import * as archiveReturn from "@/app/api/memo-archive/[id]/return/route";
 import * as archiveTable from "@/app/api/memo-archive/[id]/table/route";
+import * as weeksList from "@/app/api/weeks/route";
+import * as weekOne from "@/app/api/weeks/[cycleId]/route";
 import { hitRateLimit } from "@/lib/rate-limit";
 import * as notif from "@/app/api/notifications/[id]/route";
 import * as cycleRemind from "@/app/api/cycles/[id]/remind/route";
@@ -1333,6 +1335,109 @@ describe("вид справки: галочки задают и разделы, 
     expect(got.data.doc.sections[0].title).toBe(track.name); // раздел не поменялся
     expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+  });
+});
+
+describe("недели в «Общей таблице»", () => {
+  let c2 = "";
+  let c3 = "";
+  const list = (who: Actor) => call(who, weeksList.GET, "/api/weeks");
+  // call() отдаёт параметр как `id`, а у этого маршрута он называется `cycleId`
+  const week = (who: Actor, id: string) => call(who, (req, ctx) => weekOne.GET(req, { params: ctx.params.then((p) => ({ cycleId: p.id })) }), `/api/weeks/${id}`, { id });
+
+  it("список недель: только своя дирекция, новые сверху; у старой (без снимка) счётчиков нет", async () => {
+    const r = await list(directorB);
+    expect(r.status).toBe(200);
+    expect(r.data.current).toBeNull();
+    expect(r.data.weeks.length).toBeGreaterThanOrEqual(2);
+    const nums = r.data.weeks.map((w: { number: number }) => w.number);
+    expect(nums).toEqual([...nums].sort((a: number, b: number) => b - a));
+    const newest = r.data.weeks[0];
+    const oldest = r.data.weeks.find((w: { rowsCount: number | null }) => w.rowsCount === null); // цикл «отправка ЗГД, архив», у которого снимок стёрт
+    c2 = newest.cycleId;
+    expect(typeof newest.rowsCount).toBe("number");
+    expect(newest.rowsCount).toBeGreaterThan(0);
+    expect(oldest).toMatchObject({ rowsCount: null, submitted: null, inMemo: null, revisions: 2 });
+    // доступ: руководитель своей дирекции видит; чужая дирекция — свои недели; ЗГД — нет
+    expect((await list(headB)).status).toBe(200);
+    expect((await list(director)).data.weeks.some((w: { cycleId: string }) => w.cycleId === c2)).toBe(false);
+    expect((await list(management)).status).toBe(403);
+  });
+
+  it("неделя: таблица последней ревизии, предыдущая неделя старая — сравнения нет; чужое, ЗГД и незавершённое недоступны", async () => {
+    const r = await week(directorB, c2);
+    expect(r.status).toBe(200);
+    expect(r.data.table.mode).toBe("full");
+    expect(r.data.prev).not.toBeNull();
+    expect(r.data.diff).toBeNull(); // у прошлой недели полного снимка нет
+    expect((await week(headB, c2)).status).toBe(200);
+    expect((await week(director, c2)).status).toBe(404);
+    expect((await week(management, c2)).status).toBe(403);
+    expect((await week(directorB, "нет-такой")).status).toBe(404);
+    await prisma.cycle.update({ where: { id: c2 }, data: { status: "IN_REVIEW" } });
+    expect((await week(directorB, c2)).status).toBe(404);
+    await prisma.cycle.update({ where: { id: c2 }, data: { status: "FINAL" } });
+  });
+
+  it("сравнение с прошлой неделей: новая, изменённая и убранная строки; правки после отправки в снимок не попадают", async () => {
+    const changed = await prisma.operationalItem.findFirstOrThrow({ where: { directorateId: dirB, title: `${TAG} авто` } });
+    // убираем из таблицы любую строку, которая была в прошлой неделе и ещё жива
+    const prevRows = ((await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: c2 }, orderBy: { revision: "desc" } })).rows as unknown as Array<{ id: string }>).map((x) => x.id);
+    const removed = await prisma.operationalItem.findFirstOrThrow({ where: { id: { in: prevRows, not: changed.id }, directorateId: dirB, archivedAt: null } });
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    c3 = start.data.id;
+    created.cycles.push(c3);
+    const fresh = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} новая на неделе`, operFlag: true, comment: "Новое." } });
+    expect(fresh.status).toBe(201);
+    created.items.push(fresh.data.row.id);
+    await prisma.operationalItem.update({ where: { id: changed.id }, data: { comment: `Изменено на неделе ${TAG}` } });
+    await prisma.operationalItem.update({ where: { id: removed.id }, data: { archivedAt: new Date() } });
+
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${c3}/review`, { method: "POST", id: c3 })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${c3}/finalize`, { method: "POST", id: c3, body: {} })).status).toBe(200);
+    await prisma.operationalItem.update({ where: { id: changed.id }, data: { comment: "правка уже после отправки" } });
+
+    const r = await week(directorB, c3);
+    expect(r.status).toBe(200);
+    expect(r.data.prev.cycleId).toBe(c2);
+    const d = r.data.diff;
+    expect(d.rows[fresh.data.row.id]).toEqual({ kind: "new" });
+    expect(d.rows[changed.id].kind).toBe("changed");
+    expect(d.rows[changed.id].fields.map((f: { key: string }) => f.key)).toContain("comment");
+    expect(d.removed.map((x: { id: string }) => x.id)).toContain(removed.id);
+    expect(d.summary.new).toBe(1);
+    expect(d.summary.removed).toBe(1);
+    // в снимке недели значение на момент отправки
+    expect(r.data.table.rows.find((x: { id: string }) => x.id === changed.id).comment).toBe(`Изменено на неделе ${TAG}`);
+    expect((await list(directorB)).data.weeks[0].cycleId).toBe(c3);
+  });
+
+  it("возврат ЗГД возвращает «Опер» всем строкам, поданным в версии, а не только видимым в справке", async () => {
+    const hiddenOne = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} подана но вне справки`, operFlag: false } });
+    expect(hiddenOne.status).toBe(201);
+    created.items.push(hiddenOne.data.row.id);
+    const v = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: c3 }, orderBy: { revision: "desc" } });
+    const rows = v.rows as unknown as Array<{ id: string; submitted: boolean }>;
+    expect(rows.some((x) => x.id === hiddenOne.data.row.id)).toBe(false); // создана после отправки — в снимке её нет
+    const snap = await prisma.operationalItem.findFirstOrThrow({ where: { directorateId: dirB, title: `${TAG} новая на неделе` } });
+    await prisma.operationalItem.update({ where: { id: snap.id }, data: { operFlag: false } });
+    // строка была подана в версии, но в справке её нет (пункт скрыт): «Опер» всё равно должен вернуться
+    const doc = v.doc as unknown as { sections: Array<{ bullets: Array<{ itemIds: string[]; hidden?: boolean }> }> };
+    for (const s of doc.sections) for (const b of s.bullets) if (b.itemIds.includes(snap.id)) b.hidden = true;
+    await prisma.memoVersion.update({ where: { id: v.id }, data: { doc: doc as unknown as Prisma.InputJsonValue } });
+
+    const back = await call(management, archiveReturn.POST, `/api/memo-archive/${v.id}/return`, { method: "POST", id: v.id, body: { comment: "Вернуть весь пакет" } });
+    expect(back.status).toBe(200);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: snap.id } })).operFlag).toBe(true);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: hiddenOne.data.row.id } })).operFlag).toBe(false); // не подававшуюся не трогаем
+    // неделя, вернувшаяся на доработку, из списка пропала (она снова текущая)
+    const l = await list(directorB);
+    expect(l.data.current.cycleId).toBe(c3);
+    expect(l.data.weeks.some((w: { cycleId: string }) => w.cycleId === c3)).toBe(false);
+    expect((await week(directorB, c3)).status).toBe(404);
+    // закрываем, чтобы не мешать следующим проверкам
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${c3}/finalize`, { method: "POST", id: c3, body: {} })).status).toBe(200);
   });
 });
 

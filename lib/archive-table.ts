@@ -198,3 +198,51 @@ export function archiveTableSections(t: ArchiveLayout, rows: ArchiveRow[]): Expo
     },
   ];
 }
+
+// ---------- сравнение двух недель ----------
+
+export type FieldChange = { key: string; label: string; before: string };
+export type RowChange = { kind: "new" } | { kind: "changed"; fields: FieldChange[] };
+export type TableDiff = {
+  /** Изменения по id строки (нет записи — строка не менялась). */
+  rows: Record<string, RowChange>;
+  /** Были на прошлой неделе, сейчас в таблице нет: закрыты или в архиве. */
+  removed: ArchiveRow[];
+  summary: { new: number; changed: number; removed: number };
+};
+
+const text = (v: Cell): string => (v === null || v === undefined ? "" : String(v).trim());
+
+/**
+ * Что изменилось между прошлой неделей и этой. Сравниваются только полные снимки (у старых версий таблица неполная —
+ * «новые» строки были бы ложными), поэтому в остальных случаях возвращается null.
+ * Поля сравниваются по столбцам этой недели (плюс сегмент, которого нет среди столбцов).
+ */
+export function diffArchiveTables(prev: ArchiveTable, cur: ArchiveTable): TableDiff | null {
+  if (prev.mode !== "full" || cur.mode !== "full") return null;
+  const before = new Map(prev.rows.map((r) => [r.id, r]));
+  const now = new Set(cur.rows.map((r) => r.id));
+  const rows: Record<string, RowChange> = {};
+  let nNew = 0;
+  let nChanged = 0;
+  for (const r of cur.rows) {
+    const old = before.get(r.id);
+    if (!old) {
+      rows[r.id] = { kind: "new" };
+      nNew++;
+      continue;
+    }
+    const fields: FieldChange[] = [];
+    if (text(old.segmentName) !== text(r.segmentName)) fields.push({ key: "segment", label: "Сегмент", before: text(old.segmentName) });
+    for (const c of cur.columns) {
+      const a = text(archiveCellText(old, c));
+      if (a !== text(archiveCellText(r, c))) fields.push({ key: c.key, label: c.label, before: a });
+    }
+    if (fields.length) {
+      rows[r.id] = { kind: "changed", fields };
+      nChanged++;
+    }
+  }
+  const removed = prev.rows.filter((r) => !now.has(r.id));
+  return { rows, removed, summary: { new: nNew, changed: nChanged, removed: removed.length } };
+}

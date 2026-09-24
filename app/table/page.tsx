@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { TableView } from "@/components/TableView";
+import { WeeksShell } from "@/components/WeeksShell";
 
 export default function TablePage() {
   return (
     <Suspense fallback={null}>
-      <TableView />
+      <WeeksShell />
     </Suspense>
   );
 }

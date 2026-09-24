@@ -9,7 +9,8 @@ import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
 import { segmentColors } from "@/components/SegmentList";
 import { groupBySegment, NO_SEGMENT } from "@/lib/segment-counts";
 import { WIDTH, type StdKey } from "@/lib/table-columns";
-import { filterArchiveRows, type ArchiveColumn, type ArchiveRow, type ArchiveTable as Table, type ArchiveView } from "@/lib/archive-table";
+import { ShowMore, useChunk } from "@/components/ui/ShowMore";
+import { filterArchiveRows, type ArchiveColumn, type ArchiveRow, type ArchiveTable as Table, type ArchiveView, type TableDiff } from "@/lib/archive-table";
 
 const MARK_W = 104;
 const CUSTOM_W = 150;
@@ -22,10 +23,6 @@ const CENTERED = new Set(["cost", "attractiveness", "deadline", "deadlineWeek", 
 export function ArchiveTable({ versionId, focusItemId }: { versionId: string; focusItemId?: string | null }) {
   const [table, setTable] = useState<Table | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ArchiveView>("all");
-  const [q, setQ] = useState("");
-  const [segment, setSegment] = useState<string>("");
-  const focusRef = useRef<HTMLTableRowElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -41,9 +38,23 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
     };
   }, [versionId]);
 
+  if (error) return <p className="surface p-6 text-center text-[13px] text-on-surface-variant">{error}</p>;
+  if (!table) return <div className="skeleton h-64 rounded-lg" />;
+  return <ArchiveTableView table={table} focusItemId={focusItemId} exportBase={`/api/memo-archive/${versionId}/table`} />;
+}
+
+type View = ArchiveView | "changed";
+
+/** Сама таблица снимка: фильтры, поиск, порционный показ; при `diff` — ещё и «что изменилось с прошлой недели». */
+export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, prevNumber }: { table: Table; diff?: TableDiff | null; focusItemId?: string | null; exportBase?: string; prevNumber?: number | null }) {
+  const [view, setView] = useState<View>("all");
+  const [q, setQ] = useState("");
+  const [segment, setSegment] = useState<string>("");
+  const focusRef = useRef<HTMLTableRowElement | null>(null);
+
   // пришли из пункта справки «показать в таблице» — сбрасываем фильтры, чтобы строка точно была видна, и прокручиваем к ней
   useEffect(() => {
-    if (!focusItemId || !table) return;
+    if (!focusItemId) return;
     setView("all");
     setQ("");
     setSegment("");
@@ -52,12 +63,15 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
     focusRef.current?.scrollIntoView({ block: "center" });
   }, [focusItemId, table, view, q, segment]);
 
-  const rows = useMemo(() => (table ? filterArchiveRows(table.rows, { view, q, segmentId: segment || null }) : []), [table, view, q, segment]);
-  const colors = useMemo(() => segmentColors(table?.segments ?? []), [table]);
-  const groups = useMemo(() => groupBySegment(rows, (table?.segments ?? []).map((s) => s.id)), [rows, table]);
+  const rows = useMemo(() => {
+    const base = filterArchiveRows(table.rows, { view: view === "changed" ? "all" : view, q, segmentId: segment || null });
+    return view === "changed" && diff ? base.filter((r) => diff.rows[r.id]) : base;
+  }, [table, diff, view, q, segment]);
+  const chunk = useChunk(rows.length, [view, q, segment, table], focusItemId ? Infinity : undefined);
+  const shown = useMemo(() => rows.slice(0, chunk.limit), [rows, chunk.limit]);
+  const colors = useMemo(() => segmentColors(table.segments), [table]);
+  const groups = useMemo(() => groupBySegment(shown, table.segments.map((s) => s.id)), [shown, table]);
 
-  if (error) return <p className="surface p-6 text-center text-[13px] text-on-surface-variant">{error}</p>;
-  if (!table) return <div className="skeleton h-64 rounded-lg" />;
   if (table.mode === "none")
     return (
       <p className="surface p-6 text-center text-[13px] text-on-surface-variant">
@@ -71,17 +85,18 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
   const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : table.segments.find((s) => s.id === id)?.name ?? "Сегмент");
   const segmentsInTable = [...new Set(table.rows.map((r) => r.segmentId ?? NO_SEGMENT))];
   const exportHref = (format: string) => {
-    const p = new URLSearchParams({ format, view });
+    const p = new URLSearchParams({ format, view: view === "changed" ? "all" : view });
     if (q.trim()) p.set("q", q.trim());
     if (segment) p.set("segment", segment);
-    return `/api/memo-archive/${versionId}/table?${p.toString()}`;
+    return `${exportBase}?${p.toString()}`;
   };
   const colWidth = (c: ArchiveColumn) => (c.key.startsWith("custom:") ? CUSTOM_W : WIDTH[c.key as StdKey] ?? CUSTOM_W);
   const tableWidth = MARK_W + table.columns.reduce((s, c) => s + colWidth(c), 0);
   const cols = table.columns.length + 1;
 
-  const tabs: Array<{ id: ArchiveView; label: string; n: number }> = [
+  const tabs: Array<{ id: View; label: string; n: number }> = [
     { id: "all", label: "Все строки", n: total },
+    ...(diff ? [{ id: "changed" as const, label: "Изменилось", n: diff.summary.new + diff.summary.changed }] : []),
     { id: "submitted", label: "Поданные", n: submitted },
     { id: "memo", label: "В справке", n: inMemo },
   ];
@@ -92,6 +107,12 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
         <p className="mb-3 flex items-start gap-2 rounded-md border border-status-amber/40 bg-status-amber/10 px-3 py-2 text-[13px] text-on-surface">
           <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-amber" />
           Справку отправили до того, как архив начал хранить таблицу целиком: здесь только строки, поданные директору.
+        </p>
+      )}
+
+      {diff && (
+        <p className="mb-3 text-[13px] text-on-surface-variant">
+          С недели №{prevNumber}: <b className="text-on-surface">новых {diff.summary.new}</b> · <b className="text-on-surface">изменено {diff.summary.changed}</b> · <b className="text-on-surface">убрано {diff.summary.removed}</b>
         </p>
       )}
 
@@ -121,9 +142,11 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти в таблице" className="input h-9 w-full pl-9" maxLength={200} />
         </div>
-        <a href={exportHref("xlsx")} className="btn-ghost ml-auto h-8" download>
-          <FileDown size={14} /> Excel
-        </a>
+        {exportBase && (
+          <a href={exportHref("xlsx")} className="btn-ghost ml-auto h-8" download>
+            <FileDown size={14} /> Excel
+          </a>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-outline-variant bg-surface shadow-sm">
@@ -155,6 +178,8 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
                 </tr>
                 {group.rows.map((row) => {
                   const focused = row.id === focusItemId;
+                  const change = diff?.rows[row.id];
+                  const changedKeys = change?.kind === "changed" ? new Map(change.fields.map((f) => [f.key, f.before])) : null;
                   return (
                     <tr
                       key={row.id}
@@ -162,13 +187,22 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
                       className={`border-t border-outline-variant/50 ${focused ? "bg-primary-soft outline outline-2 -outline-offset-2 outline-primary" : row.inMemo ? "bg-primary-soft/40" : ""}`}
                     >
                       <td className="px-2 py-3 text-center align-middle">
+                        {change?.kind === "new" && <span className="mb-1 block rounded-full bg-status-emerald/15 px-2 py-0.5 text-[11px] font-semibold text-status-emerald">новая</span>}
                         <Marks row={row} />
                       </td>
-                      {table.columns.map((c) => (
-                        <td key={c.key} className={`px-3 py-3 align-middle text-on-surface ${CENTERED.has(c.key) ? "text-center" : ""} ${c.key === "name" || c.key === "comment" ? "" : "truncate"}`}>
-                          <Cell row={row} col={c} q={q} />
-                        </td>
-                      ))}
+                      {table.columns.map((c) => {
+                        const was = changedKeys?.get(c.key);
+                        return (
+                          <td
+                            key={c.key}
+                            title={was !== undefined ? `Было: ${was || "пусто"}` : undefined}
+                            className={`px-3 py-3 align-middle text-on-surface ${CENTERED.has(c.key) ? "text-center" : ""} ${c.key === "name" || c.key === "comment" ? "" : "truncate"} ${was !== undefined ? "bg-status-amber/15" : ""}`}
+                          >
+                            <Cell row={row} col={c} q={q} />
+                            {was !== undefined && <span className="mt-0.5 block truncate text-[11px] text-on-surface-variant">было: {was || "пусто"}</span>}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })}
@@ -178,6 +212,21 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
         </table>
         {rows.length === 0 && <p className="p-6 text-center text-[13px] text-on-surface-variant">{total === 0 ? "Таблица была пустой." : "Ничего не найдено."}</p>}
       </div>
+      <ShowMore chunk={chunk} total={rows.length} />
+
+      {diff && diff.removed.length > 0 && (
+        <details className="mt-4 rounded-lg border border-outline-variant bg-surface">
+          <summary className="cursor-pointer px-4 py-2.5 text-[13px] font-semibold text-on-surface">Убраны с прошлой недели · {diff.removed.length}</summary>
+          <ul className="divide-y divide-outline-variant/50 border-t border-outline-variant/60">
+            {diff.removed.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 px-4 py-2 text-[13px]">
+                <span className="text-on-surface">{r.name}</span>
+                <span className="text-[12px] text-on-surface-variant">{[r.segmentName, r.ownerName, r.statusName].filter(Boolean).join(" · ")}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
