@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canManageColumns } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
+import { withApiErrors } from "@/lib/api-guard";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
@@ -12,7 +13,7 @@ const patchSchema = z.object({
 });
 
 // Переименовать колонку или изменить варианты списка. Тип после создания не меняется.
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   if (!canManageColumns(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
@@ -29,7 +30,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 // «Удаление» скрывает колонку; значения в позициях и журнал не теряются.
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function DELETEHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   if (!canManageColumns(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
@@ -39,3 +40,6 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   invalidateDicts();
   return NextResponse.json({ ok: true });
 }
+
+export const PATCH = withApiErrors(PATCHHandler);
+export const DELETE = withApiErrors(DELETEHandler);

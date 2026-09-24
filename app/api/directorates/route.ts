@@ -4,9 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { requireFreshSession } from "@/lib/session";
 import { canCreateDirectorates } from "@/lib/permissions";
 import { invalidateDirectorates, listDirectorates } from "@/lib/directorates";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Список дирекций: админу — все (в том числе отключённые), остальным — их собственная.
-export async function GET() {
+async function GETHandler() {
   const session = await requireFreshSession();
   const all = await listDirectorates();
   if (canCreateDirectorates(session.role)) return NextResponse.json({ directorates: all, current: session.directorateId });
@@ -16,7 +17,7 @@ export async function GET() {
 const createSchema = z.object({ name: z.string().trim().min(2).max(120) });
 
 // Дирекции заводит админ. Внутри новой дирекции пока пусто: сегменты, треки, людей добавляют директор и админ.
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const session = await requireFreshSession();
   if (!canCreateDirectorates(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
@@ -26,3 +27,6 @@ export async function POST(request: NextRequest) {
   invalidateDirectorates();
   return NextResponse.json({ directorate }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

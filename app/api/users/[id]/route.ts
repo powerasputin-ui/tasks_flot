@@ -8,6 +8,7 @@ import { canManageUser, canManageUsers, checkRoleChange } from "@/lib/permission
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
 import { listDirectorates } from "@/lib/directorates";
+import { withApiErrors } from "@/lib/api-guard";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).optional(),
@@ -26,7 +27,7 @@ const patchSchema = z.object({
  */
 const ROLE_NAME: Record<string, string> = { HEAD: "руководитель", DIRECTOR: "директор", ADMIN: "админ", EXECUTIVE: "ЗГД", SYSTEM_ADMIN: "технический администратор" };
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireFreshSession(); // роль из базы: назначение и снятие действуют сразу
   if (!canManageUsers(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
@@ -85,3 +86,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   return NextResponse.json({ user });
 }
+
+export const PATCH = withApiErrors(PATCHHandler);

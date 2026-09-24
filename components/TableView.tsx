@@ -21,7 +21,7 @@ import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
-import { DEFAULT_COLUMNS, loadLocalColumns, normalizeColumns, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
+import { applyWidthOverrides, DEFAULT_COLUMNS, loadLocalColumns, loadWidthOverrides, normalizeColumns, saveWidthOverrides, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
 import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
@@ -44,7 +44,7 @@ type Row = ItemRow & {
 type Me = { id: string; role: string; memoEditor?: boolean } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
-const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag"];
+const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag", "memo"];
 /** Колонки с плашками, датой и галкой: при нехватке места обрезаются без «…» (многоточие рядом с плашкой выглядело как лишние точки). */
 const CLIPPED_COLUMNS: ColumnKey[] = ["attractiveness", "status", "deadline", "deadlineWeek", "operFlag"];
 
@@ -56,6 +56,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const pathname = usePathname();
   const q = searchParams.get("q") ?? "";
 
+  const tableWrapRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -211,18 +212,28 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         attractiveness: b.attractiveness,
         users: b.users.map((x) => ({ id: x.id, name: x.name })),
       });
-      if (b.tableColumns) setColumns(normalizeColumns(b.tableColumns as ColumnConfig[]));
-      else {
-        // общего вида ещё нет: до первого сохранения куратором берём то, что было настроено в этом браузере
-        const local = loadLocalColumns();
-        if (local) setColumns(normalizeColumns(local));
-      }
+      let base = b.tableColumns
+        ? normalizeColumns(b.tableColumns as ColumnConfig[])
+        : // общего вида ещё нет: до первого сохранения куратором берём то, что было настроено в этом браузере
+          (() => {
+            const local = loadLocalColumns();
+            return local ? normalizeColumns(local) : DEFAULT_COLUMNS;
+          })();
+      // база — от куратора/админа; у остальных поверх неё накладываются личные ширины (свои — только в этом браузере)
+      const privileged = (b.user?.role ? isDirectorial(b.user.role) : false) || b.user?.role === "SYSTEM_ADMIN";
+      if (!privileged) base = applyWidthOverrides(base, loadWidthOverrides());
+      setColumns(base);
     });
   }, []);
 
   function saveColumns(next: ColumnConfig[]) {
     setColumns(next);
-    persistColumns(next);
+    if (canLayoutRef.current) {
+      persistColumns(next);
+    } else {
+      // не куратор/админ: своя ширина сохраняется только у себя в браузере, общую раскладку не трогает
+      saveWidthOverrides(Object.fromEntries(next.map((c) => [c.key, c.width])));
+    }
   }
 
   // Параметры без сегмента: сегмент фильтруется на клиенте, чтобы счётчики слева были полными.
@@ -392,8 +403,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
 
-  const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "memo" || !!memo));
-  const totalWeight = visibleColumns.reduce((s, c) => s + c.width, 0) || 1;
+  // «Опер» — только для тех, кто не составляет справку сам (они видят «В справку» вместо этого); «В справку» — только составителям при активном цикле
+  const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "operFlag" || !canCompile) && (c.key !== "memo" || !!memo));
+  // ширина колонки — как в Excel: у каждой своя, независимая, в пикселях; растягивание одной колонки не трогает остальные.
+  // Последняя колонка ширины не задаёт — сама сжимается/растягивается под оставшееся место, так таблица всегда ровно по ширине контейнера.
+  const fillerKey = visibleColumns.length ? visibleColumns[visibleColumns.length - 1].key : null;
+  // у «резиновой» колонки всегда виден правый край — не даём ей схлопнуться в ноль при растягивании соседних
+  const FILLER_MIN_WIDTH = 160;
+  const COLUMN_MIN_WIDTH = 60;
 
   function renderCell(row: Row, col: ColumnConfig) {
     switch (col.key) {
@@ -429,48 +446,40 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "status":
         return <StatusPill name={row.statusName} color={row.statusColor} />;
       case "memo": {
-        if (!memo) return "—";
+        if (!memo || row.archived) return "—";
         const isIn = memo.included.has(row.id);
         const undecided = row.operFlag && !memo.known.has(row.id) && !row.archived;
-        return row.archived ? (
-          "—"
-        ) : (
+        return (
           <span className="inline-flex items-center gap-1.5">
-            <input
-              type="checkbox"
-              checked={isIn}
-              onChange={(e) => void toggleMemo(row, e.target.checked)}
-              onClick={(e) => e.stopPropagation()}
-              className="h-4 w-4 cursor-pointer accent-primary"
-              title={isIn ? "Входит в справку для ЗГД" : "Добавить в справку для ЗГД"}
-            />
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void toggleMemo(row, !isIn);
+              }}
+              className={isIn ? "btn-ghost h-7 px-2 text-[12px]" : "btn-primary h-7 px-2 text-[12px]"}
+              title={isIn ? "Убрать из справки для ЗГД" : "Отправить в справку для ЗГД"}
+            >
+              {isIn ? "Отправлено" : "Отправить"}
+            </button>
             {undecided && <span title="Подано директору, решение по справке ещё не принято" className="rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">новое</span>}
           </span>
         );
       }
       case "operFlag": {
-        const mark = row.operFlag && row.changedAfterSubmission && (
-          <span title="Изменено после отправки директору — откройте историю позиции" className="ml-1.5 inline-flex h-4 items-center rounded-sm bg-status-amber/15 px-1 text-[10px] font-bold text-status-amber">
-            изм.
-          </span>
-        );
-        return canEditRow(row) && !row.archived ? (
-          <span className="inline-flex items-center">
-          <input
-            type="checkbox"
-            checked={row.operFlag}
+        if (row.archived) return "—";
+        if (!canEditRow(row)) return row.operFlag ? <span className="inline-flex items-center">отправлено</span> : "—";
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!preview) toggleOper(row, !row.operFlag);
+            }}
             disabled={!!preview}
-            onChange={(e) => toggleOper(row, e.target.checked)}
-            onClick={(e) => e.stopPropagation()}
-            className="h-4 w-4 cursor-pointer accent-primary"
-            title="В оперативку: подать директору"
-          />
-          {mark}
-          </span>
-        ) : row.operFlag ? (
-          <span className="inline-flex items-center">да{mark}</span>
-        ) : (
-          "—"
+            className={row.operFlag ? "btn-ghost h-7 px-2 text-[12px]" : "btn-primary h-7 px-2 text-[12px]"}
+            title={row.operFlag ? "Отменить отправку директору" : "Отправить директору"}
+          >
+            {row.operFlag ? "Отправлено" : "Отправить"}
+          </button>
         );
       }
       case "comment":
@@ -523,7 +532,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessIds} />
             <FilterChip label="Ответственный" value={ownerIds} options={refs.users} onChange={setOwnerIds} />
             <FilterChip
-              label="Опер"
+              label="Оперативка"
               value={operFlags}
               options={[{ id: "true", name: "Отправлено" }, { id: "false", name: "Не отправлено" }]}
               onChange={setOperFlags}
@@ -579,23 +588,43 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             </div>
           )}
 
-          <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
+          <div ref={tableWrapRef} className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
+            {/* тянешь колонку — меняется только она, как в Excel; последняя (текстовая) сама сжимается/растягивается под оставшееся место — таблица всегда ровно по ширине контейнера, без скролла */}
             <table className="w-full table-fixed border-collapse text-[13px]">
               <colgroup>
                 {visibleColumns.map((c) => (
-                  <col key={c.key} style={{ width: `${(c.width / totalWeight) * 100}%` }} />
+                  <col key={c.key} style={c.key === fillerKey ? undefined : { width: c.width }} />
                 ))}
               </colgroup>
               <thead className="sticky top-0 z-10 bg-surface-high">
                 <tr>
-                  {visibleColumns.map((col) => (
-                    <ResizableTh
-                      key={col.key}
-                      column={col}
-                      totalWeight={totalWeight}
-                      onResize={(w) => saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: w } : c)))}
-                    />
-                  ))}
+                  {visibleColumns.map((col, i) => {
+                    const next = visibleColumns[i + 1];
+                    return (
+                      <ResizableTh
+                        key={col.key}
+                        column={col}
+                        resizable={!!next}
+                        onResize={(desiredWidth) => {
+                          if (!next) return;
+                          if (next.key === fillerKey) {
+                            // справа — «резиновая» колонка без своей ширины: меряем, сколько у неё реально есть места, и не даём отжать больше минимума
+                            const container = tableWrapRef.current?.clientWidth ?? Infinity;
+                            const othersPx = visibleColumns.filter((c) => c.key !== col.key && c.key !== fillerKey).reduce((s, c) => s + c.width, 0);
+                            const pairTotal = Math.max(COLUMN_MIN_WIDTH + FILLER_MIN_WIDTH, container - othersPx);
+                            const selfWidth = Math.min(Math.max(COLUMN_MIN_WIDTH, desiredWidth), pairTotal - FILLER_MIN_WIDTH);
+                            saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: selfWidth } : c)));
+                          } else {
+                            // обычная пара соседей: меняются только эти двое, забирают и отдают ширину друг другу, остальные колонки не трогаются
+                            const pairTotal = col.width + next.width;
+                            const selfWidth = Math.min(Math.max(COLUMN_MIN_WIDTH, desiredWidth), pairTotal - COLUMN_MIN_WIDTH);
+                            const nextWidth = pairTotal - selfWidth;
+                            saveColumns(columns.map((c) => (c.key === col.key ? { ...c, width: selfWidth } : c.key === next.key ? { ...c, width: nextWidth } : c)));
+                          }
+                        }}
+                      />
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -831,22 +860,19 @@ function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc
   );
 }
 
-function ResizableTh({ column, totalWeight, onResize }: { column: ColumnConfig; totalWeight: number; onResize: (width: number) => void }) {
-  const thRef = useRef<HTMLTableCellElement>(null);
+function ResizableTh({ column, resizable, onResize }: { column: ColumnConfig; resizable: boolean; onResize: (width: number) => void }) {
   const startX = useRef(0);
-  const startPixelWidth = useRef(0);
-  const startWeight = useRef(column.width);
+  const startWidth = useRef(column.width);
 
+  // как в Excel: колонка следует за курсором 1:1, ширина других колонок не пересчитывается
   function onMouseDown(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     startX.current = e.clientX;
-    startPixelWidth.current = thRef.current?.getBoundingClientRect().width ?? 100;
-    startWeight.current = column.width;
+    startWidth.current = column.width;
 
     function onMove(ev: MouseEvent) {
-      const nextPixelWidth = Math.max(60, startPixelWidth.current + (ev.clientX - startX.current));
-      onResize(Math.round(Math.max(20, startWeight.current * (nextPixelWidth / startPixelWidth.current))));
+      onResize(Math.round(Math.max(60, startWidth.current + (ev.clientX - startX.current))));
     }
     function onUp() {
       window.removeEventListener("mousemove", onMove);
@@ -858,12 +884,11 @@ function ResizableTh({ column, totalWeight, onResize }: { column: ColumnConfig; 
 
   return (
     <th
-      ref={thRef}
-      className={`label-caps relative border-b border-outline-variant px-4 py-3 ${CENTERED_COLUMNS.includes(column.key) ? "text-center" : "text-left"}`}
-      style={{ width: `${(column.width / totalWeight) * 100}%`, color: "var(--on-surface-variant)" }}
+      className="label-caps relative border-b border-outline-variant px-4 py-3 text-center border-r border-r-outline-variant/60 last:border-r-0"
+      style={{ width: resizable ? column.width : undefined, color: "var(--on-surface-variant)" }}
     >
       <span className="block truncate">{column.label}</span>
-      <span onMouseDown={onMouseDown} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize select-none transition-colors hover:bg-sky" />
+      {resizable && <span onMouseDown={onMouseDown} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize select-none transition-colors hover:bg-sky" />}
     </th>
   );
 }

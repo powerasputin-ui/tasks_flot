@@ -4,9 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canEditMemo, loadMemo, loadSectionDefs, loadSources } from "@/lib/memo-load";
 import { setIncluded } from "@/lib/memo";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Решение «в справку / не в справку» по одной строке (из таблицы или из редактора). Тело: { itemId, include }.
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const cycle = await prisma.cycle.findUnique({ where: { id } });
@@ -15,7 +16,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const body = (await request.json().catch(() => null)) as { itemId?: string; include?: boolean } | null;
   if (!body?.itemId || typeof body.include !== "boolean") return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
 
-  const [state, defs, sources] = await Promise.all([loadMemo(cycle), loadSectionDefs(cycle.directorateId ?? ""), loadSources(cycle.directorateId ?? "")]);
+  const [state, defs] = await Promise.all([loadMemo(cycle), loadSectionDefs(cycle.directorateId ?? "")]);
+  const sources = await loadSources(cycle.directorateId ?? "", undefined, defs);
   const item = sources.find((s) => s.id === body.itemId);
   if (!item) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   const doc = setIncluded(state.doc, item, body.include, defs, sources);
@@ -23,3 +25,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (res.count !== 1) return NextResponse.json({ error: "CONFLICT" }, { status: 409 });
   return NextResponse.json({ ok: true, included: body.include, version: state.version + 1 });
 }
+
+export const POST = withApiErrors(POSTHandler);

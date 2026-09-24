@@ -16,7 +16,7 @@ export const COLUMN_LABEL: Record<StdColumn, string> = {
   owner: "Ответственный",
   deadline: "Дедлайн",
   status: "Статус",
-  operFlag: "Опер",
+  operFlag: "Оперативка",
   comment: "Комментарий",
 };
 

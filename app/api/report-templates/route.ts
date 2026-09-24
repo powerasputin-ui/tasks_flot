@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { reportConfigSchema } from "@/lib/report-config";
 import { canShareTemplates, canUseReports } from "@/lib/report-templates";
+import { withApiErrors } from "@/lib/api-guard";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -12,7 +13,7 @@ const createSchema = z.object({
 });
 
 // Шаблоны отчётов: свои личные + общие («для всех»). Шаблоны «из коробки» живут в коде (lib/report-config.ts).
-export async function GET() {
+async function GETHandler() {
   const actor = await requireActor();
   if (!canUseReports(actor.role)) return NextResponse.json({ templates: [] });
   const templates = await prisma.reportTemplate.findMany({
@@ -23,7 +24,7 @@ export async function GET() {
   return NextResponse.json({ templates: templates.map((t) => ({ ...t, mine: t.ownerId === actor.id, canEdit: t.scope === "SHARED" ? canShareTemplates(actor.role) : t.ownerId === actor.id })) });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canUseReports(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
@@ -35,3 +36,6 @@ export async function POST(request: NextRequest) {
   });
   return NextResponse.json({ template: { ...template, mine: true, canEdit: true } }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

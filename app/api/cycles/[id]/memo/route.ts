@@ -5,9 +5,10 @@ import { requireActor } from "@/lib/session";
 import { MEMO_LIMITS, canEditMemo, loadMemo } from "@/lib/memo-load";
 import { notIncluded, parseMemoDoc } from "@/lib/memo";
 import { cycleSummary } from "@/lib/cycles";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Справка цикла для редактора: документ, версия, пометки, строки-источники, то, что не вошло, участие подачи.
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const cycle = await prisma.cycle.findUnique({ where: { id } });
@@ -15,7 +16,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const state = await loadMemo(cycle);
   const [summary, dir] = await Promise.all([cycleSummary(cycle.directorateId ?? ""), prisma.directorate.findUnique({ where: { id: cycle.directorateId ?? "" }, select: { name: true, shortName: true } })]);
   const used = new Set(state.doc.sections.flatMap((s) => s.bullets.flatMap((b) => b.itemIds)));
-  const unmapped = [...new Set(state.sources.filter((s) => s.operFlag && s.trackId && !state.defs.some((d) => d.trackIds.includes(s.trackId!))).map((s) => s.trackName).filter(Boolean))];
+  // предупреждение про «трек не из структуры» имеет смысл, только когда справка вообще делится по трекам
+  const byTrack = state.defs.some((d) => d.trackIds.length > 0);
+  const unmapped = byTrack
+    ? [...new Set(state.sources.filter((s) => s.operFlag && s.trackId && !state.defs.some((d) => d.trackIds.includes(s.trackId!))).map((s) => s.trackName).filter(Boolean))]
+    : [];
   return NextResponse.json({
     cycle: { id: cycle.id, number: cycle.number, status: cycle.status, deadline: cycle.deadline, meetingDate: cycle.meetingDate },
     editable: cycle.status !== "FINAL",
@@ -34,7 +39,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 // Сохранение черновика. version — версия, с которой правили: если её уже обновили, 409 (клиент покажет и не потеряет правки).
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PUTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const cycle = await prisma.cycle.findUnique({ where: { id } });
@@ -69,3 +74,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
   return NextResponse.json({ ok: true, version: body.version + 1 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const PUT = withApiErrors(PUTHandler);

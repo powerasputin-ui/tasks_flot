@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileDown, Search, Undo2 } from "lucide-react";
+import { ArrowLeft, FileDown, FileText, Search, Table2, Undo2 } from "lucide-react";
 import { Highlight } from "@/components/ui/Highlight";
 import { MemoReader } from "@/components/MemoReader";
+import { ArchiveTable } from "@/components/ArchiveTable";
+
+export type VersionTab = "memo" | "table";
 import type { MemoDoc } from "@/lib/memo";
 import type { VersionSource } from "@/lib/memo-archive";
 
@@ -51,13 +54,26 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleString("ru-RU", { day: "2
  * Архив отправленных справок: список по датам, поиск по тексту, просмотр версии, скачать PDF/Word.
  * ЗГД видит справки всех дирекций и может вернуть справку директору с комментарием.
  */
-export function MemoArchive({ initialId, onOpen }: { initialId?: string | null; onOpen?: (id: string | null) => void }) {
+export function MemoArchive({
+  initialId,
+  onOpen,
+  view = "memo",
+  onView,
+}: {
+  initialId?: string | null;
+  onOpen?: (id: string | null) => void;
+  /** Что открыто у справки: сам текст или таблица на дату отправки (живёт в адресе страницы). */
+  view?: VersionTab;
+  onView?: (v: VersionTab) => void;
+}) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(initialId ?? null);
+  // справку открыли снаружи (ссылка из уведомления, «назад» в адресе)
+  useEffect(() => setOpenId(initialId ?? null), [initialId]);
 
   const loadList = useCallback(async () => {
     const p = new URLSearchParams();
@@ -84,7 +100,8 @@ export function MemoArchive({ initialId, onOpen }: { initialId?: string | null; 
     onOpen?.(id);
   };
 
-  if (openId) return <VersionView id={openId} query={q} onBack={() => open(null)} onChanged={() => void loadList()} onSwitch={(id) => open(id)} />;
+  if (openId)
+    return <VersionView id={openId} query={q} tab={view} onTab={(v) => onView?.(v)} onBack={() => open(null)} onChanged={() => void loadList()} onSwitch={(id) => open(id)} />;
 
   return (
     <div>
@@ -154,8 +171,26 @@ export function MemoArchive({ initialId, onOpen }: { initialId?: string | null; 
   );
 }
 
-function VersionView({ id, query, onBack, onChanged, onSwitch }: { id: string; query: string; onBack: () => void; onChanged: () => void; onSwitch: (id: string) => void }) {
+function VersionView({
+  id,
+  query,
+  tab,
+  onTab,
+  onBack,
+  onChanged,
+  onSwitch,
+}: {
+  id: string;
+  query: string;
+  tab: VersionTab;
+  onTab: (v: VersionTab) => void;
+  onBack: () => void;
+  onChanged: () => void;
+  onSwitch: (id: string) => void;
+}) {
   const [data, setData] = useState<{ version: Detail; revisions: Revision[] } | null>(null);
+  // из пункта справки «показать в таблице» — какую строку подсветить
+  const [focusItem, setFocusItem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [returning, setReturning] = useState(false);
   const [comment, setComment] = useState("");
@@ -256,7 +291,42 @@ function VersionView({ id, query, onBack, onChanged, onSwitch }: { id: string; q
       {v.note && <p className="mb-3 rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface"><span className="font-semibold">От директора: </span>{v.note}</p>}
       {missing.length > 0 && <p className="mb-3 text-[12px] text-on-surface-variant">Не подали к моменту отправки: {missing.map((p) => p.name).join(", ")}.</p>}
 
-      <MemoReader title={v.title} doc={v.doc} sources={v.sources} query={query} />
+      <div className="mb-4 flex overflow-hidden rounded-md border border-outline-variant" role="tablist">
+        {(
+          [
+            { id: "memo", label: "Справка" },
+            { id: "table", label: `Таблица на ${fmt(v.sentAt)}` },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => {
+              setFocusItem(null);
+              onTab(t.id);
+            }}
+            className={`inline-flex items-center gap-1.5 px-4 py-2 text-[13px] ${tab === t.id ? "bg-primary-soft font-semibold text-primary" : "text-on-surface-variant hover:bg-surface-high"}`}
+          >
+            {t.id === "memo" ? <FileText size={14} /> : <Table2 size={14} />} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "table" ? (
+        <ArchiveTable key={id} versionId={id} focusItemId={focusItem} />
+      ) : (
+        <MemoReader
+          title={v.title}
+          doc={v.doc}
+          sources={v.sources}
+          query={query}
+          onShowInTable={(itemId) => {
+            setFocusItem(itemId);
+            onTab("table");
+          }}
+        />
+      )}
     </div>
   );
 }

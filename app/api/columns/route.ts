@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canManageColumns, canViewItems } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
+import { withApiErrors } from "@/lib/api-guard";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -13,7 +14,7 @@ const createSchema = z.object({
 });
 
 // Свои колонки таблицы читают все, кто видит позиции.
-export async function GET() {
+async function GETHandler() {
   const actor = await requireActor();
   if (!canViewItems(actor.role)) return NextResponse.json({ columns: [] });
   const columns = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: requireDirectorate(actor) }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
@@ -21,7 +22,7 @@ export async function GET() {
 }
 
 // Создаёт куратор (или администратор).
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canManageColumns(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
@@ -37,3 +38,6 @@ export async function POST(request: NextRequest) {
   invalidateDicts();
   return NextResponse.json({ column }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

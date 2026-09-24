@@ -4,9 +4,10 @@ import { requireActor } from "@/lib/session";
 import { canViewVersion } from "@/lib/memo-versions";
 import { parseMemoDoc } from "@/lib/memo";
 import { renderMemoDocx, renderMemoPdf } from "@/lib/memo-export";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Отправленная справка файлом: ?format=pdf | docx
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const v = await prisma.memoVersion.findUnique({ where: { id } });
@@ -23,3 +24,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     },
   });
 }
+
+export const GET = withApiErrors(GETHandler);

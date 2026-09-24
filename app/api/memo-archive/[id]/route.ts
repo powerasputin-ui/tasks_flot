@@ -4,9 +4,10 @@ import { requireActor } from "@/lib/session";
 import { canViewVersion } from "@/lib/memo-versions";
 import { listDirectorates } from "@/lib/directorates";
 import { parseMemoDoc } from "@/lib/memo";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Одна отправленная версия справки целиком: текст, строки-источники, участие подачи, все ревизии этой оперативки.
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const v = await prisma.memoVersion.findUnique({ where: { id }, include: { cycle: { select: { number: true, revision: true, status: true } } } });
@@ -36,3 +37,5 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     revisions,
   });
 }
+
+export const GET = withApiErrors(GETHandler);

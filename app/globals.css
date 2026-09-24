@@ -72,8 +72,11 @@
   --radius-lg: 8px;
 }
 
-* {
-  border-color: var(--outline-variant);
+/* В слое base, чтобы утилиты Tailwind (border-primary, border-transparent, border-status-*…) перебивали цвет рамки по умолчанию. */
+@layer base {
+  * {
+    border-color: var(--outline-variant);
+  }
 }
 
 html,
@@ -104,6 +107,14 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--outline);
+}
+
+/* Для рядов, которые прокручиваются сами при нехватке места (шапка, вкладки): прокрутка работает, но полосу не рисуем — она не нужна на узком экране. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {

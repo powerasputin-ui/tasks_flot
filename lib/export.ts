@@ -19,10 +19,19 @@ export type ExportSection = { title: string; headers: string[]; rows: Cell[][] }
 
 const text = (v: Cell) => (v === null || v === undefined ? "" : String(v));
 
+/**
+ * Защита от «CSV/Excel-инъекции»: текст, начинающийся с = + - @ (или табуляции/возврата каретки), Excel считает формулой —
+ * ему можно подсунуть «=HYPERLINK(…)» через название задачи или комментарий. Такие строки получают ведущий апостроф.
+ * Числа не трогаем.
+ */
+export function neutralizeFormula(v: Cell): Cell {
+  return typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+}
+
 /** BOM + CRLF, чтобы Excel корректно открывал кириллицу. Секции разделяются пустой строкой. */
 export function buildCsv(sections: ExportSection[]): string {
   const esc = (v: Cell) => {
-    const s = text(v);
+    const s = text(neutralizeFormula(v));
     return /[",\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const blocks = sections.map((s) =>
@@ -39,7 +48,7 @@ export function buildXlsx(sections: ExportSection[]): Buffer {
   const wb = XLSX.utils.book_new();
   const used = new Set<string>();
   for (const s of sections) {
-    const ws = XLSX.utils.aoa_to_sheet([s.headers, ...s.rows.map((r) => r.map((v) => v ?? ""))]);
+    const ws = XLSX.utils.aoa_to_sheet([s.headers.map((h) => neutralizeFormula(h)), ...s.rows.map((r) => r.map((v) => neutralizeFormula(v) ?? ""))]);
     let name = s.title.replace(/[\\/?*[\]:]/g, " ").slice(0, 31) || "Лист";
     while (used.has(name)) name = name.slice(0, 28) + "_" + used.size;
     used.add(name);

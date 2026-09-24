@@ -6,6 +6,7 @@ import { clipText, describeAuditAction, FIELD_LABEL, formatAuditValue, type Name
 import { CUSTOM_FIELD_PREFIX } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
 import { requireDirectorate } from "@/lib/scope";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Предохранитель для очень старых записей: лимиты ввода (2000/300) держат обычные значения намного короче.
 const FEED_VALUE_MAX = 4000;
@@ -15,7 +16,7 @@ const names = <V extends { name: string }>(m: Map<string, V>) => new Map([...m].
 // Лента последних изменений по видимым пользователю позициям (сегмент — необязательный фильтр).
 // Быстрый путь: события читаются одним запросом, названия позиций — вторым только для тех, что попали в ленту;
 // имена справочников и людей берутся из кэша (lib/dictionaries), а не отдельными запросами.
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canViewItems(actor.role)) return NextResponse.json({ events: [] });
 
@@ -90,3 +91,5 @@ export async function GET(request: NextRequest) {
       })),
   });
 }
+
+export const GET = withApiErrors(GETHandler);

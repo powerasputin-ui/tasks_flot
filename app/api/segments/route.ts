@@ -5,8 +5,9 @@ import { requireFreshSession } from "@/lib/session";
 import { canManageSegments } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
 import { referenceItemSchema } from "@/lib/validation";
+import { withApiErrors } from "@/lib/api-guard";
 
-export async function GET() {
+async function GETHandler() {
   const session = await requireFreshSession();
   const segments = await prisma.segment.findMany({
     where: { isActive: true, directorateId: session.directorateId ?? "" },
@@ -15,7 +16,7 @@ export async function GET() {
   return NextResponse.json({ segments });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const session = await requireFreshSession();
   if (!canManageSegments(session.role)) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -33,3 +34,6 @@ export async function POST(request: NextRequest) {
   invalidateDicts();
   return NextResponse.json({ segment }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

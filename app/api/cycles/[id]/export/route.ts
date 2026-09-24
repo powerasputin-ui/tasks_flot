@@ -6,6 +6,7 @@ import { exportResponse, parseExportFormat, renderExport } from "@/lib/export";
 import { renderPptx, renderReportPptx } from "@/lib/export-pptx";
 import { buildFinalReport, resolveReportConfig } from "@/lib/report-load";
 import { reportFileHeader, reportPdfHeader, reportToSections } from "@/lib/report-export";
+import { withApiErrors } from "@/lib/api-guard";
 
 type SnapRow = {
   segmentName: string | null;
@@ -21,7 +22,7 @@ type SnapRow = {
 };
 
 // Выгрузка финальной оперативки из неизменяемого снимка (Excel / PDF / CSV). Доступна всем ролям, включая руководство.
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
   const formatParam = new URL(request.url).searchParams.get("format");
@@ -92,3 +93,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
   return exportResponse(format!, await renderExport(format!, report), `operativka-${cycle.number}`);
 }
+
+export const GET = withApiErrors(GETHandler);

@@ -3,9 +3,10 @@ import { requireActor } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
 import { canViewItems } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Журнал правок позиции: кто, что, было → стало (TZ_v4, раздел 4.2).
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
@@ -19,3 +20,5 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   });
   return NextResponse.json({ events });
 }
+
+export const GET = withApiErrors(GETHandler);

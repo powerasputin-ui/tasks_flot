@@ -5,9 +5,10 @@ import { requireFreshSession } from "@/lib/session";
 import { canManageTracks } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
 import { trackSchema } from "@/lib/validation";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Изменить название/сегмент трека или скрыть его (isActive=false).
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireFreshSession();
   if (!canManageTracks(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
@@ -24,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
 // Удаление: трек без позиций удаляется совсем; если на него ссылаются позиции — скрывается (isActive=false),
 // чтобы не потерять данные в этих позициях и их историю. Ответ говорит, что именно произошло.
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function DELETEHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireFreshSession();
   if (!canManageTracks(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
@@ -40,3 +41,6 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   invalidateDicts();
   return NextResponse.json({ ok: true, mode: "hidden", used });
 }
+
+export const PATCH = withApiErrors(PATCHHandler);
+export const DELETE = withApiErrors(DELETEHandler);

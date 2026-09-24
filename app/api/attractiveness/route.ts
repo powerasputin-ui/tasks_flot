@@ -4,8 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { requireFreshSession, requireSession } from "@/lib/session";
 import { canManageDirectory } from "@/lib/permissions";
 import { referenceItemSchema } from "@/lib/validation";
+import { withApiErrors } from "@/lib/api-guard";
 
-export async function GET() {
+async function GETHandler() {
   await requireSession();
   const attractiveness = await prisma.attractiveness.findMany({
     where: { isActive: true },
@@ -14,7 +15,7 @@ export async function GET() {
   return NextResponse.json({ attractiveness });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const session = await requireFreshSession();
   if (!canManageDirectory(session.role)) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -30,3 +31,6 @@ export async function POST(request: NextRequest) {
   invalidateDicts();
   return NextResponse.json({ attractiveness }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

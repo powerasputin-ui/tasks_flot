@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canManageColumns } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
+import { withApiErrors } from "@/lib/api-guard";
 
 // раскладка — настройка дирекции: ключ с идентификатором дирекции
 const keyFor = (directorateId: string) => `table.columns:${directorateId}`;
@@ -23,14 +24,14 @@ const schema = z.object({
 });
 
 // Вид колонок таблицы (порядок, подписи, показ, «удалённые») — один для всех пользователей.
-export async function GET() {
+async function GETHandler() {
   const actor = await requireActor();
   const setting = await prisma.appSetting.findUnique({ where: { key: keyFor(requireDirectorate(actor)) } });
   return NextResponse.json({ columns: setting?.value ?? null });
 }
 
 // Меняет куратор (или администратор): изменения сразу видят все.
-export async function PUT(request: NextRequest) {
+async function PUTHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canManageColumns(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
@@ -43,3 +44,6 @@ export async function PUT(request: NextRequest) {
   });
   return NextResponse.json({ ok: true });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const PUT = withApiErrors(PUTHandler);

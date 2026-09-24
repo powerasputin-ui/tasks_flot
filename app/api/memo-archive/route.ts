@@ -5,13 +5,14 @@ import { canCompileMemo } from "@/lib/permissions";
 import { listDirectorates } from "@/lib/directorates";
 import { effectiveDate, matchBullets, versionMatches, type VersionSource } from "@/lib/memo-archive";
 import { parseMemoDoc, visibleSections } from "@/lib/memo";
+import { withApiErrors } from "@/lib/api-guard";
 
 /**
  * Архив отправленных справок: по одной строке на оперативку (последняя ревизия), с поиском по тексту и фильтром по датам.
  * ЗГД видит справки всех дирекций, составители, директор и админ — своей дирекции.
  * ?q= слова для поиска · ?from=YYYY-MM-DD & ?to=YYYY-MM-DD — по дате совещания (если её нет — по дате отправки).
  */
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   const executive = actor.role === "EXECUTIVE";
   if (!executive && !canCompileMemo(actor)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -63,3 +64,5 @@ export async function GET(request: NextRequest) {
     });
   return NextResponse.json({ versions: rows });
 }
+
+export const GET = withApiErrors(GETHandler);

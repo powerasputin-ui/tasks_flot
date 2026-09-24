@@ -9,7 +9,7 @@ export const FIELD_LABEL: Record<string, string> = {
   responsibleId: "Ответственный",
   deadline: "Дедлайн",
   statusId: "Статус",
-  operFlag: "Опер",
+  operFlag: "Оперативка",
 };
 
 /** Справочники «id → имя» для подстановки в значения журнала (в журнале хранятся id). */

@@ -5,9 +5,10 @@ import { requireFreshSession } from "@/lib/session";
 import { canManageTracks } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
 import { trackSchema } from "@/lib/validation";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Трек — справочник (TZ_v4, раздел 3): читают все, ведут куратор и администратор.
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const session = await requireFreshSession();
   const all = new URL(request.url).searchParams.get("all") === "1" && canManageTracks(session.role);
   const tracks = await prisma.track.findMany({
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ tracks });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const session = await requireFreshSession();
   if (!canManageTracks(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
@@ -35,3 +36,6 @@ export async function POST(request: NextRequest) {
   invalidateDicts();
   return NextResponse.json({ track }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

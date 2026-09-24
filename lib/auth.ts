@@ -17,6 +17,9 @@ export type SessionPayload = {
   email: string;
 };
 
+/** Хэш-пустышка: для несуществующего логина пароль всё равно сверяется, чтобы время ответа не выдавало, есть ли такой пользователь. */
+export const DUMMY_PASSWORD_HASH = bcrypt.hashSync("dummy-password-for-timing", 10);
+
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }

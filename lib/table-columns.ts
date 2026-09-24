@@ -17,7 +17,7 @@ export const DEFAULT_LABEL: Record<StdKey, string> = {
   deadlineWeek: "Неделя",
   owner: "Ответственный",
   status: "Статус",
-  operFlag: "Опер",
+  operFlag: "Оперативка",
   memo: "В справку",
   comment: "Комментарии",
 };
@@ -33,8 +33,8 @@ export const WIDTH: Record<StdKey, number> = {
   deadlineWeek: 80,
   owner: 160,
   status: 130,
-  operFlag: 70,
-  memo: 90,
+  operFlag: 112,
+  memo: 122,
   comment: 240,
 };
 
@@ -53,7 +53,7 @@ export const STORAGE_KEY = "operativka.tableColumns.v2";
 export function normalizeColumns(saved: ColumnConfig[]): ColumnConfig[] {
   const parsed = saved.filter((c) => ALL_KEYS.includes(c.key as StdKey) || c.key.startsWith("custom:"));
   // Старые стандартные подписи (до переименования) заменяем новыми; свои названия не трогаем.
-  const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн" };
+  const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн", "Опер": "Оперативка" };
   for (const c of parsed) if (RENAMED[c.label]) c.label = RENAMED[c.label];
   const known = new Set<string>(parsed.map((c) => c.key));
   return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
@@ -67,6 +67,36 @@ export function loadLocalColumns(): ColumnConfig[] | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Личные ширины колонок — только у себя в браузере, поверх общей раскладки куратора (показ/порядок/подписи —
+ * это в `table.columns`, общее для всех). Кто может её менять для всех через `/api/table-columns`
+ * (`canLayoutRef` в TableView), тот и задаёт базу; остальные двигают границы как хотят, но это остаётся только у них.
+ */
+const WIDTH_OVERRIDE_KEY = "operativka.tableColumns.myWidths.v1";
+
+export function loadWidthOverrides(): Record<string, number> | null {
+  try {
+    const raw = localStorage.getItem(WIDTH_OVERRIDE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, number>) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveWidthOverrides(overrides: Record<string, number>): void {
+  try {
+    localStorage.setItem(WIDTH_OVERRIDE_KEY, JSON.stringify(overrides));
+  } catch {
+    // приватный режим или квота браузера — просто не сохраняем, работать это не мешает
+  }
+}
+
+/** Накладывает личные ширины (если есть) на общую раскладку куратора — сама раскладка (показ/порядок/подписи) не меняется. */
+export function applyWidthOverrides(cols: ColumnConfig[], overrides: Record<string, number> | null): ColumnConfig[] {
+  if (!overrides) return cols;
+  return cols.map((c) => (typeof overrides[c.key] === "number" ? { ...c, width: overrides[c.key] } : c));
 }
 
 export type CustomCol = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };

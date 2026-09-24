@@ -5,10 +5,11 @@ import { canExportWorkTable } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRows, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { prisma } from "@/lib/prisma";
 import { parseExportFormat, renderExport, exportResponse } from "@/lib/export";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Экспорт «текущей таблицы» с теми же фильтрами и сортировкой, что у /api/items.
 // Руководитель и куратор выгружают все позиции (руководитель их видит, править может только свои).
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canExportWorkTable(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   // свои колонки куратора — в конец таблицы выгрузки
   const custom = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: requireDirectorate(actor) }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
-  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Опер", "Комментарий", ...custom.map((c) => c.name)];
+  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Оперативка", "Комментарий", ...custom.map((c) => c.name)];
   const data = rows.map((r) => [
     r.segmentName,
     r.trackName,
@@ -63,3 +64,5 @@ export async function GET(request: NextRequest) {
   });
   return exportResponse(format, body, `operativka-${new Date().toISOString().slice(0, 10)}`);
 }
+
+export const GET = withApiErrors(GETHandler);

@@ -5,10 +5,11 @@ import { activeCycle, cycleSummary, sendMissingReminders } from "@/lib/cycles";
 import { isDirectorial } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
 import { listDirectorates } from "@/lib/directorates";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Экран «Оперативка»: активный цикл, кто сколько отправил, список финальных оперативок.
 // Руководство видит только финальные — активный цикл и рабочие цифры для него не отдаются.
-export async function GET() {
+async function GETHandler() {
   const actor = await requireActor();
 
   // Руководителю, который заполняет таблицу: только номер, срок, статус цикла и его собственные цифры.
@@ -42,3 +43,5 @@ export async function GET() {
   if (cycle && isDirectorial(actor.role)) await sendMissingReminders(cycle);
   return NextResponse.json({ cycle, summary: cycle ? await cycleSummary(directorateId) : [], finals, directorate: names.get(directorateId) ?? null });
 }
+
+export const GET = withApiErrors(GETHandler);

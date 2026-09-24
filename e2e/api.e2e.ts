@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 // Сессия подменяется: тест вызывает настоящие маршруты от имени выбранного пользователя.
 const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean } }));
@@ -62,6 +62,14 @@ import * as archive from "@/app/api/memo-archive/route";
 import * as archiveOne from "@/app/api/memo-archive/[id]/route";
 import * as archiveExport from "@/app/api/memo-archive/[id]/export/route";
 import * as archiveReturn from "@/app/api/memo-archive/[id]/return/route";
+import * as archiveTable from "@/app/api/memo-archive/[id]/table/route";
+import { hitRateLimit } from "@/lib/rate-limit";
+import * as cycleRemind from "@/app/api/cycles/[id]/remind/route";
+import * as aiSettings from "@/app/api/ai/settings/route";
+import * as aiSettingsTest from "@/app/api/ai/settings/test/route";
+import * as aiChat from "@/app/api/ai/chat/route";
+import * as aiConsolidate from "@/app/api/ai/consolidate/route";
+import * as aiConsolidateExport from "@/app/api/ai/consolidate/export/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -127,7 +135,21 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // удаляем всё, что создали (журнал, замечания, уведомления, позиции, колонки, треки, циклы) и возвращаем общий вид колонок
+  // Общий вид колонок принадлежит настоящей дирекции — возвращаем его ПЕРВЫМ делом и отдельно от остальной уборки:
+  // если дальше что-то упадёт, рабочая раскладка пользователя всё равно уже восстановлена.
+  await step("восстановление вида колонок", async () => {
+    if (originalLayout === undefined) return; // beforeAll не отработал — не трогали
+    if (originalLayout === null) await prisma.appSetting.deleteMany({ where: { key: layoutKey } });
+    else await prisma.appSetting.update({ where: { key: layoutKey }, data: { value: originalLayout as object } });
+  });
+  await step("счётчики ограничения частоты", async () => {
+    await prisma.rateLimit.deleteMany({ where: { key: { contains: TAG } } });
+    await prisma.rateLimit.deleteMany({ where: { key: { contains: management.id } } });
+  });
+  await step("подключение ИИ тестового ЗГД", async () => {
+    await prisma.aiSetting.deleteMany({ where: { userId: management.id } });
+  });
+  // удаляем всё, что создали (журнал, замечания, уведомления, позиции, колонки, треки, циклы)
   await prisma.auditEvent.deleteMany({ where: { entityId: { in: created.items } } });
   await prisma.itemNote.deleteMany({ where: { itemId: { in: created.items } } });
   await prisma.notification.deleteMany({ where: { message: { contains: TAG } } });
@@ -155,12 +177,17 @@ afterAll(async () => {
   await prisma.reportTemplate.deleteMany({ where: { ownerId: { in: testUsers } } });
   await prisma.user.deleteMany({ where: { id: { in: testUsers } } });
   if (dirB) await prisma.directorate.deleteMany({ where: { id: dirB } });
-  if (originalLayout === undefined) {
-    // beforeAll не отработал — общий вид колонок не трогали
-  } else if (originalLayout === null) await prisma.appSetting.deleteMany({ where: { key: layoutKey } });
-  else await prisma.appSetting.update({ where: { key: layoutKey }, data: { value: originalLayout as object } });
   await prisma.$disconnect();
 });
+
+/** Шаг уборки, который не должен ронять остальную уборку: тесты бегут по настоящей базе разработки. */
+async function step(what: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+  } catch (e) {
+    console.error(`e2e: не удалось выполнить шаг уборки «${what}»:`, e);
+  }
+}
 
 describe("позиции: права и версии", () => {
   it("руководитель создаёт позицию, ответственный подставляется автоматически", async () => {
@@ -842,11 +869,11 @@ describe("справка директора", () => {
     expect(t.status).toBe(201);
     trackA = t.data.track.id;
     created.tracks.push(trackA);
-    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { shortName: "ТД", config: { fields: ["comment"] } } });
+    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { shortName: "ТД", config: { fields: ["track", "comment"] } } });
     expect(put.status).toBe(200);
     const got = await call(directorB, memoSections.GET, "/api/memo-sections");
     expect(got.data.shortName).toBe("ТД");
-    expect(got.data.config).toEqual({ fields: ["comment"] });
+    expect(got.data.config).toEqual({ fields: ["track", "comment"] });
     expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["comment"] } } })).status).toBe(403);
     expect((await call(headB, memoSections.GET, "/api/memo-sections")).status).toBe(403);
   });
@@ -1088,6 +1115,134 @@ describe("отправка справки ЗГД, архив, возврат", (
     expect((await call(management, archiveReturn.POST, `/api/memo-archive/${versionId}/return`, { method: "POST", id: versionId, body: { comment: "  " } })).status).toBe(400);
   });
 
+  it("таблица на дату отправки: вся таблица с пометками, не меняется от правок, права как у справки, выгрузка", async () => {
+    const t = await call(directorB, archiveTable.GET, `/api/memo-archive/${versionId}/table`, { id: versionId });
+    expect(t.status).toBe(200);
+    expect(t.data.mode).toBe("full");
+    expect(t.data.columns.some((c: { key: string }) => c.key === "operFlag" || c.key === "memo")).toBe(false);
+    const mine = t.data.rows.find((r: { id: string }) => r.id === itemId);
+    expect(mine).toMatchObject({ name: `${TAG} для архива`, submitted: true, inMemo: true });
+    // вся таблица дирекции, а не только поданное
+    const liveCount = await prisma.operationalItem.count({ where: { directorateId: directorB.directorateId!, archivedAt: null } });
+    expect(t.data.rows).toHaveLength(liveCount);
+
+    await prisma.operationalItem.update({ where: { id: itemId }, data: { title: `${TAG} для архива (переименовано)` } });
+    const again = await call(directorB, archiveTable.GET, `/api/memo-archive/${versionId}/table`, { id: versionId });
+    expect(again.data.rows.find((r: { id: string }) => r.id === itemId).name).toBe(`${TAG} для архива`);
+    await prisma.operationalItem.update({ where: { id: itemId }, data: { title: `${TAG} для архива` } });
+
+    expect((await call(management, archiveTable.GET, `/api/memo-archive/${versionId}/table`, { id: versionId })).status).toBe(200);
+    expect((await call(headB, archiveTable.GET, `/api/memo-archive/${versionId}/table`, { id: versionId })).status).toBe(404);
+    expect((await call(director, archiveTable.GET, `/api/memo-archive/${versionId}/table`, { id: versionId })).status).toBe(404);
+
+    const x = await call(directorB, archiveTable.GET, `/api/memo-archive/${versionId}/table?format=xlsx&view=memo`, { id: versionId });
+    expect(x.status).toBe(200);
+    expect((await x.res.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    expect((await call(directorB, archiveTable.GET, `/api/memo-archive/${versionId}/table?format=doc`, { id: versionId })).status).toBe(400);
+
+    // уведомление ЗГД ведёт прямо на эту справку
+    const executives = await prisma.user.count({ where: { role: "EXECUTIVE", isActive: true } });
+    expect(await prisma.notification.count({ where: { type: "MEMO_SENT", link: `/operativka?tab=finals&memo=${versionId}` } })).toBe(executives);
+  });
+
+  it("ИИ у ЗГД: настройки только у ЗГД, ключ не возвращается, чат и сводка берут справки по id только доступные", async () => {
+    const put = (who: Actor, body: unknown) => call(who, aiSettings.PUT, "/api/ai/settings", { method: "PUT", body });
+    // не ЗГД — нельзя ничего
+    for (const who of [directorB, headB, director]) {
+      expect((await call(who, aiSettings.GET, "/api/ai/settings")).status).toBe(403);
+      expect((await put(who, { provider: "openai", apiKey: "k" })).status).toBe(403);
+      expect((await call(who, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }] } })).status).toBe(403);
+      expect((await call(who, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } })).status).toBe(403);
+    }
+    // админ подключает ИИ себе так же, как ЗГД, но сводка из нескольких дирекций — только у ЗГД
+    expect((await call(curator, aiSettings.GET, "/api/ai/settings")).status).toBe(200);
+    expect((await call(curator, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } })).status).toBe(403);
+    // без подключения: чат просит подключить ИИ, сводка — простая склейка
+    expect((await call(management, aiSettings.GET, "/api/ai/settings")).data.configured).toBe(false);
+    const noAi = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }] } });
+    expect(noAi.status).toBe(409);
+    const merged = await call(management, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } });
+    expect(merged.data.aiUsed).toBe(false);
+    expect(JSON.stringify(merged.data.topics)).toContain(word);
+
+    // валидация и сохранение
+    expect((await put(management, { provider: "gemini", apiKey: "k" })).status).toBe(400);
+    expect((await put(management, { provider: "openai", baseUrl: "ftp://x", apiKey: "k" })).status).toBe(400);
+    expect((await put(management, { provider: "openai" })).status).toBe(400); // ключа нет
+    expect((await put(management, { provider: "openai", baseUrl: "https://ai.example/v1", model: "test-model", apiKey: "sk-SECRET-KEY-9999" })).status).toBe(200);
+    const s = await call(management, aiSettings.GET, "/api/ai/settings");
+    expect(s.data).toMatchObject({ configured: true, provider: "openai", baseUrl: "https://ai.example/v1", model: "test-model", keyHint: "…9999" });
+    expect(JSON.stringify(s.data)).not.toContain("SECRET");
+    expect((await prisma.aiSetting.findUniqueOrThrow({ where: { userId: management.id } })).apiKeyEnc).not.toContain("SECRET"); // в базе шифртекст
+    // повторное сохранение без ключа ключ не стирает
+    expect((await put(management, { provider: "openai", baseUrl: "https://ai.example/v1", model: "other" })).status).toBe(200);
+    expect((await call(management, aiSettings.GET, "/api/ai/settings")).data.keyHint).toBe("…9999");
+
+    // ИИ подменяем: ловим, что и куда уходит
+    const seen: Array<{ url: string; auth: string | null; body: { messages: Array<{ role: string; content: string }> } }> = [];
+    let reply: (url: string) => Response = () => new Response("", { status: 500 });
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      seen.push({ url, auth: (init.headers as Record<string, string>).authorization ?? null, body: JSON.parse(init.body as string) });
+      return reply(url);
+    });
+    try {
+      reply = () => Response.json({ choices: [{ message: { content: "ок" } }] });
+      const test = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: { provider: "openai" } });
+      expect(test.data).toMatchObject({ ok: true, model: "other" });
+      expect(seen[0]).toMatchObject({ url: "https://ai.example/v1/chat/completions", auth: "Bearer sk-SECRET-KEY-9999" }); // сохранённый ключ подставился на сервере
+
+      reply = () => new Response("no", { status: 401 });
+      const bad = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: { provider: "openai", apiKey: "wrong" } });
+      expect(bad.status).toBe(401);
+      expect(JSON.stringify(bad.data)).not.toContain("wrong");
+
+      // чат: контекст — справка, вопрос из истории; чужая (несуществующая) справка в контекст не попадает
+      seen.length = 0;
+      reply = () => new Response('data: {"choices":[{"delta":{"content":"Выжимка"}}]}\n\ndata: [DONE]\n', { headers: { "content-type": "text/event-stream" } });
+      const chat = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId, "нет-такой"], messages: [{ role: "user", content: "Сделай выжимку" }] } });
+      expect(chat.status).toBe(200);
+      expect(await chat.res.text()).toBe("Выжимка");
+      const sys = seen[0].body.messages[0].content;
+      expect(sys).toContain(word);
+      expect(seen[0].body.messages.at(-1)).toEqual({ role: "user", content: "Сделай выжимку" });
+      // справка не открыта — контекст: последние справки дирекций
+      seen.length = 0;
+      reply = () => new Response('data: {"choices":[{"delta":{"content":"ок"}}]}\n\n', { headers: { "content-type": "text/event-stream" } });
+      const latest = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { messages: [{ role: "user", content: "Что нового?" }] } });
+      expect(latest.status).toBe(200);
+      expect(await latest.res.text()).toBe("ок");
+      expect(seen[0].body.messages[0].content).toContain("=== СПРАВКА:");
+      expect((await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: ["нет-такой"], messages: [{ role: "user", content: "?" }] } })).status).toBe(400);
+      expect((await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [] } })).status).toBe(400);
+
+      // сводка через ИИ: ссылки на номера превращаются в справку и пункт; выдуманные номера отбрасываются
+      reply = () => Response.json({ choices: [{ message: { content: JSON.stringify({ summary: "Главное", topics: [{ title: "Письма", items: [{ text: "Письмо направлено", refs: [1] }, { text: "Выдумка", refs: [500] }] }] }) } }] });
+      const cons = await call(management, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } });
+      expect(cons.data).toMatchObject({ aiUsed: true, summary: "Главное" });
+      expect(cons.data.topics[0].items).toHaveLength(1);
+      expect(cons.data.topics[0].items[0]).toMatchObject({ versionId, text: "Письмо направлено" });
+
+      // ИИ упал — сводка всё равно есть (склейка) с пояснением
+      reply = () => new Response("x", { status: 500 });
+      const fallback = await call(management, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } });
+      expect(fallback.data.aiUsed).toBe(false);
+      expect(fallback.data.warning).toContain("склейка");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    // выгрузка сводки файлом
+    for (const f of ["pdf", "docx"]) {
+      const r = await call(management, aiConsolidateExport.POST, `/api/ai/consolidate/export?format=${f}`, { method: "POST", body: merged.data });
+      expect(r.status).toBe(200);
+      expect((await r.res.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    }
+    expect((await call(directorB, aiConsolidateExport.POST, "/api/ai/consolidate/export?format=pdf", { method: "POST", body: merged.data })).status).toBe(403);
+
+    expect((await call(management, aiSettings.DELETE, "/api/ai/settings", { method: "DELETE" })).status).toBe(200);
+    expect((await call(management, aiSettings.GET, "/api/ai/settings")).data.configured).toBe(false);
+  });
+
   it("возврат ЗГД: оперативка снова на «Сборке» (ред. 2), справка — копия, «Опер» вернулся; повторный возврат нельзя", async () => {
     const back = await call(management, archiveReturn.POST, `/api/memo-archive/${versionId}/return`, { method: "POST", id: versionId, body: { comment: "Уточните сроки" } });
     expect(back.status).toBe(200);
@@ -1119,16 +1274,29 @@ describe("отправка справки ЗГД, архив, возврат", (
     const latest = list.data.versions.find((x: { id: string }) => x.id === versions[1].id);
     expect(latest.revision).toBe(2);
     expect(latest.revisions).toBe(2);
+    // у каждой ревизии своя таблица на дату отправки
+    expect(Array.isArray(versions[0].rows) && Array.isArray(versions[1].rows)).toBe(true);
+  });
+
+  it("старые справки без снимка таблицы: последняя ревизия — только поданные строки, промежуточная — «не сохранялась»", async () => {
+    const versions = await prisma.memoVersion.findMany({ where: { cycleId }, orderBy: { revision: "asc" } });
+    await prisma.memoVersion.updateMany({ where: { cycleId }, data: { rows: Prisma.DbNull, columns: Prisma.DbNull } });
+    const first = await call(directorB, archiveTable.GET, `/api/memo-archive/${versions[0].id}/table`, { id: versions[0].id });
+    expect(first.data.mode).toBe("none");
+    const last = await call(directorB, archiveTable.GET, `/api/memo-archive/${versions[1].id}/table`, { id: versions[1].id });
+    expect(last.data.mode).toBe("submitted");
+    expect(last.data.rows.every((r: { submitted: boolean }) => r.submitted)).toBe(true);
+    expect(last.data.rows.some((r: { id: string }) => r.id === itemId)).toBe(true);
   });
 });
 
-describe("вид справки: разделы всегда по трекам, столбцы — любое сочетание", () => {
+describe("вид справки: галочки задают и разделы, и текст пункта", () => {
   let cycleId = "";
-  it("столбцы «задача + комментарий + ответственный»: раздел = название трека (не настраивается), текст собирается по отмеченным столбцам", async () => {
-    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["task", "comment", "owner"] } } });
+  it("«трек + задача + комментарий + ответственный»: раздел = название трека, текст собирается по отмеченным столбцам", async () => {
+    const put = await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["track", "task", "comment", "owner"] } } });
     expect(put.status).toBe(200);
     const got = await call(directorB, memoSections.GET, "/api/memo-sections");
-    expect(got.data.config).toEqual({ fields: ["task", "comment", "owner"] });
+    expect(got.data.config).toEqual({ fields: ["track", "task", "comment", "owner"] });
     expect((await call(headB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["comment"] } } })).status).toBe(403);
     expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["нет-такого"] } } })).status).toBe(400);
 
@@ -1146,6 +1314,15 @@ describe("вид справки: разделы всегда по трекам, 
     expect(r.data.unmappedTracks).toEqual([]);
   });
 
+  it("сняли «Трек» — разделы по трекам пропадают, справка становится списком пунктов без заголовков", async () => {
+    expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["comment"] } } })).status).toBe(200);
+    const got = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(got.status).toBe(200);
+    expect(got.data.doc.sections).toHaveLength(1);
+    expect(got.data.doc.sections[0].title).toBe(""); // заголовка нет — в файл пойдут просто пункты
+    expect(got.data.unmappedTracks).toEqual([]); // предупреждение про «трек не из структуры» тут неуместно
+  });
+
   it("Сегмент и Трек можно отметить одновременно — оба идут в текст пункта; раздел всё равно по треку", async () => {
     expect((await call(directorB, memoSections.PUT, "/api/memo-sections", { method: "PUT", body: { config: { fields: ["segment", "track", "comment"] } } })).status).toBe(200);
     const track = await prisma.track.findFirstOrThrow({ where: { directorateId: dirB, name: { contains: TAG } } });
@@ -1155,5 +1332,101 @@ describe("вид справки: разделы всегда по трекам, 
     expect(got.data.doc.sections[0].title).toBe(track.name); // раздел не поменялся
     expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+  });
+});
+
+describe("напоминание не подавшим", () => {
+  let cycleId = "";
+  const remindCall = (who: Actor, body?: unknown) => call(who, cycleRemind.POST, `/api/cycles/${cycleId}/remind`, { method: "POST", id: cycleId, body: body ?? {} });
+  const mine = () => prisma.notification.count({ where: { userId: headB.id, type: "SUBMISSION_MISSING", message: { startsWith: "Напоминание · Оперативка" } } });
+
+  it("директор напоминает: человек получает уведомление; повтор сразу не спамит; чужие и руководитель не могут", async () => {
+    const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    cycleId = start.data.id;
+    created.cycles.push(cycleId);
+
+    expect((await remindCall(headB)).status).toBe(403); // руководитель
+    expect((await remindCall(director)).status).toBe(404); // директор другой дирекции: цикла у него нет
+    expect((await remindCall(management)).status).toBe(403);
+
+    const before = await mine();
+    const first = await remindCall(directorB, { userIds: [headB.id] });
+    expect(first.status).toBe(200);
+    expect(first.data).toMatchObject({ sent: 1, skippedRecent: 0 });
+    expect(await mine()).toBe(before + 1);
+    const n = await prisma.notification.findFirstOrThrow({ where: { userId: headB.id, type: "SUBMISSION_MISSING", message: { startsWith: "Напоминание" } }, orderBy: { createdAt: "desc" } });
+    expect(n.link).toBe("/table");
+    expect(n.message).toContain("ещё ничего не отправили");
+
+    // сразу повторно — не отправляется (защита от нажатий «по кругу»)
+    expect((await remindCall(directorB, { userIds: [headB.id] })).data).toMatchObject({ sent: 0, skippedRecent: 1 });
+    expect(await mine()).toBe(before + 1);
+    // «всем» не трогает самого директора и тех, кому только что напомнили
+    const all = await remindCall(directorB);
+    expect(all.status).toBe(200);
+    expect(all.data.skippedRecent).toBeGreaterThanOrEqual(1);
+  });
+
+  it("кто уже подал — не получает напоминания; после отправки ЗГД напоминать нельзя", async () => {
+    const it1 = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} для напоминания`, operFlag: true } });
+    expect(it1.status).toBe(201);
+    created.items.push(it1.data.row.id);
+    await prisma.notification.deleteMany({ where: { userId: headB.id, message: { startsWith: "Напоминание" } } });
+    expect((await remindCall(directorB, { userIds: [headB.id] })).data.sent).toBe(0);
+    expect(await mine()).toBe(0);
+
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
+    expect((await remindCall(directorB)).status).toBe(409);
+  });
+});
+
+describe("ограничение частоты запросов и защита от 500", () => {
+  it("счётчик: лимит держится, окно сбрасывается, ключи независимы", async () => {
+    const k = `${TAG}:rl`;
+    const hits = [];
+    for (let i = 0; i < 4; i++) hits.push(await hitRateLimit(k, 3, 600));
+    expect(hits.map((h) => h.ok)).toEqual([true, true, true, false]);
+    expect(hits[3].retryAfterSec).toBeGreaterThanOrEqual(1);
+    expect((await hitRateLimit(`${k}:другой`, 3, 600)).ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 700));
+    expect((await hitRateLimit(k, 3, 600)).ok).toBe(true); // окно истекло — счёт с нуля
+  });
+
+  it("параллельные запросы считаются точно (нет гонки на счётчике)", async () => {
+    const k = `${TAG}:race`;
+    const res = await Promise.all(Array.from({ length: 20 }, () => hitRateLimit(k, 5, 60_000)));
+    expect(res.filter((r) => r.ok)).toHaveLength(5);
+  });
+
+  it("запросы к ИИ ограничиваются по пользователю: после лимита 429 с Retry-After, у другого пользователя — нет", async () => {
+    await prisma.rateLimit.deleteMany({ where: { key: { contains: management.id } } });
+    const statuses: number[] = [];
+    let last: Awaited<ReturnType<typeof call>> | null = null;
+    for (let i = 0; i < 12; i++) {
+      last = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: {} });
+      statuses.push(last.status);
+    }
+    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true); // ключа нет — 400, но лимит уже считается
+    expect(statuses.slice(10)).toEqual([429, 429]);
+    expect(last!.res.headers.get("retry-after")).toBeTruthy();
+    expect(last!.data.message).toContain("Слишком много");
+    expect((await call(curator, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: {} })).status).toBe(400);
+    await prisma.rateLimit.deleteMany({ where: { key: { contains: management.id } } });
+  });
+
+  it("ЗГД без дирекции не получает 500 на справочниках дирекции — понятный 403", async () => {
+    for (const [handler, url] of [[tracks.GET, "/api/tracks"], [tableColumns.GET, "/api/table-columns"]] as const) {
+      const r = await call(management, handler as never, url);
+      expect(r.status).toBe(403);
+      expect(r.data).toEqual({ error: "NO_DIRECTORATE" });
+    }
+  });
+
+  it("устаревшая/удалённая сессия даёт 401, а не 500", async () => {
+    state.actor = null;
+    const r = await tracks.GET(new NextRequest("http://localhost/api/tracks"));
+    expect(r.status).toBe(401);
   });
 });

@@ -1,15 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { ReportSection } from "@/components/ReportSection";
 import { MemoEditor } from "@/components/MemoEditor";
-import { MemoArchive } from "@/components/MemoArchive";
+import { MemoArchive, type VersionTab } from "@/components/MemoArchive";
+import { ConsolidatedMemo } from "@/components/ConsolidatedMemo";
+import { AiChat } from "@/components/AiChat";
+import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
 import { DEFAULT_DIRECTORATE } from "@/lib/report-config";
-import { AlertTriangle, ClipboardCheck, Lock, Play } from "lucide-react";
+import { AlertTriangle, Bot, ClipboardCheck, Lock, Play } from "lucide-react";
 
 type Cycle = { id: string; number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; finalizedAt: string | null };
 type Person = { id: string; name: string; role: string; total: number; sent: number };
@@ -48,6 +52,12 @@ export function OperativkaView() {
   const [note, setNote] = useState("");
   const [tab, setTabState] = useState<Tab | null>(null);
   const [finalId, setFinalIdState] = useState<string | null>(null);
+  // открытая в «Архиве» справка и её вид (текст / таблица на дату) — тоже в адресе, чтобы ссылка открывала ровно это
+  const [memoId, setMemoIdState] = useState<string | null>(null);
+  const [memoView, setMemoViewState] = useState<VersionTab>("memo");
+  // ЗГД: список справок или сводка по дирекциям; в сводке отмеченные справки — контекст для чата
+  const [archiveMode, setArchiveMode] = useState<"list" | "summary">("list");
+  const [summaryIds, setSummaryIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
@@ -68,31 +78,51 @@ export function OperativkaView() {
   }, [load]);
 
   // вкладка и выбранный финал живут в адресе (?tab=&final=), чтобы можно было поделиться ссылкой
+  // перечитываем при смене адреса: переход по ссылке из уведомления, когда страница уже открыта
+  const search = useSearchParams().toString();
   useEffect(() => {
     if (!role) return;
-    const q = new URLSearchParams(window.location.search);
+    const q = new URLSearchParams(search);
     const t = q.get("tab");
     // директор и админ открывают «Справку»; остальным (тех. администратору) доступны «Данные»
     const home: Tab = isDirectorial(role) || memoEditor ? "memo" : "finals";
     const wanted: Tab = t === "finals" ? "finals" : t === "memo" ? "memo" : home;
     setTabState(role === "EXECUTIVE" || (wanted === "memo" && !isDirectorial(role) && !memoEditor) ? "finals" : wanted);
     setFinalIdState(q.get("final"));
-  }, [role, memoEditor]);
+    setMemoIdState(q.get("memo"));
+    setMemoViewState(q.get("view") === "table" ? "table" : "memo");
+  }, [role, memoEditor, search]);
 
-  function syncUrl(nextTab: Tab, nextFinal: string | null) {
+  function syncUrl(next: { tab: Tab; final: string | null; memo: string | null; view: VersionTab }) {
     const q = new URLSearchParams();
-    q.set("tab", nextTab);
-    if (nextTab === "finals" && nextFinal) q.set("final", nextFinal);
+    q.set("tab", next.tab);
+    if (next.tab === "finals" && next.final) q.set("final", next.final);
+    if (next.tab === "finals" && next.memo) {
+      q.set("memo", next.memo);
+      if (next.view === "table") q.set("view", "table");
+    }
     const s = q.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
   }
+  const url = { tab, final: finalId, memo: memoId, view: memoView };
   const setTab = (t: Tab) => {
     setTabState(t);
-    syncUrl(t, finalId);
+    syncUrl({ ...url, tab: t });
   };
   const setFinalId = (id: string) => {
     setFinalIdState(id);
-    syncUrl("finals", id);
+    syncUrl({ ...url, tab: "finals", final: id });
+  };
+  const setMemoId = (id: string | null) => {
+    setMemoIdState(id);
+    // другая справка (или список) открывается с текста; при переключении ревизии вид сохраняется
+    const view = id && memoId ? memoView : "memo";
+    setMemoViewState(view);
+    syncUrl({ ...url, tab: "finals", memo: id, view });
+  };
+  const setMemoView = (v: VersionTab) => {
+    setMemoViewState(v);
+    syncUrl({ ...url, tab: "finals", view: v });
   };
 
   async function act(url: string, body?: unknown) {
@@ -109,6 +139,8 @@ export function OperativkaView() {
   const previewUser = usePreviewAs();
   const isCurator = !!role && isDirectorial(role) && !previewUser;
   const isManagement = role === "EXECUTIVE";
+  // ИИ-помощник по справкам: ЗГД и админ (у админа — по справкам своей дирекции); сводка из нескольких дирекций — только у ЗГД
+  const aiUser = isManagement || role === "ADMIN";
   // справки старого формата (до появления справки): таблица-снимок; новые открываются в «Архиве» как справка
   const legacy = finals.filter((f) => !f.hasMemo);
   const selectedFinal = legacy.find((x) => x.id === finalId) ?? legacy[0];
@@ -144,6 +176,19 @@ export function OperativkaView() {
           {!isManagement && !cycle && <span className="text-[13px] text-on-surface-variant">Активного цикла нет</span>}
 
           <div className="ml-auto flex items-center gap-2">
+            {aiUser && !previewUser && (
+              <Popover
+                align="right"
+                width={380}
+                trigger={({ toggle }) => (
+                  <button onClick={toggle} className="btn-ghost" title="Подключить ИИ-помощника: вставьте ключ API">
+                    <Bot size={15} /> ИИ-помощник
+                  </button>
+                )}
+              >
+                {(close) => <AiSettingsPanel onChanged={() => {}} close={close} />}
+              </Popover>
+            )}
             {isCurator && !cycle && (
               <Popover
                 align="right"
@@ -215,7 +260,7 @@ export function OperativkaView() {
           </div>
         </div>
 
-        <nav className="mt-3 flex gap-1 overflow-x-auto" role="tablist">
+        <nav className="scrollbar-none mt-3 flex gap-1 overflow-x-auto" role="tablist">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -233,7 +278,7 @@ export function OperativkaView() {
         </nav>
       </header>
 
-      <div className="p-6">
+      <div className={`p-6 ${aiUser && tab === "finals" ? "pb-28" : ""}`}>
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
             <AlertTriangle size={15} /> {error}
@@ -255,12 +300,37 @@ export function OperativkaView() {
 
         {tab === "finals" && (
           <div className="space-y-10">
-            <MemoArchive />
-            {legacy.length > 0 && (
+            {isManagement && !memoId && (
+              <div className="flex w-fit overflow-hidden rounded-md border border-outline-variant" role="tablist">
+                {(
+                  [
+                    { id: "list", label: "Справки" },
+                    { id: "summary", label: "Сводка по дирекциям" },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    role="tab"
+                    aria-selected={archiveMode === m.id}
+                    onClick={() => setArchiveMode(m.id)}
+                    className={`px-4 py-2 text-[13px] ${archiveMode === m.id ? "bg-primary-soft font-semibold text-primary" : "text-on-surface-variant hover:bg-surface-high"}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {isManagement && archiveMode === "summary" && !memoId ? (
+              <ConsolidatedMemo onSelection={setSummaryIds} />
+            ) : (
+              <MemoArchive initialId={memoId} onOpen={setMemoId} view={memoView} onView={setMemoView} />
+            )}
+            {/* «Старый формат» — только для оперативок до появления справки; ЗГД он не нужен */}
+            {legacy.length > 0 && !isManagement && (
               <section>
                 <h3 className="label-caps mb-2">Старый формат (таблица)</h3>
                 <div className="grid gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
-                  <ul className="flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
+                  <ul className="scrollbar-none flex gap-2 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
                     {legacy.map((f) => (
                       <li key={f.id} className="shrink-0">
                         <button
@@ -289,6 +359,14 @@ export function OperativkaView() {
           </div>
         )}
       </div>
+
+      {aiUser && tab === "finals" && (
+        <AiChat
+          disabledReason={previewUser ? "В режиме просмотра помощник недоступен — выйдите из режима (меню под вашим именем)." : undefined}
+          versionIds={memoId ? [memoId] : isManagement && archiveMode === "summary" ? summaryIds : []}
+          scopeLabel={memoId ? "открытая справка" : archiveMode === "summary" ? `справок в сводке: ${summaryIds.length}` : "последние справки дирекций"}
+        />
+      )}
     </div>
   );
 }

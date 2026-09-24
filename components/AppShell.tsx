@@ -171,7 +171,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <header className="z-30 flex h-16 shrink-0 items-center gap-4 border-b border-outline-variant bg-surface px-4">
+      {/* на очень узком экране лишнее обрезается по ширине (clip, а не auto: auto заодно обрезал бы выпадающие меню по высоте) */}
+      <header className="z-30 flex h-16 shrink-0 items-center gap-4 overflow-x-clip border-b border-outline-variant bg-surface px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" title="ГШП Оперативка">
           <Image src="/logo.svg" alt="" width={36} height={36} className="shrink-0" priority />
           <span className="hidden text-[13px] font-bold tracking-tight text-on-surface lg:inline">ГШП ОПЕРАТИВКА</span>
@@ -218,7 +219,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Suspense>
         )}
 
-        <nav className="flex h-full items-stretch gap-1 lg:ml-2">
+        <nav className="flex h-full shrink-0 items-stretch gap-1 lg:ml-2">
           {nav.map((item) => {
             const active = pathname.startsWith(item.href);
             return (
@@ -235,7 +236,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
           <div id="header-actions" className="flex items-center" />
           {me && <NotificationsBell />}

@@ -3,9 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canEditMemo, loadMemo } from "@/lib/memo-load";
 import { renderMemoDocx, renderMemoPdf } from "@/lib/memo-export";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Справка файлом: ?format=pdf | docx — по образцу заказчика.
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const cycle = await prisma.cycle.findUnique({ where: { id } });
@@ -22,3 +23,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     },
   });
 }
+
+export const GET = withApiErrors(GETHandler);

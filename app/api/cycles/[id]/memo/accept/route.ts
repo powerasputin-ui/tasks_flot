@@ -4,9 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canEditMemo, loadMemo } from "@/lib/memo-load";
 import { acceptSource } from "@/lib/memo";
+import { withApiErrors } from "@/lib/api-guard";
 
 // «Принять новый источник»: пометка «источник изменился» снимается, текст пункта остаётся как есть.
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   const cycle = await prisma.cycle.findUnique({ where: { id } });
@@ -20,3 +21,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (res.count !== 1) return NextResponse.json({ error: "CONFLICT" }, { status: 409 });
   return NextResponse.json({ ok: true, version: state.version + 1 });
 }
+
+export const POST = withApiErrors(POSTHandler);

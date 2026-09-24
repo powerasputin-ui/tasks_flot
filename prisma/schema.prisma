@@ -364,6 +364,8 @@ model MemoVersion {
   doc            Json // MemoDoc на момент отправки
   sources        Json // строки-источники пунктов на момент отправки
   participation  Json // кто сколько подал
+  rows           Json? // вся таблица дирекции на момент отправки (с пометками «подано» / «в справке»)
+  columns        Json? // раскладка на момент отправки: столбцы (названия зафиксированы) и порядок сегментов
   note           String?
   searchText     String // весь текст справки одной строкой — для поиска
   sentById       String
@@ -376,4 +378,25 @@ model MemoVersion {
   @@unique([cycleId, revision])
   @@index([directorateId, sentAt])
   @@map("memo_versions")
+}
+
+/// Подключение ИИ у ЗГД: провайдер, адрес, модель и зашифрованный ключ (наружу ключ не отдаётся никогда).
+model AiSetting {
+  userId    String   @id
+  provider  String // "openai" (OpenAI-совместимый) | "anthropic"
+  baseUrl   String
+  model     String
+  apiKeyEnc String
+  updatedAt DateTime @updatedAt
+
+  @@map("ai_settings")
+}
+
+/// Счётчики ограничения частоты запросов (вход, ИИ, напоминания): окно фиксированной длины на ключ.
+model RateLimit {
+  key         String   @id
+  windowStart DateTime @default(now())
+  count       Int      @default(0)
+
+  @@map("rate_limits")
 }

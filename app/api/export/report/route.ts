@@ -5,9 +5,10 @@ import { buildLiveReport, resolveReportConfig } from "@/lib/report-load";
 import { reportFileHeader, reportPdfHeader, reportToSections } from "@/lib/report-export";
 import { exportResponse, parseExportFormat, renderExport } from "@/lib/export";
 import { renderReportPptx } from "@/lib/export-pptx";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Выгрузка отчёта «Оперативки» по шаблону или по своей конфигурации: ?format=xlsx|pdf|csv|pptx&templateId=… | &config=<JSON>.
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canUseReports(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
@@ -43,3 +44,5 @@ export async function GET(request: NextRequest) {
   const body = await renderExport(format!, { title: head.title, subtitle: head.subtitle, sections: reportToSections(model, { summary: !pdf }) });
   return exportResponse(format!, body, `operativka-${stamp}`);
 }
+
+export const GET = withApiErrors(GETHandler);

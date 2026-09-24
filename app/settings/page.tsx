@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
 import { ColumnsSettings } from "@/components/ColumnsSettings";
 import { clearBootstrap } from "@/lib/client-bootstrap";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
+import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
@@ -16,7 +17,7 @@ type Directorate = { id: string; name: string; isActive: boolean };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
-type SectionKey = "users" | "directorates" | "memo" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness";
+type SectionKey = "users" | "directorates" | "memo" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness" | "ai";
 type ColumnRow = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
@@ -104,7 +105,7 @@ export default function SettingsPage() {
   }
 
   // Директор ведёт руководителей, треки и колонки таблицы; остальные справочники и роли — админ.
-  const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean }> = [
+  const allSections: Array<{ key: SectionKey; label: string; icon: ReactNode; count: number; adminOnly?: boolean; noCount?: boolean }> = [
     { key: "users", label: isAdmin ? "Пользователи" : "Ответственные", icon: <Users size={16} />, count: users.length },
     { key: "directorates", label: "Дирекции", icon: <Building2 size={16} />, count: directorates.length, adminOnly: true },
     { key: "memo", label: "Вид справки", icon: <FileText size={16} />, count: memoCount },
@@ -113,6 +114,8 @@ export default function SettingsPage() {
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
     { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
+    // ИИ-помощник по справкам: подключает админ (ключ API); ЗГД делает то же у себя на странице «Оперативка»
+    ...(me?.role === "ADMIN" ? [{ key: "ai" as const, label: "ИИ-помощник", icon: <Bot size={16} />, count: 0, noCount: true }] : []),
   ];
   // Директор ведёт колонки таблицы, руководителей и треки; админ — всё.
   const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
@@ -134,7 +137,7 @@ export default function SettingsPage() {
             >
               {s.icon}
               <span className="flex-1">{s.label}</span>
-              <span className="text-[11px] font-bold opacity-70">{s.count}</span>
+              {!s.noCount && <span className="text-[11px] font-bold opacity-70">{s.count}</span>}
             </button>
           ))}
         </nav>
@@ -162,6 +165,14 @@ export default function SettingsPage() {
           <RefSection title="Сегменты" hint="Левая колонка таблицы вашей дирекции. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
         )}
         {section === "statuses" && <RefSection title="Статусы" hint="Значения колонки «Статус»." items={statuses} onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")} />}
+        {section === "ai" && (
+          <div className="max-w-md">
+            <SectionHeader title="ИИ-помощник" hint="Ключ API любого провайдера: помощник отвечает по справкам на странице «Оперативка → Архив». У каждого пользователя своё подключение." />
+            <div className="surface mt-4">
+              <AiSettingsPanel onChanged={() => {}} close={() => {}} />
+            </div>
+          </div>
+        )}
         {section === "attractiveness" && (
           <RefSection title="Привлекательность" hint="Шкала P100 / P70 / P50 / P10 / P0." items={attractiveness} onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")} />
         )}

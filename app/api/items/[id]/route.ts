@@ -5,8 +5,9 @@ import { canViewItems } from "@/lib/permissions";
 import { loadTableRow, rowFromRecord } from "@/lib/table-view";
 import { ITEM_ERROR_STATUS, setItemArchived, updateItem } from "@/lib/items";
 import { updateItemSchema } from "@/lib/validation";
+import { withApiErrors } from "@/lib/api-guard";
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
@@ -16,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 // version обязателен: при расхождении — 409 CONFLICT с актуальной версией.
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
   const parsed = updateItemSchema.safeParse(await request.json().catch(() => null));
@@ -31,10 +32,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 // «Удаление» = архивирование.
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function DELETEHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
   const result = await setItemArchived(actor, id, true);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: ITEM_ERROR_STATUS[result.error] });
   return NextResponse.json({ row: await rowFromRecord(result.record) });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const PATCH = withApiErrors(PATCHHandler);
+export const DELETE = withApiErrors(DELETEHandler);

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import type { Cycle, CycleStatus } from "@prisma/client";
+import type { Cycle, CycleStatus, Prisma } from "@prisma/client";
+import { archiveLayout, buildArchiveRows } from "@/lib/archive-table";
+import { DEFAULT_COLUMNS, normalizeColumns, withCustomColumns, type ColumnConfig, type CustomCol } from "@/lib/table-columns";
 import { recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications";
 import { loadTableRows } from "@/lib/table-view";
@@ -77,7 +79,9 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   if (!cycle) return { ok: false, error: "NOT_FOUND" };
   if (!canTransition(cycle.status, "FINAL")) return { ok: false, error: "BAD_STATE" };
 
-  const sent = (await loadTableRows("active", cycle.directorateId ?? "")).filter((r) => r.operFlag);
+  const directorateId = cycle.directorateId ?? "";
+  const all = await loadTableRows("active", directorateId);
+  const sent = all.filter((r) => r.operFlag);
   // Названия своих колонок фиксируем в снимке: позже колонку могут переименовать или удалить.
   const custom = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: cycle.directorateId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
   const snapshot = JSON.parse(
@@ -85,10 +89,19 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   );
 
   // Справка (неизменяемая версия для ЗГД) фиксируется вместе со снимком строк
-  const { sourceItemIds: _unused, ...version } = await prepareVersion(cycle, actor, note?.trim() || null, await cycleSummary(cycle.directorateId ?? ""));
-  void _unused;
+  const { sourceItemIds, ...version } = await prepareVersion(cycle, actor, note?.trim() || null, await cycleSummary(directorateId));
 
-  await prisma.$transaction(async (tx) => {
+  // Архив: вся таблица дирекции на момент отправки и её раскладка (столбцы, названия, порядок сегментов)
+  const [layoutSetting, segments] = await Promise.all([
+    prisma.appSetting.findUnique({ where: { key: `table.columns:${directorateId}` } }),
+    prisma.segment.findMany({ where: { directorateId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, color: true } }),
+  ]);
+  const savedColumns = Array.isArray(layoutSetting?.value) ? (layoutSetting!.value as unknown as ColumnConfig[]) : DEFAULT_COLUMNS;
+  const customCols: CustomCol[] = custom.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options }));
+  const layout = archiveLayout(withCustomColumns(normalizeColumns(savedColumns.map((c) => ({ ...c }))), customCols), customCols, segments);
+  const archiveRows = buildArchiveRows(all, sourceItemIds, segments);
+
+  const created = await prisma.$transaction(async (tx) => {
     // условие по статусу защищает от двойной финализации
     const upd = await tx.cycle.updateMany({
       where: { id, status: "IN_REVIEW" },
@@ -99,13 +112,16 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
       where: { id: { in: sent.map((r) => r.id) } },
       data: { operFlag: false, version: { increment: 1 } },
     });
-    await tx.memoVersion.create({ data: version });
+    return tx.memoVersion.create({
+      data: { ...version, rows: archiveRows as unknown as Prisma.InputJsonValue, columns: layout as unknown as Prisma.InputJsonValue },
+      select: { id: true },
+    });
   });
 
-  // ЗГД получает уведомление, что пришла справка
+  // ЗГД получает уведомление, что пришла справка — ссылка сразу на неё
   const executives = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
   for (const e of executives) {
-    await createNotification({ userId: e.id, type: "MEMO_SENT", message: `Получена справка: ${version.title}${cycle.revision > 1 ? ` (ред. ${cycle.revision})` : ""}`, link: "/operativka?tab=finals" });
+    await createNotification({ userId: e.id, type: "MEMO_SENT", message: `Получена справка: ${version.title}${cycle.revision > 1 ? ` (ред. ${cycle.revision})` : ""}`, link: `/operativka?tab=finals&memo=${created.id}` });
   }
   return { ok: true, count: sent.length };
 }
@@ -187,4 +203,42 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
     });
   }
   return missing.length;
+}
+
+/** Не чаще одного ручного напоминания одному человеку за это время — чтобы кнопку нельзя было нажать «по кругу». */
+export const REMIND_COOLDOWN_MS = 30 * 60 * 1000;
+
+/**
+ * Директор/админ напоминает тем, кто ещё ничего не подал в этой оперативке (по одному человеку или всем сразу).
+ * Напоминание приходит самому человеку в уведомления. Тем, кто уже подал, и тем, кому недавно напоминали, не отправляется.
+ */
+export async function remindMissing(actor: Actor, cycleId: string, userIds?: string[], now: Date = new Date()): Promise<CycleResult<{ sent: number; skippedRecent: number }>> {
+  if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
+  const cycle = await prisma.cycle.findFirst({ where: { id: cycleId, directorateId: actor.directorateId ?? "" } });
+  if (!cycle) return { ok: false, error: "NOT_FOUND" };
+  if (cycle.status === "FINAL") return { ok: false, error: "BAD_STATE" };
+  const wanted = userIds ? new Set(userIds) : null;
+  const targets = (await cycleSummary(cycle.directorateId ?? "")).filter((p) => p.sent === 0 && p.id !== actor.id && (!wanted || wanted.has(p.id)));
+  const due = cycle.deadline.toLocaleDateString("ru-RU");
+  const prefix = `Напоминание · Оперативка №${cycle.number}`;
+  let sent = 0;
+  let skippedRecent = 0;
+  for (const p of targets) {
+    const recent = await prisma.notification.findFirst({
+      where: { userId: p.id, type: "SUBMISSION_MISSING", message: { startsWith: prefix }, createdAt: { gte: new Date(now.getTime() - REMIND_COOLDOWN_MS) } },
+      select: { id: true },
+    });
+    if (recent) {
+      skippedRecent++;
+      continue;
+    }
+    await createNotification({
+      userId: p.id,
+      type: "SUBMISSION_MISSING",
+      message: `${prefix}: срок подачи ${due}. Вы ещё ничего не отправили — отметьте позиции кнопкой «Отправить».`,
+      link: "/table",
+    });
+    sent++;
+  }
+  return { ok: true, sent, skippedRecent };
 }

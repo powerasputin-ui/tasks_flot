@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { reportConfigSchema } from "@/lib/report-config";
 import { canEditTemplate, canShareTemplates } from "@/lib/report-templates";
+import { withApiErrors } from "@/lib/api-guard";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
@@ -20,7 +21,7 @@ async function loadEditable(id: string) {
   return { actor, tpl, error: null };
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { actor, tpl, error } = await loadEditable(id);
   if (error || !tpl) return error!;
@@ -36,10 +37,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   return NextResponse.json({ template });
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function DELETEHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { error } = await loadEditable(id);
   if (error) return error;
   await prisma.reportTemplate.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }
+
+export const PATCH = withApiErrors(PATCHHandler);
+export const DELETE = withApiErrors(DELETEHandler);

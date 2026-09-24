@@ -4,9 +4,10 @@ import { requireActor } from "@/lib/session";
 import { canCompileMemo } from "@/lib/permissions";
 import { requireDirectorate } from "@/lib/scope";
 import { loadMemo } from "@/lib/memo-load";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Для колонки «В справку» в таблице: какие позиции сейчас в справке активной оперативки и по каким решения ещё нет.
-export async function GET() {
+async function GETHandler() {
   const actor = await requireActor();
   if (!canCompileMemo(actor)) return NextResponse.json({ cycleId: null });
   const cycle = await prisma.cycle.findFirst({ where: { directorateId: requireDirectorate(actor), status: { not: "FINAL" } }, orderBy: { number: "desc" } });
@@ -20,3 +21,5 @@ export async function GET() {
     known: [...new Set(bullets.flatMap((b) => b.itemIds))],
   });
 }
+
+export const GET = withApiErrors(GETHandler);

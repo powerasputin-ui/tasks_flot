@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OTHER_SECTION_ID, acceptSource, buildDraft, manualBullet, memoTitle, mergeBullets, notIncluded, parseMemoDoc, refreshDraft, resolveTitle, setIncluded, sourceText, syncWithSources, visibleSections, type SectionDef, type SourceItem } from "@/lib/memo";
+import { OTHER_SECTION_ID, splitTitleDate, acceptSource, buildDraft, manualBullet, memoTitle, mergeBullets, notIncluded, parseMemoDoc, refreshDraft, resolveTitle, resyncSections, setIncluded, sourceText, stripSectionHead, syncWithSources, visibleSections, type SectionDef, type SourceItem } from "@/lib/memo";
 
 const item = (id: string, o: Partial<SourceItem> = {}): SourceItem => ({ id, title: `Задача ${id}`, comment: null, operFlag: true, archived: false, trackId: "t1", createdAt: `2026-09-0${id.length}T10:00:00Z`, ...o });
 const defs: SectionDef[] = [
@@ -68,18 +68,67 @@ describe("связь с источниками", () => {
     expect(syncWithSources(doc, [item("a", { comment: "Стало" })]).flags.get(id)?.sourceChanged).toBe(false);
   });
 
-  it("снятая с подачи или удалённая строка помечается «источник пропал», пункт остаётся", () => {
+  it("снятая подача убирает пункт из файла, но текст следует «Виду справки», пока строка на месте", async () => {
+    const { hideMissingSources } = await import("@/lib/memo");
+    const doc = buildDraft([item("a", { comment: "Было" })], defs);
+    // строку сняли с подачи и заодно поменяли комментарий
+    const items = [item("a", { operFlag: false, comment: "Стало" })];
+    const r = syncWithSources(doc, items);
+    expect(r.doc.sections[0].bullets[0].text).toBe("Стало"); // текст не застревает
+    const veiled = hideMissingSources(r.doc, r.flags);
+    expect(veiled.hidden).toBe(1);
+    expect(veiled.doc.sections[0].bullets[0].hidden).toBe(true); // в файл не пойдёт
+    expect(visibleSections(veiled.doc)).toHaveLength(0);
+  });
+
+  it("строку, которую директор положил в справку сам, автоматика не убирает даже без подачи", async () => {
+    const { hideMissingSources, setIncluded } = await import("@/lib/memo");
+    const notSubmitted = item("a", { operFlag: false, comment: "Не подана, но нужна в справке" });
+    const doc = setIncluded({ sections: [] }, notSubmitted, true, defs, [notSubmitted]);
+    expect(doc.sections[0].bullets[0].pinned).toBe(true);
+    const r = syncWithSources(doc, [notSubmitted]);
+    expect(r.flags.get(doc.sections[0].bullets[0].id)?.sourceMissing).toBe("unsubmitted");
+    const veiled = hideMissingSources(r.doc, r.flags);
+    expect(veiled.hidden).toBe(0); // решение человека сильнее автоматики
+    expect(visibleSections(veiled.doc)).toHaveLength(1);
+  });
+
+  it("hideMissingSources не трогает пункты с живыми источниками и уже скрытые", async () => {
+    const { hideMissingSources } = await import("@/lib/memo");
+    const doc = buildDraft([item("a"), item("bb")], defs);
+    const r = syncWithSources(doc, [item("a"), item("bb")]);
+    const veiled = hideMissingSources(r.doc, r.flags);
+    expect(veiled.hidden).toBe(0);
+    expect(veiled.doc).toBe(r.doc);
+  });
+
+  it("отозванная подача и архивная строка помечаются разными причинами, пункт остаётся", () => {
     const doc = buildDraft([item("a"), item("bb")], defs);
     const r = syncWithSources(doc, [item("a", { operFlag: false })]);
     const [b1, b2] = r.doc.sections[0].bullets;
-    expect(r.flags.get(b1.id)?.sourceMissing).toBe(true);
-    expect(r.flags.get(b2.id)?.sourceMissing).toBe(true); // строки bb нет в данных вообще
+    expect(r.flags.get(b1.id)?.sourceMissing).toBe("unsubmitted"); // источник на месте, но «Отправить» снято
+    expect(r.flags.get(b2.id)?.sourceMissing).toBe("archived"); // строки bb нет в выборке — архивные не приходят, безвозвратного удаления в системе нет
     expect(r.doc.sections[0].bullets).toHaveLength(2);
   });
 
   it("ручные пункты без источников не помечаются", () => {
     const doc = { sections: [{ id: "s1", title: "Р", kind: "section" as const, bullets: [manualBullet("Текст")] }] };
     expect(syncWithSources(doc, []).flags.size).toBe(0);
+  });
+
+  it("смена «вида справки» (другой item.text при том же комментарии) не помечает отредактированный пункт «источник изменился»", () => {
+    const doc = buildDraft([item("a", { comment: "Комментарий" })], defs);
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: "Моя версия", edited: true };
+    // комментарий тот же — просто в «виде справки» отметили ещё столбцы, item.text теперь другой
+    const r = syncWithSources(doc, [item("a", { comment: "Комментарий", text: "Сегмент / Трек: Комментарий" })]);
+    expect(r.flags.get(doc.sections[0].bullets[0].id)).toEqual({ sourceChanged: false, sourceMissing: false });
+  });
+
+  it("непоправленный пункт с одним источником подхватывает новый «вид справки», даже если сырые данные не менялись", () => {
+    const doc = buildDraft([item("a", { comment: "Комментарий" })], defs);
+    const r = syncWithSources(doc, [item("a", { comment: "Комментарий", text: "Сегмент / Трек: Комментарий" })]);
+    expect(r.autoUpdated).toBe(1);
+    expect(r.doc.sections[0].bullets[0].text).toBe("Сегмент / Трек: Комментарий");
   });
 });
 
@@ -166,7 +215,7 @@ describe("решение «в справку» из таблицы", () => {
   });
 });
 
-describe("вид справки: столбцы таблицы в тексте пункта, разделы всегда по трекам", () => {
+describe("вид справки: отмеченные галочки определяют и структуру, и текст пункта", () => {
   const src = { title: "Финализация КП", comment: "Получены индикативы.", segmentName: "Строительный флот", trackName: "Баржа", ownerName: "Сухов В.А.", deadline: "2026-09-07T00:00:00Z", statusName: "В работе" };
 
   it("по умолчанию — комментарий; нет комментария — название задачи", async () => {
@@ -187,17 +236,122 @@ describe("вид справки: столбцы таблицы в тексте �
 
   it("настройка — только список столбцов; разбирается устойчиво: мусор → значения по умолчанию, повторы убираются", async () => {
     const { parseMemoConfig } = await import("@/lib/memo");
-    expect(parseMemoConfig(null)).toEqual({ fields: ["comment"] });
+    expect(parseMemoConfig(null)).toEqual({ fields: ["track", "comment"] }); // из коробки: разделы по трекам + комментарий
     expect(parseMemoConfig({ fields: ["task", "task", "нет", "comment"] })).toEqual({ fields: ["task", "comment"] });
-    expect(parseMemoConfig({ fields: [] })).toEqual({ fields: ["comment"] });
+    expect(parseMemoConfig({ fields: [] })).toEqual({ fields: ["track", "comment"] });
   });
 
-  it("разделы: не настраиваются, всегда по трекам; строка без трека попадает в «Прочие направления»", async () => {
+  it("в текст попадает только отмеченное: без «Задачи» и «Комментария» текста нет вовсе", async () => {
+    const { composeText } = await import("@/lib/memo");
+    // раньше здесь «на всякий случай» подставлялось название задачи — из-за этого справка показывала неотмеченное
+    expect(composeText(src, ["track"])).toBe("Баржа"); // без текста двоеточие не висит
+    expect(composeText(src, ["cost"])).toBe("");
+    expect(composeText({ ...src, comment: null }, ["task"])).toBe("Финализация КП");
+  });
+
+  it("разделы: строка без трека и без сегмента попадает в «Прочие направления»", async () => {
     const { tracksToSections } = await import("@/lib/memo");
     const bySections = tracksToSections([{ id: "t1", name: "Баржа" }, { id: "t2", name: "Буксиры" }]);
     expect(bySections.map((d) => d.title)).toEqual(["Баржа", "Буксиры"]);
     const items = [item("a", { trackId: "t2" }), item("bb", { trackId: null })];
     expect(buildDraft(items, bySections).sections.map((s) => s.title)).toEqual(["Буксиры", "Прочие направления"]);
+  });
+
+  it("разделы: строка без трека, но с сегментом — попадает в раздел по сегменту, а не в «Прочие направления»", async () => {
+    const { segmentsToSections, tracksToSections } = await import("@/lib/memo");
+    const bySections = [...tracksToSections([{ id: "t1", name: "Баржа" }]), ...segmentsToSections([{ id: "seg1", name: "Флот" }, { id: "seg2", name: "Коммерция" }])];
+    const items = [
+      item("a", { trackId: "t1", segmentId: "seg2" }), // есть трек — раздел по треку, сегмент не важен
+      item("b", { trackId: null, segmentId: "seg2" }), // трека нет — по сегменту
+      item("c", { trackId: "zzz", segmentId: "seg1" }), // трек не из структуры — тоже по сегменту
+      item("d", { trackId: null, segmentId: null }), // нет ни того, ни другого — «Прочие»
+    ];
+    const doc = buildDraft(items, bySections);
+    expect(doc.sections.map((s) => s.title)).toEqual(["Баржа", "Флот", "Коммерция", "Прочие направления"]);
+    expect(doc.sections[0].bullets.map((b) => b.itemIds)).toEqual([["a"]]);
+    expect(doc.sections[1].bullets.map((b) => b.itemIds)).toEqual([["c"]]);
+    expect(doc.sections[2].bullets.map((b) => b.itemIds)).toEqual([["b"]]);
+    expect(doc.sections[3].bullets.map((b) => b.itemIds)).toEqual([["d"]]);
+  });
+
+  it("stripSectionHead: убирает из трека/сегмента строки тот, что стал жирным заголовком её раздела", async () => {
+    const { segmentsToSections, tracksToSections } = await import("@/lib/memo");
+    const bySections = [...tracksToSections([{ id: "t1", name: "Полупогружное судно" }]), ...segmentsToSections([{ id: "seg1", name: "Крупнотоннажные перевозки" }])];
+    // раздел по треку — трек убираем, сегмент остаётся (не дублирование, а уточнение)
+    expect(stripSectionHead({ trackId: "t1", segmentId: "seg1", trackName: "Полупогружное судно", segmentName: "Крупнотоннажные перевозки" }, bySections)).toEqual({
+      trackName: null,
+      segmentName: "Крупнотоннажные перевозки",
+    });
+    // трека нет, раздел — по сегменту — сегмент убираем
+    expect(stripSectionHead({ trackId: null, segmentId: "seg1", trackName: null, segmentName: "Крупнотоннажные перевозки" }, bySections)).toEqual({
+      trackName: null,
+      segmentName: null,
+    });
+    // трек есть, но не из структуры (осиротевший) — раздел фактически по сегменту, трек не дублирует заголовок и остаётся
+    expect(stripSectionHead({ trackId: "zzz", segmentId: "seg1", trackName: "Устаревший трек", segmentName: "Крупнотоннажные перевозки" }, bySections)).toEqual({
+      trackName: "Устаревший трек",
+      segmentName: null,
+    });
+    // ни трека, ни сегмента в структуре — «Прочие», ничего не убирается (там и убирать нечего)
+    expect(stripSectionHead({ trackId: null, segmentId: null, trackName: null, segmentName: null }, bySections)).toEqual({ trackName: null, segmentName: null });
+  });
+
+  it("resyncSections: пункт, застрявший в «Прочие направления», переезжает в свой раздел, когда у строки появился трек", async () => {
+    const { tracksToSections } = await import("@/lib/memo");
+    const bySections = tracksToSections([{ id: "t1", name: "Полупогружное судно" }]);
+    // на момент сборки трека не было — пункт ушёл в «Прочие»; потом строке проставили трек t1
+    const doc = buildDraft([item("a", { trackId: null })], []);
+    expect(doc.sections.map((s) => s.id)).toEqual([OTHER_SECTION_ID]);
+    const withTrack = [item("a", { trackId: "t1" })];
+    const { doc: resynced, moved } = resyncSections(doc, withTrack, bySections);
+    expect(moved).toBe(1);
+    // опустевший «Прочие» убирается — на листе не должно оставаться пустых заголовков
+    expect(resynced.sections.map((s) => s.title)).toEqual(["Полупогружное судно"]);
+    expect(resynced.sections[0].bullets.map((b) => b.itemIds)).toEqual([["a"]]);
+  });
+
+  it("resyncSections: место пункта следует структуре (даже у отредактированного), а склеенные и без источника остаются", () => {
+    const bySections: SectionDef[] = [{ id: "track:t1", title: "Раздел", trackIds: ["t1"] }];
+    const items = [item("a", { trackId: "t1" }), item("b", { trackId: "t1" })];
+    const own = manualBullet("Мой пункт без источника"); // ничей — остаётся там, куда его положили
+    const editedAuto = { ...buildDraft([items[0]], []).sections[0].bullets[0], text: "Моя версия", edited: true };
+    const merged = { ...buildDraft([items[0]], []).sections[0].bullets[0], itemIds: ["a", "b"] };
+    const doc = { sections: [{ id: OTHER_SECTION_ID, title: "Прочие направления", kind: "other" as const, bullets: [own, editedAuto, merged] }] };
+    const { doc: resynced, moved } = resyncSections(doc, items, bySections);
+    expect(moved).toBe(1); // переехал только отредактированный пункт с одним источником
+    const byTitle = Object.fromEntries(resynced.sections.map((s) => [s.title, s.bullets.map((b) => b.text)]));
+    expect(byTitle["Раздел"]).toEqual(["Моя версия"]); // место поменялось, текст правки сохранён
+    expect(byTitle["Прочие направления"]).toHaveLength(2);
+  });
+
+  it("resyncSections: «pinned» защищает только от автоскрытия — место в структуре пункт всё равно занимает верное", () => {
+    // так и застряла реальная строка в «Прочие направления»: pinned блокировал переезд, хотя трек у неё указан верно
+    const bySections: SectionDef[] = [{ id: "track:t1", title: "Трек", trackIds: ["t1"] }];
+    const items = [item("a", { trackId: "t1" })];
+    const bullet = { ...buildDraft(items, []).sections[0].bullets[0], pinned: true }; // добавлен вручную, когда структуры ещё не было
+    const doc = { sections: [{ id: OTHER_SECTION_ID, title: "Прочие направления", kind: "other" as const, bullets: [bullet] }] };
+    const { doc: resynced, moved } = resyncSections(doc, items, bySections);
+    expect(moved).toBe(1);
+    expect(resynced.sections.map((s) => s.title)).toEqual(["Трек"]);
+  });
+
+  it("resyncSections: сняли «Трек» — разделы по трекам расформировываются, заголовки с листа пропадают", () => {
+    const withTrack: SectionDef[] = [{ id: "track:t1", title: "Полупогружное судно", trackIds: ["t1"] }];
+    const items = [item("a", { trackId: "t1" })];
+    const doc = buildDraft(items, withTrack);
+    expect(doc.sections.map((s) => s.title)).toEqual(["Полупогружное судно"]);
+    // структура пустая — ни трек, ни сегмент не отмечены: остаётся один раздел без названия
+    const { doc: flat } = resyncSections(doc, items, []);
+    expect(flat.sections).toHaveLength(1);
+    expect(flat.sections[0].title).toBe("");
+    expect(flat.sections[0].bullets.map((b) => b.itemIds)).toEqual([["a"]]);
+  });
+
+  it("без структуры справка собирается одним разделом без названия", () => {
+    const doc = buildDraft([item("a", { trackId: "t1" }), item("bb", { trackId: "t2" })], []);
+    expect(doc.sections).toHaveLength(1);
+    expect(doc.sections[0].title).toBe("");
+    expect(doc.sections[0].bullets).toHaveLength(2);
   });
 
   it("готовый текст (по виду справки) используется как заготовка пункта", () => {
@@ -241,5 +395,16 @@ describe("заголовок, вписанный директором вручн
     expect(parseMemoDoc({ sections: [], title: "   " })?.title).toBeUndefined();
     expect(parseMemoDoc({ sections: [], title: "Особая справка" })?.title).toBe("Особая справка");
     expect(parseMemoDoc({ sections: [] })?.title).toBeUndefined();
+  });
+});
+
+describe("splitTitleDate: дата совещания — отдельной строкой", () => {
+  it("делит заголовок на название и дату (без «к ОС»)", () => {
+    expect(splitTitleDate("Статус текущих задач — Дирекция по развитию флота к ОС 17.09.2026")).toEqual({ main: "Статус текущих задач — Дирекция по развитию флота", date: "17.09.2026" });
+    expect(splitTitleDate("Статус задач, к ОС 01.10.2026 ")).toEqual({ main: "Статус задач", date: "01.10.2026" });
+  });
+  it("без даты или с датой не в конце — заголовок целиком", () => {
+    expect(splitTitleDate("Справка по флоту")).toEqual({ main: "Справка по флоту", date: "" });
+    expect(splitTitleDate("к ОС 17.09.2026 итоги")).toEqual({ main: "к ОС 17.09.2026 итоги", date: "" });
   });
 });

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { withApiErrors } from "@/lib/api-guard";
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const session = await requireSession();
   const { searchParams } = new URL(request.url);
   const unreadOnly = searchParams.get("unreadOnly") === "true";
@@ -19,3 +20,5 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ notifications, unreadCount });
 }
+
+export const GET = withApiErrors(GETHandler);

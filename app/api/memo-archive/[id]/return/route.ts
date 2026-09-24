@@ -4,13 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { createNotification } from "@/lib/notifications";
 import { parseMemoDoc } from "@/lib/memo";
+import { withApiErrors } from "@/lib/api-guard";
 
 /**
  * ЗГД возвращает справку директору с комментарием. Оперативка снова открывается на «Сборке» как следующая ревизия:
  * черновик — копия возвращённой справки, поданные позиции снова помечены «Опер», директору и составителям уходит уведомление.
  * Отправленная версия остаётся неизменной (в архиве видна как «возвращена»).
  */
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
   if (actor.role !== "EXECUTIVE") return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -54,3 +55,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   return NextResponse.json({ ok: true });
 }
+
+export const POST = withApiErrors(POSTHandler);

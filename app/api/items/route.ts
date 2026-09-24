@@ -5,9 +5,10 @@ import { canViewItems } from "@/lib/permissions";
 import { applyTableFilters, applyTableSort, loadTableRows, rowFromRecord, type ArchiveMode, type TableSort } from "@/lib/table-view";
 import { createItem, ITEM_ERROR_STATUS } from "@/lib/items";
 import { createItemSchema } from "@/lib/validation";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Руководитель и куратор видят все позиции; руководству (только финал) и прочим рабочие позиции недоступны.
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!canViewItems(actor.role)) return NextResponse.json({ rows: [], total: 0 });
 
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ rows, total: rows.length });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
   const parsed = createItemSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -45,3 +46,6 @@ export async function POST(request: NextRequest) {
   if (!result.ok) return NextResponse.json({ error: result.error, message: result.message }, { status: ITEM_ERROR_STATUS[result.error] });
   return NextResponse.json({ row: await rowFromRecord(result.record) }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

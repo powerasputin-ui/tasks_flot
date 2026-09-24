@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { OperativkaView } from "@/components/OperativkaView";
 import { requireActor } from "@/lib/session";
@@ -7,5 +8,9 @@ export default async function OperativkaPage() {
   // Роль читается из базы (а не из токена входа), сами данные закрыты на сервере отдельно.
   const actor = await requireActor().catch(() => null);
   if (actor?.role === "HEAD" && !actor.memoEditor) redirect("/table");
-  return <OperativkaView />;
+  return (
+    <Suspense fallback={null}>
+      <OperativkaView />
+    </Suspense>
+  );
 }

@@ -4,11 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { requireFreshSession } from "@/lib/session";
 import { canCreateDirectorates } from "@/lib/permissions";
 import { invalidateDirectorates } from "@/lib/directorates";
+import { withApiErrors } from "@/lib/api-guard";
 
 const patchSchema = z.object({ name: z.string().trim().min(2).max(120).optional(), isActive: z.boolean().optional() });
 
 // Переименовать или отключить дирекцию (данные не удаляются; отключённая пропадает из выбора).
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireFreshSession();
   if (!canCreateDirectorates(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
@@ -22,3 +23,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   invalidateDirectorates();
   return NextResponse.json({ directorate });
 }
+
+export const PATCH = withApiErrors(PATCHHandler);

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { z } from "zod";
+import { withApiErrors } from "@/lib/api-guard";
 
 const patchSchema = z.object({ isRead: z.boolean() });
 
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
   const { id } = await params;
 
@@ -24,3 +25,5 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const updated = await prisma.notification.update({ where: { id }, data: { isRead: parsed.data.isRead } });
   return NextResponse.json({ notification: updated });
 }
+
+export const PATCH = withApiErrors(PATCHHandler);

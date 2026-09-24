@@ -7,9 +7,10 @@ import { canManageDirectory, canManageUser, canManageUsers } from "@/lib/permiss
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
 import { listDirectorates } from "@/lib/directorates";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Читают все (списки ответственных); e-mail и неактивные — только админу.
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   const session = await requireFreshSession();
   const admin = canManageDirectory(session.role);
   const manager = canManageUsers(session.role);
@@ -44,7 +45,7 @@ const createUserSchema = z.object({
 });
 
 /** Самостоятельной регистрации нет: пользователей создаёт SYSTEM_ADMIN и назначает роль. */
-export async function POST(request: NextRequest) {
+async function POSTHandler(request: NextRequest) {
   const session = await requireFreshSession();
   if (!canManageUsers(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
@@ -72,3 +73,6 @@ export async function POST(request: NextRequest) {
   invalidateDicts();
   return NextResponse.json({ user }, { status: 201 });
 }
+
+export const GET = withApiErrors(GETHandler);
+export const POST = withApiErrors(POSTHandler);

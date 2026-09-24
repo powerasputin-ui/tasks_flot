@@ -3,9 +3,10 @@ import { requireActor } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
 import { CYCLE_ERROR_STATUS, returnItem } from "@/lib/cycles";
 import { loadTableRow } from "@/lib/table-view";
+import { withApiErrors } from "@/lib/api-guard";
 
 // Куратор возвращает отправленную позицию на доработку. Тело: { comment }.
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
   const body = (await request.json().catch(() => null)) as { comment?: string } | null;
@@ -13,3 +14,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: CYCLE_ERROR_STATUS[result.error] });
   return NextResponse.json({ row: await loadTableRow(id, requireDirectorate(actor)) });
 }
+
+export const POST = withApiErrors(POSTHandler);

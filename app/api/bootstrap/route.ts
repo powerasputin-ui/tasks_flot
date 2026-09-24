@@ -3,13 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
 import { listDirectorates } from "@/lib/directorates";
+import { withApiErrors } from "@/lib/api-guard";
 
 /**
  * Всё, что нужно экрану сразу при открытии: текущий пользователь, справочники, свои колонки и общий вид таблицы.
  * Один запрос вместо восьми отдельных: каждый обращается к удалённой базе, и вместе они ждали в очереди друг за другом.
  * Внутри запросы к базе идут параллельно.
  */
-export async function GET() {
+async function GETHandler() {
   const actor = await requireActor();
   const viewAs = actor.viewAs ? { id: actor.id, name: actor.name, role: actor.role, realName: actor.viewAs.realName } : null;
   // ЗГД дирекции не имеет: справочники дирекции ему не нужны
@@ -45,3 +46,5 @@ export async function GET() {
     viewAs,
   });
 }
+
+export const GET = withApiErrors(GETHandler);
