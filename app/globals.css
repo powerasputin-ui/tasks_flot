@@ -248,6 +248,13 @@ body {
   background: var(--surface-high);
   color: var(--primary);
 }
+/* Кнопки удаления (корзина): при наведении красные, а не синие. */
+.btn-icon.text-status-red:hover,
+.btn-ghost.text-status-red:hover {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+}
 
 /* В слое components, чтобы утилиты Tailwind (pl-8, w-full…) перебивали эти стили. */
 @layer components {
