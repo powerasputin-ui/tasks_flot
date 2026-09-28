@@ -175,7 +175,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="z-30 flex h-16 shrink-0 items-center gap-4 overflow-x-clip border-b border-outline-variant bg-surface px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" title="ГШП Оперативка">
           <Image src="/logo.svg" alt="" width={36} height={36} className="shrink-0" priority />
-          <span className="hidden text-[13px] font-bold tracking-tight text-on-surface lg:inline">ГШП ОПЕРАТИВКА</span>
+          <span className="hidden min-w-0 flex-col lg:flex">
+            <span className="text-[13px] font-bold leading-[15px] tracking-tight text-on-surface">ГШП ОПЕРАТИВКА</span>
+            {directorate && directorates.length <= 1 && (
+              <span className="max-w-[26rem] text-[11px] leading-[14px] text-on-surface-variant">
+                {directorate.name}
+              </span>
+            )}
+          </span>
         </Link>
 
         {directorate &&
@@ -207,11 +214,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
               )}
             </Popover>
-          ) : (
-            <span className="hidden max-w-64 truncate text-[12px] text-on-surface-variant xl:inline" title={directorate.name}>
-              {directorate.name}
-            </span>
-          ))}
+          ) : null)}
 
         {SEARCH_PATHS.some((p) => pathname.startsWith(p)) && (
           <Suspense fallback={null}>

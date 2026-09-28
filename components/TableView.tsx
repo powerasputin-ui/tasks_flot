@@ -9,6 +9,7 @@ import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, Clipbo
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
 import { CycleStrip } from "@/components/CycleStrip";
+import { WeekSelect } from "@/components/WeekSelect";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, isDirectorial } from "@/lib/permissions";
@@ -531,6 +532,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
+            <WeekSelect selected={null} />
             <FilterChip label="Трек" value={trackIds} options={refs.tracks} onChange={setTrackIds} />
             <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
             <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessIds} />

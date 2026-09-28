@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Lock } from "lucide-react";
+import { WeekSelect } from "@/components/WeekSelect";
 import { ArchiveTableView } from "@/components/ArchiveTable";
 import type { ArchiveTable, TableDiff } from "@/lib/archive-table";
 
@@ -63,7 +64,7 @@ export function WeekTable({ cycleId }: { cycleId: string }) {
       </div>
       {!prev && table.mode === "full" && <p className="mb-3 text-[13px] text-on-surface-variant">Это первая неделя: сравнивать пока не с чем.</p>}
       {prev && !diff && table.mode === "full" && <p className="mb-3 text-[13px] text-on-surface-variant">Прошлая неделя (№{prev.number}) сохранена не полностью — сравнение недоступно.</p>}
-      <ArchiveTableView table={table} diff={diff} prevNumber={prev?.number} />
+      <ArchiveTableView table={table} diff={diff} prevNumber={prev?.number} lead={<WeekSelect selected={cycleId} />} />
     </div>
   );
 }

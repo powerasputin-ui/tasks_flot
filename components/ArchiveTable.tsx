@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FileDown, Search } from "lucide-react";
 import { Highlight } from "@/components/ui/Highlight";
 import { HoverText } from "@/components/ui/HoverText";
@@ -46,7 +46,7 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
 type View = ArchiveView | "changed";
 
 /** Сама таблица снимка: фильтры, поиск, порционный показ; при `diff` — ещё и «что изменилось с прошлой недели». */
-export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, prevNumber }: { table: Table; diff?: TableDiff | null; focusItemId?: string | null; exportBase?: string; prevNumber?: number | null }) {
+export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, prevNumber, lead }: { table: Table; diff?: TableDiff | null; focusItemId?: string | null; exportBase?: string; prevNumber?: number | null; lead?: ReactNode }) {
   const [view, setView] = useState<View>("all");
   const [q, setQ] = useState("");
   const [segment, setSegment] = useState<string>("");
@@ -117,6 +117,7 @@ export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, 
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        {lead}
         <div className="flex overflow-hidden rounded-md border border-outline-variant">
           {tabs.map((t) => (
             <button
