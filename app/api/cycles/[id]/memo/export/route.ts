@@ -1,3 +1,4 @@
+import { exportLimited } from "@/lib/rate-limit";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
@@ -9,6 +10,8 @@ import { withApiErrors } from "@/lib/api-guard";
 async function GETHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const actor = await requireActor();
+  const tooMany = await exportLimited(actor.id);
+  if (tooMany) return tooMany;
   const cycle = await prisma.cycle.findUnique({ where: { id } });
   if (!cycle || !canEditMemo(actor, cycle)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   const format = new URL(request.url).searchParams.get("format");

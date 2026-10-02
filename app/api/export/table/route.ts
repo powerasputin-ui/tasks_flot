@@ -1,3 +1,4 @@
+import { exportLimited } from "@/lib/rate-limit";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
@@ -11,6 +12,8 @@ import { withApiErrors } from "@/lib/api-guard";
 // Руководитель и куратор выгружают все позиции (руководитель их видит, править может только свои).
 async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
+  const tooMany = await exportLimited(actor.id);
+  if (tooMany) return tooMany;
   if (!canExportWorkTable(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const sp = new URL(request.url).searchParams;

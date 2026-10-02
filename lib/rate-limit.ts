@@ -28,8 +28,36 @@ export async function enforceRateLimit(key: string, limit: number, windowMs: num
   );
 }
 
-/** Адрес клиента за прокси (первый в X-Forwarded-For); без прокси — общий ключ «local». */
+/**
+ * Адрес клиента. На Vercel — из заголовков, которые проставляет сама платформа (x-vercel-forwarded-for, x-real-ip):
+ * их клиент подменить не может. Иначе — первый в X-Forwarded-For; без прокси — общий ключ «local».
+ */
 export function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return (fwd || request.headers.get("x-real-ip") || "local").slice(0, 64);
+  const h = request.headers;
+  const ip = h.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return (ip || "local").slice(0, 64);
+}
+
+/**
+ * Быстрый фильтр в памяти экземпляра — до обращения к базе. Вал запросов (например, на вход) отсекается здесь,
+ * не расходуя соединения и лимиты базы. Точный общий лимит по-прежнему считает база (hitRateLimit).
+ */
+const burst = new Map<string, { start: number; count: number }>();
+export function burstLimited(key: string, limit: number, windowMs: number): NextResponse | null {
+  const now = Date.now();
+  if (burst.size > 10_000) burst.clear();
+  const b = burst.get(key);
+  if (!b || now - b.start > windowMs) {
+    burst.set(key, { start: now, count: 1 });
+    return null;
+  }
+  b.count += 1;
+  if (b.count <= limit) return null;
+  const retry = Math.max(1, Math.ceil((windowMs - (now - b.start)) / 1000));
+  return NextResponse.json({ error: "RATE_LIMITED", message: `Слишком много запросов. Попробуйте через ${retry} с.` }, { status: 429, headers: { "Retry-After": String(retry) } });
+}
+
+/** Тяжёлые выгрузки (Excel, PDF, Word, PowerPoint): не больше 60 за 10 минут на человека. */
+export async function exportLimited(actorId: string): Promise<NextResponse | null> {
+  return burstLimited(`export:${actorId}`, 20, 60_000) ?? (await enforceRateLimit(`export:${actorId}`, 60, 600_000, "выгрузок"));
 }

@@ -1,3 +1,4 @@
+import { exportLimited } from "@/lib/rate-limit";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { canUseReports } from "@/lib/report-templates";
@@ -10,6 +11,8 @@ import { withApiErrors } from "@/lib/api-guard";
 // Выгрузка отчёта «Оперативки» по шаблону или по своей конфигурации: ?format=xlsx|pdf|csv|pptx&templateId=… | &config=<JSON>.
 async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
+  const tooMany = await exportLimited(actor.id);
+  if (tooMany) return tooMany;
   if (!canUseReports(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const sp = new URL(request.url).searchParams;

@@ -1,3 +1,4 @@
+import { exportLimited } from "@/lib/rate-limit";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
@@ -30,6 +31,8 @@ async function GETHandler(request: NextRequest, { params }: { params: Promise<{ 
 
   const sp = new URL(request.url).searchParams;
   if (sp.has("format")) {
+  const tooMany = await exportLimited(actor.id);
+  if (tooMany) return tooMany;
     const format = parseExportFormat(sp.get("format"));
     if (!format) return NextResponse.json({ error: "INVALID_FORMAT" }, { status: 400 });
     const allowed: ArchiveView[] = memoVisible ? ["all", "submitted", "memo"] : ["all", "submitted"];

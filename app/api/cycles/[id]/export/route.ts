@@ -1,3 +1,4 @@
+import { exportLimited } from "@/lib/rate-limit";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +25,8 @@ type SnapRow = {
 // Выгрузка финальной оперативки из неизменяемого снимка (Excel / PDF / CSV). Доступна всем ролям, включая руководство.
 async function GETHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
+  const tooMany = await exportLimited(actor.id);
+  if (tooMany) return tooMany;
   const { id } = await params;
   const formatParam = new URL(request.url).searchParams.get("format");
   const pptx = formatParam === "pptx";

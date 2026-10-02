@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken, verifyPassword, DUMMY_PASSWORD_HASH, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/auth";
 import { loginSchema } from "@/lib/validation";
-import { clientIp, enforceRateLimit } from "@/lib/rate-limit";
+import { burstLimited, clientIp, enforceRateLimit } from "@/lib/rate-limit";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
+  // вал запросов отсекаем до чтения тела и до базы: 30 попыток в минуту с адреса на экземпляр
+  const flood = burstLimited(`login:${clientIp(request)}`, 30, 60_000);
+  if (flood) return flood;
   const body = await request.json().catch(() => null);
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) {
