@@ -1,0 +1,67 @@
+# Ежедневная резервная копия боевой базы (Neon). Копия зашифрована паролем BACKUP_PASSPHRASE,
+# поэтому её можно хранить в артефактах даже публичного репозитория. Хранится 30 дней.
+#
+# Нужны секреты репозитория (Settings → Secrets and variables → Actions):
+#   NEON_DATABASE_URL  — строка подключения к базе (как DATABASE_URL в Vercel)
+#   BACKUP_PASSPHRASE  — длинный пароль для шифрования копий; сохраните его отдельно, без него копию не открыть
+#
+# Восстановление (на своём компьютере, нужен Docker):
+#   1) скачать артефакт db-backup-<дата> во вкладке Actions и распаковать zip → neon-<дата>.dump.gpg
+#   2) gpg --batch --passphrase "<BACKUP_PASSPHRASE>" -d neon-<дата>.dump.gpg > neon.dump
+#   3) docker run --rm -v "$PWD:/b" postgres:18 pg_restore --clean --if-exists --no-owner -d "<адрес базы>" /b/neon.dump
+name: db-backup
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 04:00 по Москве
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Секреты заданы?
+        id: check
+        env:
+          URL: ${{ secrets.NEON_DATABASE_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$PASS" ]; then
+            echo "::warning::Резервная копия не снята: задайте секреты NEON_DATABASE_URL и BACKUP_PASSPHRASE."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Снять копию (pg_dump 18) и зашифровать
+        if: steps.check.outputs.ok == 'true'
+        env:
+          URL: ${{ secrets.NEON_DATABASE_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # pg_dump — напрямую к базе, не через пул соединений (pgbouncer не поддерживает дамп)
+          DIRECT=$(printf '%s' "$URL" | sed -E 's/-pooler\././; s/([?&])pgbouncer=true&?/\1/; s/[?&]$//')
+          D=$(date -u +%Y-%m-%d)
+          mkdir -p out
+          docker run --rm -e DIRECT="$DIRECT" -v "$PWD/out:/out" postgres:18 \
+            sh -c 'pg_dump --format=custom --no-owner --no-privileges --dbname="$DIRECT" --file=/out/neon.dump'
+          test -s out/neon.dump
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PASS" --symmetric --cipher-algo AES256 \
+            -o "out/neon-$D.dump.gpg" out/neon.dump
+          rm out/neon.dump
+          echo "DATE=$D" >> "$GITHUB_ENV"
+          ls -l out
+
+      - name: Сохранить копию (30 дней)
+        if: steps.check.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ env.DATE }}
+          path: out/*.gpg
+          retention-days: 30
+          if-no-files-found: error
