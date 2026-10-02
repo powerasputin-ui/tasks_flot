@@ -20,7 +20,7 @@ async function GETHandler() {
     if (cycle) await sendMissingReminders(cycle);
     const mine = cycle ? (await cycleSummary(directorateId)).find((p) => p.id === actor.id) : undefined;
     return NextResponse.json({
-      cycle: cycle ? { id: cycle.id, number: cycle.number, deadline: cycle.deadline, status: cycle.status } : null,
+      cycle: cycle ? { id: cycle.id, number: cycle.number, deadline: cycle.deadline, status: cycle.status, revision: cycle.revision } : null,
       mine: mine ? { total: mine.total, sent: mine.sent } : { total: 0, sent: 0 },
       summary: [],
       finals: [],

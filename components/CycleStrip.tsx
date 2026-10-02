@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CalendarClock, Lock } from "lucide-react";
 
 type Payload = {
-  cycle: { number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL" } | null;
+  cycle: { number: number; deadline: string; status: "OPEN" | "IN_REVIEW" | "FINAL"; revision?: number } | null;
   mine?: { total: number; sent: number };
 };
 
@@ -47,7 +47,9 @@ export function CycleStrip() {
       {review ? <Lock size={15} className="text-status-amber" /> : <CalendarClock size={15} className="text-primary" />}
       <span className="font-semibold">Оперативка №{cycle.number}</span>
       {review ? (
-        <span className="text-on-surface-variant">Идёт сборка директором: поданные позиции сейчас не меняются.</span>
+        <span className="text-on-surface-variant">
+          {(cycle.revision ?? 1) > 1 ? "ЗГД вернул справку на доработку, директор её исправляет" : "Идёт сборка директором"}: поданные позиции сейчас не меняются. Новые позиции можно отправить — директор решит, войдут ли они в справку.
+        </span>
       ) : (
         <>
           <span className="text-on-surface-variant">

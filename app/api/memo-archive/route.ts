@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
-import { canCompileMemo } from "@/lib/permissions";
+import { canSeeSent } from "@/lib/scope";
 import { listDirectorates } from "@/lib/directorates";
 import { effectiveDate, matchBullets, versionMatches, type VersionSource } from "@/lib/memo-archive";
 import { parseMemoDoc, visibleSections } from "@/lib/memo";
@@ -15,7 +15,7 @@ import { withApiErrors } from "@/lib/api-guard";
 async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   const executive = actor.role === "EXECUTIVE";
-  if (!executive && !canCompileMemo(actor)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  if (!executive && !canSeeSent(actor, actor.directorateId ?? null)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const sp = new URL(request.url).searchParams;
   const q = (sp.get("q") ?? "").slice(0, 200);

@@ -189,14 +189,20 @@ export function archiveCellText(r: ArchiveRow, c: ArchiveColumn): Cell {
   }
 }
 
-export function archiveTableSections(t: ArchiveLayout, rows: ArchiveRow[]): ExportSection[] {
+export function archiveTableSections(t: ArchiveLayout, rows: ArchiveRow[], opts: { memo?: boolean } = {}): ExportSection[] {
+  const memo = opts.memo ?? true;
   return [
     {
       title: "Таблица",
-      headers: ["Сегмент", ...t.columns.map((c) => c.label), "Подано директору", "В справке"],
-      rows: rows.map((r) => [r.segmentName ?? "Без сегмента", ...t.columns.map((c) => archiveCellText(r, c)), r.submitted ? "да" : "", r.inMemo ? "да" : ""]),
+      headers: ["Сегмент", ...t.columns.map((c) => c.label), "Подано директору", ...(memo ? ["В справке"] : [])],
+      rows: rows.map((r) => [r.segmentName ?? "Без сегмента", ...t.columns.map((c) => archiveCellText(r, c)), r.submitted ? "да" : "", ...(memo ? [r.inMemo ? "да" : ""] : [])]),
     },
   ];
+}
+
+/** Таблица без отметок «в справке» — для тех, кому отправленное не показывается (руководитель). */
+export function withoutMemoMarks(t: ArchiveTable): ArchiveTable {
+  return { ...t, rows: t.rows.map((r) => ({ ...r, inMemo: false })) };
 }
 
 // ---------- сравнение двух недель ----------

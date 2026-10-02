@@ -1,4 +1,4 @@
-import type { Actor } from "@/lib/permissions";
+import { canCompileMemo, type Actor } from "@/lib/permissions";
 
 /**
  * Границы дирекции. Все живые данные (позиции, сегменты, треки, циклы, колонки, люди) принадлежат дирекции,
@@ -30,8 +30,17 @@ export function isInScope(actor: Actor, record: { directorateId: string | null }
   return !!actor.directorateId && record.directorateId === actor.directorateId;
 }
 
-/** Отправленный итог доступен ЗГД (всех дирекций) и директору, админу и тех. администратору своей дирекции; руководителю, который заполняет таблицу, — нет. */
-export function canViewFinalCycle(actor: Actor, cycle: { directorateId: string | null }): boolean {
+/**
+ * Единое правило «кто видит отправленное» — справку, что в неё вошло, итог оперативки:
+ * ЗГД (все дирекции), а в своей дирекции — те, кто ведёт справку (директор, админ, назначенный составитель) и тех. админ.
+ * Руководитель, который только заполняет таблицу, отправленного не видит: в неделях ему показывается лишь «подано».
+ */
+export function canSeeSent(actor: Actor, directorateId: string | null): boolean {
   if (actor.role === "EXECUTIVE") return true;
-  return actor.role !== "HEAD" && isInScope(actor, cycle);
+  return (canCompileMemo(actor) || actor.role === "SYSTEM_ADMIN") && isInScope(actor, { directorateId });
+}
+
+/** Итог оперативки (старый формат, файл, отчёт) — то же правило. */
+export function canViewFinalCycle(actor: Actor, cycle: { directorateId: string | null }): boolean {
+  return canSeeSent(actor, cycle.directorateId);
 }

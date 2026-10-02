@@ -17,8 +17,8 @@ import { isDirectorial, type Actor } from "@/lib/permissions";
 export const REMINDER_DAYS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type CycleError = "FORBIDDEN" | "NOT_FOUND" | "CYCLE_EXISTS" | "BAD_STATE" | "INVALID_INPUT";
-export type CycleResult<T = object> = ({ ok: true } & T) | { ok: false; error: CycleError };
+export type CycleError = "FORBIDDEN" | "NOT_FOUND" | "CYCLE_EXISTS" | "BAD_STATE" | "INVALID_INPUT" | "UNDECIDED" | "CHANGED";
+export type CycleResult<T = object> = ({ ok: true } & T) | { ok: false; error: CycleError; message?: string };
 
 export const CYCLE_ERROR_STATUS: Record<CycleError, number> = {
   FORBIDDEN: 403,
@@ -26,6 +26,8 @@ export const CYCLE_ERROR_STATUS: Record<CycleError, number> = {
   CYCLE_EXISTS: 409,
   BAD_STATE: 409,
   INVALID_INPUT: 400,
+  UNDECIDED: 409,
+  CHANGED: 409,
 };
 
 /** Разрешённые переходы статуса цикла. */
@@ -44,10 +46,23 @@ export function reminderDue(deadline: Date, now: Date = new Date()): boolean {
   return now.getTime() >= deadline.getTime() - REMINDER_DAYS * DAY_MS;
 }
 
+const plural = (n: number, one: string, few: string, many: string) => {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+};
+
 const isCurator = (a: Actor) => isDirectorial(a.role);
 
 export async function activeCycle(directorateId: string): Promise<Cycle | null> {
   return prisma.cycle.findFirst({ where: { directorateId, status: { not: "FINAL" } }, orderBy: { number: "desc" } });
+}
+
+/**
+ * Все смены состояния оперативки дирекции (создание, сборка, отправка, возврат ЗГД) идут под этой блокировкой
+ * внутри своей транзакции: проверка «можно ли» и сама смена не разрываются параллельным запросом.
+ */
+export async function lockDirectorate(tx: Prisma.TransactionClient, directorateId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`cycle:${directorateId}`}))`;
 }
 
 export async function createCycle(actor: Actor, deadline: Date): Promise<CycleResult<{ id: string }>> {
@@ -57,7 +72,7 @@ export async function createCycle(actor: Actor, deadline: Date): Promise<CycleRe
   if (!directorateId) return { ok: false, error: "FORBIDDEN" };
   // Два одновременных запроса не должны завести две активные оперативки: проверка и создание идут под блокировкой дирекции.
   const created = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`cycle:${directorateId}`}))`;
+    await lockDirectorate(tx, directorateId);
     if (await tx.cycle.findFirst({ where: { directorateId, status: { not: "FINAL" } }, select: { id: true } })) return null;
     const last = await tx.cycle.findFirst({ where: { directorateId }, orderBy: { number: "desc" }, select: { number: true } });
     return tx.cycle.create({ data: { number: (last?.number ?? 0) + 1, directorateId, deadline, createdById: actor.id } });
@@ -66,12 +81,29 @@ export async function createCycle(actor: Actor, deadline: Date): Promise<CycleRe
   return { ok: true, id: created.id };
 }
 
+/**
+ * Вернуть можно только последнюю отправленную оперативку дирекции и только когда новой ещё нет:
+ * иначе старая неделя «оживёт» поверх более новой, а галки встанут по снимку двухнедельной давности.
+ */
+export async function returnBlocker(db: Pick<Prisma.TransactionClient, "cycle">, directorateId: string, number: number) {
+  if (await db.cycle.findFirst({ where: { directorateId, status: { not: "FINAL" } }, select: { id: true } }))
+    return { body: { error: "CYCLE_EXISTS", message: "У дирекции уже идёт новая оперативка — вернуть прошлую нельзя." } };
+  if (await db.cycle.findFirst({ where: { directorateId, status: "FINAL", number: { gt: number } }, select: { id: true } }))
+    return { body: { error: "NOT_LATEST", message: "Вернуть можно только последнюю отправленную справку дирекции." } };
+  return null;
+}
+
 export async function startReview(actor: Actor, id: string): Promise<CycleResult> {
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
   const cycle = await prisma.cycle.findFirst({ where: { id, directorateId: actor.directorateId ?? "" } });
   if (!cycle) return { ok: false, error: "NOT_FOUND" };
   if (!canTransition(cycle.status, "IN_REVIEW")) return { ok: false, error: "BAD_STATE" };
-  const started = await prisma.cycle.update({ where: { id }, data: { status: "IN_REVIEW", reviewStartedAt: new Date() } });
+  const started = await prisma.$transaction(async (tx) => {
+    await lockDirectorate(tx, cycle.directorateId ?? "");
+    const moved = await tx.cycle.updateMany({ where: { id, status: "OPEN" }, data: { status: "IN_REVIEW", reviewStartedAt: new Date() } });
+    return moved.count === 1 ? tx.cycle.findUniqueOrThrow({ where: { id } }) : null;
+  });
+  if (!started) return { ok: false, error: "BAD_STATE" };
   // «Сборка»: справка догоняет поданное. Черновик мог быть создан раньше, когда почти ничего не было подано, — без этого
   // директор отправил бы ЗГД справку без поданных позиций. Правки директора не трогаются.
   await refreshMemoDraft(started).catch(() => null);
@@ -98,7 +130,14 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   );
 
   // Справка (неизменяемая версия для ЗГД) фиксируется вместе со снимком строк
-  const { sourceItemIds, ...version } = await prepareVersion(cycle, actor, note?.trim() || null, await cycleSummary(directorateId));
+  const { sourceItemIds, undecidedCount, ...version } = await prepareVersion(cycle, actor, note?.trim() || null, await cycleSummary(directorateId));
+  // Поданное во время сборки, которого директор не видел, не должно «сгореть»: при отправке галка снялась бы, а в справку строка не попала.
+  if (undecidedCount > 0)
+    return {
+      ok: false,
+      error: "UNDECIDED",
+      message: `Ещё ${undecidedCount} ${plural(undecidedCount, "поданная позиция", "поданные позиции", "поданных позиций")} не в справке. Нажмите «Обновить» в справке и решите по ним (оставить или скрыть), затем отправьте.`,
+    };
 
   // Архив: вся таблица дирекции на момент отправки и её раскладка (столбцы, названия, порядок сегментов)
   const [layoutSetting, segments] = await Promise.all([
@@ -110,7 +149,12 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   const layout = archiveLayout(withCustomColumns(normalizeColumns(savedColumns.map((c) => ({ ...c }))), customCols), customCols, segments);
   const archiveRows = buildArchiveRows(all, sourceItemIds, segments);
 
+  const sentIds = new Set(sent.map((r) => r.id));
   const created = await prisma.$transaction(async (tx) => {
+    await lockDirectorate(tx, directorateId);
+    // Снимок собран до транзакции: если за это время кто-то подал или снял позицию, отправляем заново, а не фиксируем устаревшее.
+    const flaggedNow = await tx.operationalItem.findMany({ where: { directorateId, archivedAt: null, operFlag: true }, select: { id: true } });
+    if (flaggedNow.length !== sentIds.size || flaggedNow.some((r) => !sentIds.has(r.id))) return "CHANGED" as const;
     // условие по статусу защищает от двойной финализации
     const upd = await tx.cycle.updateMany({
       where: { id, status: "IN_REVIEW" },
@@ -126,6 +170,7 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
       select: { id: true },
     });
   });
+  if (created === "CHANGED") return { ok: false, error: "CHANGED", message: "Пока готовилась отправка, кто-то подал или снял позицию. Проверьте справку и отправьте ещё раз." };
 
   // ЗГД получает уведомление, что пришла справка — ссылка сразу на неё
   const executives = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
@@ -168,6 +213,13 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
 
 export type PersonSummary = { id: string; name: string; role: string; total: number; sent: number };
 
+/** Что сделать не подавшему: у кого позиций нет вовсе — сначала их завести, у кого есть — отправить директору. */
+function whatToDo(total: number): string {
+  return total === 0
+    ? "У вас пока нет позиций в таблице — добавьте свои задачи и отправьте их директору кнопкой «Отправить»."
+    : "Вы ещё ничего не отправили директору — отметьте свои позиции кнопкой «Отправить».";
+}
+
 /** Кто сколько заполнил и сколько отправил куратору (руководители и кураторы, заполняющие позиции). */
 export async function cycleSummary(directorateId: string): Promise<PersonSummary[]> {
   const [users, items] = await Promise.all([
@@ -202,7 +254,7 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
     await createNotification({
       userId: p.id,
       type: "SUBMISSION_MISSING",
-      message: `Оперативка №${cycle.number}: срок подачи ${due}. Вы ещё ничего не отправили директору — отметьте позиции галкой «Опер».`,
+      message: `Оперативка №${cycle.number}: срок подачи ${due}. ${whatToDo(p.total)}`,
       link: "/table",
     });
   }
@@ -247,7 +299,7 @@ export async function remindMissing(actor: Actor, cycleId: string, userIds?: str
     await createNotification({
       userId: p.id,
       type: "SUBMISSION_MISSING",
-      message: `${prefix}: срок подачи ${due}. Вы ещё ничего не отправили — отметьте позиции кнопкой «Отправить».`,
+      message: `${prefix}: срок подачи ${due}. ${whatToDo(p.total)}`,
       link: "/table",
     });
     sent++;

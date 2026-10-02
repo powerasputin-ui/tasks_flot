@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { canViewItems } from "@/lib/permissions";
-import { requireDirectorate } from "@/lib/scope";
+import { canSeeSent, requireDirectorate } from "@/lib/scope";
 import { withApiErrors } from "@/lib/api-guard";
 
 export type WeekListItem = {
@@ -27,9 +27,10 @@ async function GETHandler() {
   const actor = await requireActor();
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const directorateId = requireDirectorate(actor);
+  const memoVisible = canSeeSent(actor, directorateId);
 
   const [cycles, current] = await Promise.all([
-    prisma.cycle.findMany({ where: { directorateId, status: "FINAL" }, orderBy: { number: "desc" }, take: 60, select: { id: true, number: true, meetingDate: true, finalizedAt: true, createdAt: true } }),
+    prisma.cycle.findMany({ where: { directorateId, status: "FINAL" }, orderBy: { number: "desc" }, select: { id: true, number: true, meetingDate: true, finalizedAt: true, createdAt: true } }),
     prisma.cycle.findFirst({ where: { directorateId, status: { not: "FINAL" } }, select: { id: true, number: true, status: true, deadline: true } }),
   ]);
 
@@ -61,7 +62,7 @@ async function GETHandler() {
     if (!at) return [];
     const k = byCycle.get(c.id);
     const n = (v: bigint | null | undefined) => (v === null || v === undefined ? null : Number(v));
-    return [{ cycleId: c.id, number: c.number, meetingDate: c.meetingDate?.toISOString() ?? null, sentAt: at.toISOString(), revisions: n(k?.revisions) ?? 1, rowsCount: n(k?.rowsCount), submitted: n(k?.submitted), inMemo: n(k?.inMemo) }];
+    return [{ cycleId: c.id, number: c.number, meetingDate: c.meetingDate?.toISOString() ?? null, sentAt: at.toISOString(), revisions: n(k?.revisions) ?? 1, rowsCount: n(k?.rowsCount), submitted: n(k?.submitted), inMemo: memoVisible ? n(k?.inMemo) : null }];
   });
 
   return NextResponse.json({ current: current ? { cycleId: current.id, number: current.number, status: current.status, deadline: current.deadline.toISOString() } : null, weeks });

@@ -5,6 +5,7 @@ import { requireActor } from "@/lib/session";
 import { createNotification } from "@/lib/notifications";
 import { parseMemoDoc } from "@/lib/memo";
 import { withApiErrors } from "@/lib/api-guard";
+import { lockDirectorate, returnBlocker } from "@/lib/cycles";
 
 /**
  * ЗГД возвращает справку директору с комментарием. Оперативка снова открывается на «Сборке» как следующая ревизия:
@@ -22,8 +23,8 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   const v = await prisma.memoVersion.findUnique({ where: { id }, include: { cycle: true } });
   if (!v) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   if (v.returnedAt || v.revision !== v.cycle.revision || v.cycle.status !== "FINAL") return NextResponse.json({ error: "BAD_STATE" }, { status: 409 });
-  // пока идёт другая оперативка дирекции, вернуть эту нельзя: у дирекции не может быть двух активных
-  if (await prisma.cycle.findFirst({ where: { directorateId: v.directorateId, status: { not: "FINAL" } }, select: { id: true } })) return NextResponse.json({ error: "CYCLE_EXISTS" }, { status: 409 });
+  const blocked = await returnBlocker(prisma, v.directorateId, v.cycle.number);
+  if (blocked) return NextResponse.json(blocked.body, { status: 409 });
 
   const doc = parseMemoDoc(v.doc) ?? { sections: [] };
   // «Опер» возвращается всем строкам, поданным в этой версии (по снимку таблицы), а не только вошедшим в справку: иначе
@@ -31,11 +32,16 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   const submittedInSnapshot = Array.isArray(v.rows) ? (v.rows as unknown as Array<{ id: string; submitted?: boolean }>).filter((r) => r.submitted).map((r) => r.id) : [];
   const itemIds = [...new Set([...doc.sections.flatMap((s) => s.bullets.filter((b) => !b.hidden).flatMap((b) => b.itemIds)), ...submittedInSnapshot])];
 
-  await prisma.$transaction(async (tx) => {
-    const marked = await tx.memoVersion.updateMany({ where: { id, returnedAt: null }, data: { returnedAt: new Date(), returnComment: comment, returnedByName: actor.name } });
-    if (marked.count !== 1) throw new Error("BAD_STATE");
-    await tx.cycle.update({
-      where: { id: v.cycleId },
+  const done = await prisma.$transaction(async (tx) => {
+    // та же блокировка дирекции, что при создании оперативки: иначе возврат и «Начать оперативку» одновременно дали бы две активные
+    await lockDirectorate(tx, v.directorateId);
+    const late = await returnBlocker(tx, v.directorateId, v.cycle.number);
+    if (late) return late.body;
+    const marked = await tx.memoVersion.updateMany({ where: { id, returnedAt: null, revision: v.revision }, data: { returnedAt: new Date(), returnComment: comment, returnedByName: actor.name } });
+    if (marked.count !== 1) return { error: "BAD_STATE" };
+    // цикл мог успеть смениться (повторный возврат параллельно): возвращаем, только если он всё ещё отправлен с этой ревизией
+    const cyc = await tx.cycle.updateMany({
+      where: { id: v.cycleId, status: "FINAL", revision: v.revision },
       data: {
         status: "IN_REVIEW",
         revision: { increment: 1 },
@@ -45,9 +51,12 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
         memoVersion: { increment: 1 },
       },
     });
+    if (cyc.count !== 1) throw new Error("RACE");
     // те же строки снова подписаны «Опер», чтобы директор видел прежний пакет
     if (itemIds.length) await tx.operationalItem.updateMany({ where: { id: { in: itemIds }, directorateId: v.directorateId, archivedAt: null }, data: { operFlag: true, version: { increment: 1 } } });
+    return null;
   });
+  if (done) return NextResponse.json(done, { status: 409 });
 
   const recipients = await prisma.user.findMany({
     where: { directorateId: v.directorateId, isActive: true, OR: [{ role: { in: ["DIRECTOR", "ADMIN"] } }, { memoEditor: true }] },

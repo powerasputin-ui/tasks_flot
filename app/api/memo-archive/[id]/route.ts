@@ -5,6 +5,7 @@ import { canViewVersion } from "@/lib/memo-versions";
 import { listDirectorates } from "@/lib/directorates";
 import { parseMemoDoc } from "@/lib/memo";
 import { withApiErrors } from "@/lib/api-guard";
+import { returnBlocker } from "@/lib/cycles";
 
 // Одна отправленная версия справки целиком: текст, строки-источники, участие подачи, все ревизии этой оперативки.
 async function GETHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -31,8 +32,8 @@ async function GETHandler(_request: NextRequest, { params }: { params: Promise<{
       doc: parseMemoDoc(v.doc) ?? { sections: [] },
       sources: v.sources,
       participation: v.participation,
-      // вернуть можно только последнюю ревизию зафиксированной оперативки
-      canReturn: actor.role === "EXECUTIVE" && v.revision === v.cycle.revision && v.cycle.status === "FINAL" && !v.returnedAt,
+      // вернуть можно только последнюю ревизию последней отправленной оперативки дирекции, пока новой нет
+      canReturn: actor.role === "EXECUTIVE" && v.revision === v.cycle.revision && v.cycle.status === "FINAL" && !v.returnedAt && !(await returnBlocker(prisma, v.directorateId, v.cycle.number)),
     },
     revisions,
   });

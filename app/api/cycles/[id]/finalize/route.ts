@@ -10,7 +10,7 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   const body = (await request.json().catch(() => null)) as { note?: unknown } | null;
   const note = typeof body?.note === "string" ? body.note.slice(0, 2000) : null;
   const result = await finalizeCycle(actor, id, note);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: CYCLE_ERROR_STATUS[result.error] });
+  if (!result.ok) return NextResponse.json({ error: result.error, message: result.message }, { status: CYCLE_ERROR_STATUS[result.error] });
   return NextResponse.json(result);
 }
 

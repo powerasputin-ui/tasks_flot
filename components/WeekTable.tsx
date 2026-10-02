@@ -8,6 +8,7 @@ import { ArchiveTableView } from "@/components/ArchiveTable";
 import type { ArchiveTable, TableDiff } from "@/lib/archive-table";
 
 type WeekData = {
+  memoVisible: boolean;
   week: { cycleId: string; number: number; meetingDate: string | null; sentAt: string; revision: number };
   table: ArchiveTable;
   prev: { cycleId: string; number: number } | null;
@@ -49,7 +50,7 @@ export function WeekTable({ cycleId }: { cycleId: string }) {
     );
   if (!data) return <div className="skeleton h-64 rounded-lg" />;
 
-  const { week, table, prev, diff } = data;
+  const { week, table, prev, diff, memoVisible } = data;
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px]">
@@ -64,7 +65,7 @@ export function WeekTable({ cycleId }: { cycleId: string }) {
       </div>
       {!prev && table.mode === "full" && <p className="mb-3 text-[13px] text-on-surface-variant">Это первая неделя: сравнивать пока не с чем.</p>}
       {prev && !diff && table.mode === "full" && <p className="mb-3 text-[13px] text-on-surface-variant">Прошлая неделя (№{prev.number}) сохранена не полностью — сравнение недоступно.</p>}
-      <ArchiveTableView table={table} diff={diff} prevNumber={prev?.number} lead={<WeekSelect selected={cycleId} />} />
+      <ArchiveTableView table={table} diff={diff} prevNumber={prev?.number} lead={<WeekSelect selected={cycleId} />} hideMemo={!memoVisible} exportBase={`/api/weeks/${cycleId}`} />
     </div>
   );
 }

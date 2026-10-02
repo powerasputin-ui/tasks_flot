@@ -65,6 +65,7 @@ import * as archiveReturn from "@/app/api/memo-archive/[id]/return/route";
 import * as archiveTable from "@/app/api/memo-archive/[id]/table/route";
 import * as weeksList from "@/app/api/weeks/route";
 import * as weekOne from "@/app/api/weeks/[cycleId]/route";
+import * as cronReminders from "@/app/api/cron/reminders/route";
 import { hitRateLimit } from "@/lib/rate-limit";
 import * as notif from "@/app/api/notifications/[id]/route";
 import * as cycleRemind from "@/app/api/cycles/[id]/remind/route";
@@ -1379,6 +1380,22 @@ describe("недели в «Общей таблице»", () => {
     await prisma.cycle.update({ where: { id: c2 }, data: { status: "FINAL" } });
   });
 
+  it("руководителю — только «подано»: отметок «в справке» нет ни в таблице, ни в списке, ни в выгрузке", async () => {
+    const lead = await week(headB, c2);
+    expect(lead.data.memoVisible).toBe(false);
+    expect(lead.data.table.rows.some((r: { inMemo: boolean }) => r.inMemo)).toBe(false);
+    expect(lead.data.table.rows.some((r: { submitted: boolean }) => r.submitted)).toBe(true);
+    expect((await list(headB)).data.weeks.every((w: { inMemo: number | null }) => w.inMemo === null)).toBe(true);
+    const boss = await week(directorB, c2);
+    expect(boss.data.memoVisible).toBe(true);
+    expect(boss.data.table.rows.some((r: { inMemo: boolean }) => r.inMemo)).toBe(true);
+    const x = await call(headB, (req, ctx) => weekOne.GET(req, { params: ctx.params.then((p) => ({ cycleId: p.id })) }), `/api/weeks/${c2}?format=csv&view=memo`, { id: c2 });
+    expect(x.status).toBe(200);
+    const csv = await x.res.text();
+    expect(csv).not.toContain("В справке");
+    expect(csv).toContain("Подано директору");
+  });
+
   it("сравнение с прошлой неделей: новая, изменённая и убранная строки; правки после отправки в снимок не попадают", async () => {
     const changed = await prisma.operationalItem.findFirstOrThrow({ where: { directorateId: dirB, title: `${TAG} авто` } });
     // убираем из таблицы любую строку, которая была в прошлой неделе и ещё жива
@@ -1438,6 +1455,59 @@ describe("недели в «Общей таблице»", () => {
     expect((await week(directorB, c3)).status).toBe(404);
     // закрываем, чтобы не мешать следующим проверкам
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${c3}/finalize`, { method: "POST", id: c3, body: {} })).status).toBe(200);
+  });
+
+  it("вернуть можно только последнюю отправленную неделю и только пока новой нет", async () => {
+    const old = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: c2 }, orderBy: { revision: "desc" } });
+    const r = await call(management, archiveReturn.POST, `/api/memo-archive/${old.id}/return`, { method: "POST", id: old.id, body: { comment: "старую" } });
+    expect(r.status).toBe(409);
+    expect(r.data.error).toBe("NOT_LATEST");
+    expect((await prisma.cycle.findUniqueOrThrow({ where: { id: c2 } })).status).toBe("FINAL");
+    expect((await call(management, archiveOne.GET, `/api/memo-archive/${old.id}`, { id: old.id })).data.version.canReturn).toBe(false);
+    const latest = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: c3 }, orderBy: { revision: "desc" } });
+    expect((await call(management, archiveOne.GET, `/api/memo-archive/${latest.id}`, { id: latest.id })).data.version.canReturn).toBe(true);
+    // открыта новая оперативка — вернуть нельзя и последнюю
+    const next = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+    expect(next.status).toBe(201);
+    created.cycles.push(next.data.id);
+    expect((await call(management, archiveOne.GET, `/api/memo-archive/${latest.id}`, { id: latest.id })).data.version.canReturn).toBe(false);
+    const blocked = await call(management, archiveReturn.POST, `/api/memo-archive/${latest.id}/return`, { method: "POST", id: latest.id, body: { comment: "x" } });
+    expect(blocked.data.error).toBe("CYCLE_EXISTS");
+
+    // подано во время сборки и не попало в справку — отправить нельзя, пока директор не решит
+    expect((await call(directorB, cycleReview.POST, `/api/cycles/${next.data.id}/review`, { method: "POST", id: next.data.id })).status).toBe(200);
+    const late = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} подана во время сборки`, operFlag: true } });
+    expect(late.status).toBe(201);
+    created.items.push(late.data.row.id);
+    const fin = await call(directorB, cycleFinalize.POST, `/api/cycles/${next.data.id}/finalize`, { method: "POST", id: next.data.id, body: {} });
+    expect(fin.status).toBe(409);
+    expect(fin.data.error).toBe("UNDECIDED");
+    expect(fin.data.message).toContain("1 поданная позиция");
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: late.data.row.id } })).operFlag).toBe(true); // не «сгорела»
+    expect((await call(directorB, memoRefresh.POST, `/api/cycles/${next.data.id}/memo/refresh`, { method: "POST", id: next.data.id })).status).toBe(200);
+    expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${next.data.id}/finalize`, { method: "POST", id: next.data.id, body: {} })).status).toBe(200);
+    const v = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: next.data.id } });
+    expect((v.rows as unknown as Array<{ id: string; inMemo: boolean }>).find((x) => x.id === late.data.row.id)?.inMemo).toBe(true);
+  });
+});
+
+describe("напоминания по расписанию", () => {
+  it("без секрета Vercel Cron маршрут закрыт; с секретом — проходит", async () => {
+    const run = (auth?: string) => cronReminders.GET(new NextRequest("http://localhost/api/cron/reminders", { headers: auth ? { authorization: auth } : {} }));
+    const prev = process.env.CRON_SECRET;
+    try {
+      delete process.env.CRON_SECRET;
+      expect((await run("Bearer ")).status).toBe(401);
+      process.env.CRON_SECRET = "e2e-cron-secret";
+      expect((await run()).status).toBe(401);
+      expect((await run("Bearer wrong-secret-xx")).status).toBe(401);
+      const ok = await run("Bearer e2e-cron-secret");
+      expect(ok.status).toBe(200);
+      expect(typeof (await ok.json()).cycles).toBe("number");
+    } finally {
+      if (prev === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = prev;
+    }
   });
 });
 

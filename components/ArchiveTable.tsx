@@ -46,7 +46,7 @@ export function ArchiveTable({ versionId, focusItemId }: { versionId: string; fo
 type View = ArchiveView | "changed";
 
 /** Сама таблица снимка: фильтры, поиск, порционный показ; при `diff` — ещё и «что изменилось с прошлой недели». */
-export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, prevNumber, lead }: { table: Table; diff?: TableDiff | null; focusItemId?: string | null; exportBase?: string; prevNumber?: number | null; lead?: ReactNode }) {
+export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, prevNumber, lead, hideMemo = false }: { table: Table; diff?: TableDiff | null; focusItemId?: string | null; exportBase?: string; prevNumber?: number | null; lead?: ReactNode; hideMemo?: boolean }) {
   const [view, setView] = useState<View>("all");
   const [q, setQ] = useState("");
   const [segment, setSegment] = useState<string>("");
@@ -98,7 +98,7 @@ export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, 
     { id: "all", label: "Все строки", n: total },
     ...(diff ? [{ id: "changed" as const, label: "Изменилось", n: diff.summary.new + diff.summary.changed }] : []),
     { id: "submitted", label: "Поданные", n: submitted },
-    { id: "memo", label: "В справке", n: inMemo },
+    ...(hideMemo ? [] : [{ id: "memo" as const, label: "В справке", n: inMemo }]),
   ];
 
   return (

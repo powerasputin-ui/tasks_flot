@@ -388,6 +388,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   // Большая таблица показывается порциями; правка строки порцию не сбрасывает, смена фильтра/поиска/сортировки — сбрасывает.
   const chunk = useChunk(visibleRows.length, [trackIds, statusIds, attractivenessIds, ownerIds, operFlags, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir, segments]);
   const shownRows = useMemo(() => visibleRows.slice(0, chunk.limit), [visibleRows, chunk.limit]);
+  // открыли позицию по ссылке или из списка — строка должна быть в показанной порции и на экране
+  const openRowId = editor?.row?.id ?? null;
+  const { reveal } = chunk;
+  useEffect(() => {
+    if (!openRowId) return;
+    const idx = visibleRows.findIndex((r) => r.id === openRowId);
+    if (idx < 0) return;
+    reveal(idx);
+    requestAnimationFrame(() => document.querySelector(`tr[data-row-id="${CSS.escape(openRowId)}"]`)?.scrollIntoView({ block: "nearest" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRowId]);
   const groups = useMemo(
     () => (segments.length === 1 ? null : groupBySegment(shownRows, segmentRefs.map((s) => s.id))),
     [shownRows, segments, segmentRefs]
@@ -532,7 +543,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
-            <WeekSelect selected={null} />
+            {defaultArchive !== "archived" && <WeekSelect selected={null} />}
             <FilterChip label="Трек" value={trackIds} options={refs.tracks} onChange={setTrackIds} />
             <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
             <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessIds} />
@@ -656,6 +667,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                       {group.rows.map((row) => (
                         <tr
                           key={row.id}
+                          data-row-id={row.id}
                           onClick={() => setEditor({ row })}
                           onContextMenu={(e) => {
                             e.preventDefault();

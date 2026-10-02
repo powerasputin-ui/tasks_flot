@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 export const CHUNK = 150;
 
-export type Chunk = { limit: number; more: () => void; all: () => void };
+export type Chunk = { limit: number; more: () => void; all: () => void; reveal: (index: number) => void };
 
 /** Порционный показ длинных таблиц: сначала CHUNK строк; смена фильтров (`resetOn`) возвращает первую порцию. */
 export function useChunk(total: number, resetOn: unknown[], forceLimit?: number): Chunk {
@@ -15,6 +15,8 @@ export function useChunk(total: number, resetOn: unknown[], forceLimit?: number)
     limit: forceLimit ?? limit,
     more: () => setLimit((l) => l + CHUNK),
     all: () => setLimit(Math.max(total, CHUNK)),
+    /** Раскрыть порции до строки с этим номером (ссылка на строку дальше первой порции). */
+    reveal: (index: number) => setLimit((l) => Math.max(l, Math.ceil((index + 1) / CHUNK) * CHUNK)),
   };
 }
 

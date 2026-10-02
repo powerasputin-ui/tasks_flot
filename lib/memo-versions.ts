@@ -1,8 +1,9 @@
 import { Prisma, type Cycle } from "@prisma/client";
 import { loadMemo, type MemoSource } from "@/lib/memo-load";
 import { memoSearchText, type VersionSource } from "@/lib/memo-archive";
+import { undecided } from "@/lib/memo";
 import type { Actor } from "@/lib/permissions";
-import { canCompileMemo } from "@/lib/permissions";
+import { canSeeSent } from "@/lib/scope";
 
 /** Компактный снимок строк-источников, попавших в пункты (для карточки «источник» в архиве). */
 export function toVersionSources(sources: MemoSource[], usedIds: Set<string>): VersionSource[] {
@@ -30,11 +31,12 @@ export async function prepareVersion(cycle: Cycle, actor: { id: string; name: st
     sentById: actor.id,
     sentByName: actor.name,
     sourceItemIds: [...used],
+    /** Поданы, но в справке их нет ни в одном пункте (даже скрытом): директор их ещё не видел. */
+    undecidedCount: undecided(state.doc, state.sources).length,
   };
 }
 
-/** Версию видят ЗГД (всех дирекций) и составители/директор/админ своей дирекции. */
+/** Версию видят по единому правилу «кто видит отправленное» (lib/scope.ts). */
 export function canViewVersion(actor: Actor, v: { directorateId: string }): boolean {
-  if (actor.role === "EXECUTIVE") return true;
-  return canCompileMemo(actor) && !!actor.directorateId && v.directorateId === actor.directorateId;
+  return canSeeSent(actor, v.directorateId);
 }
