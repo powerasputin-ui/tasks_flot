@@ -39,8 +39,13 @@ export const SHARED_DEFAULTS = {
   fallback: { baseUrl: "https://integrate.api.nvidia.com/v1", model: "nvidia/nemotron-3-super-120b-a12b" },
 };
 
+/** Ключ из переменной, даже если его вставили с лишним: «GROQ=…», в кавычках, с пробелами или переводом строки. */
+export function cleanEnvKey(raw: string | undefined): string {
+  return (raw ?? "").trim().replace(/^[A-Za-z_]+\s*=\s*/, "").replace(/^["']|["']$/g, "").trim();
+}
+
 function envConfig(prefix: "AI" | "AI_FALLBACK", d: { baseUrl: string; model: string }): AiConfig | null {
-  const apiKey = process.env[`${prefix}_API_KEY`]?.trim();
+  const apiKey = cleanEnvKey(process.env[`${prefix}_API_KEY`]);
   if (!apiKey) return null;
   const baseUrl = normalizeBaseUrl(process.env[`${prefix}_BASE_URL`]?.trim() || d.baseUrl, "openai");
   if (!baseUrl) return null;
@@ -57,27 +62,39 @@ export function sharedAiConfig(): (AiConfig & { fallback?: AiConfig }) | null {
 /** Что использовать: личный ключ человека, иначе общее подключение организации. */
 export async function loadEffectiveAiConfig(userId: string): Promise<(AiConfig & { fallback?: AiConfig; shared?: boolean }) | null> {
   const own = await loadAiConfig(userId);
-  if (own) return own;
   const shared = sharedAiConfig();
+  // личный ключ главнее, но если он не сработает — запрос уйдёт в общее подключение
+  if (own) return shared ? { ...own, fallback: shared } : own;
   return shared ? { ...shared, shared: true } : null;
 }
 
-/** Ошибки, при которых есть смысл повторить у запасного провайдера (не «нет прав» и не «плохой запрос»). */
-const RETRYABLE = new Set(["RATE_LIMIT", "PROVIDER", "NETWORK", "BAD_ANSWER"]);
+/** Ошибки, при которых есть смысл повторить у следующего в цепочке: лимит, сбой, неверный ключ одного из провайдеров. */
+const RETRYABLE = new Set(["RATE_LIMIT", "PROVIDER", "NETWORK", "BAD_ANSWER", "BAD_KEY"]);
+
+type Chain = AiConfig & { fallback?: Chain };
 
 /**
- * Запрос к ИИ с запасным провайдером. Если справки не влезают в окно основного (у бесплатного Groq — ~11 тыс. символов),
- * а запасной шире — сразу идём к запасному, чтобы ответ был по справкам целиком.
+ * Запрос к ИИ по цепочке: личный ключ → общий основной → общий запасной. Если справки не влезают в окно звена
+ * (у бесплатного Groq — ~11 тыс. символов), а дальше есть звено шире — сразу идём к нему, чтобы ответ был по справкам целиком.
+ * Если не сработали все — показываем ошибку первого звена (обычно самую понятную).
  */
-export async function withAiFallback<T>(cfg: AiConfig & { fallback?: AiConfig }, contextLength: number, run: (c: AiConfig) => Promise<T>): Promise<T> {
+export async function withAiFallback<T>(cfg: Chain, contextLength: number, run: (c: AiConfig) => Promise<T>): Promise<T> {
   const fb = cfg.fallback;
-  if (fb && contextLength > aiBudget(cfg).contextChars && aiBudget(fb).contextChars > aiBudget(cfg).contextChars) return run(fb);
+  if (fb && contextLength > aiBudget(cfg).contextChars && maxWindow(fb) > aiBudget(cfg).contextChars) return withAiFallback(fb, contextLength, run);
   try {
     return await run(cfg);
   } catch (e) {
-    if (fb && e instanceof AiError && RETRYABLE.has(e.code)) return run(fb);
-    throw e;
+    if (!fb || !(e instanceof AiError) || !RETRYABLE.has(e.code)) throw e;
+    try {
+      return await withAiFallback(fb, contextLength, run);
+    } catch {
+      throw e;
+    }
   }
+}
+
+function maxWindow(c: Chain): number {
+  return Math.max(aiBudget(c).contextChars, c.fallback ? maxWindow(c.fallback) : 0);
 }
 
 /** Версии справок по id: только те, которые этому человеку разрешено видеть (чужие и несуществующие молча отбрасываются). */

@@ -134,6 +134,23 @@ function build(cfg: AiConfig, req: Req, stream: boolean): { url: string; init: R
   };
 }
 
+/** Имя провайдера по адресу — чтобы в ошибке было видно, чей ключ не принят. */
+export function providerLabel(baseUrl: string): string {
+  let host = "";
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    return "ИИ";
+  }
+  if (host.includes("groq")) return "Groq";
+  if (host.includes("nvidia")) return "NVIDIA";
+  if (host.includes("googleapis")) return "Google";
+  if (host.includes("openrouter")) return "OpenRouter";
+  if (host.includes("anthropic")) return "Anthropic";
+  if (host.includes("openai")) return "OpenAI";
+  return host;
+}
+
 async function send(cfg: AiConfig, req: Req, stream: boolean): Promise<Response> {
   const { url, init } = build(cfg, req, stream);
   await assertPublicHost(url);
@@ -147,7 +164,7 @@ async function send(cfg: AiConfig, req: Req, stream: boolean): Promise<Response>
   }
   if (res.ok) return res;
   await res.body?.cancel().catch(() => {}); // тело ответа провайдера пользователю не показываем — оно может содержать чужие данные
-  if (res.status === 401 || res.status === 403) throw new AiError("BAD_KEY", "ИИ отклонил ключ (неверный или без доступа к модели).");
+  if (res.status === 401 || res.status === 403) throw new AiError("BAD_KEY", `${providerLabel(cfg.baseUrl)} отклонил ключ (неверный или без доступа к модели ${cfg.model}).`);
   if (res.status === 429) throw new AiError("RATE_LIMIT", "Превышен лимит запросов у провайдера ИИ (у бесплатных тарифов он маленький). Подождите минуту или выберите меньше справок.");
   if (res.status === 413) throw new AiError("RATE_LIMIT", "Справки слишком большие для этой модели или бесплатного тарифа. Выберите меньше справок или другую модель.");
   if (res.status === 404) throw new AiError("PROVIDER", "Модель или адрес API не найдены. Проверьте название модели и адрес.");

@@ -32,8 +32,15 @@ describe("запасной провайдер", () => {
     expect(out).toBe("ок");
     expect(used).toEqual(["g", "n"]);
   });
-  it("неверный ключ — не маскируем запасным, ошибка видна", async () => {
-    await expect(withAiFallback(groq, 100, async (c) => { if (c.model === "g") throw new AiError("BAD_KEY", "ключ"); return "ок"; })).rejects.toThrow("ключ");
+  it("ключ основного отклонён — отвечает запасной; отказали все — видна ошибка первого", async () => {
+    expect(await withAiFallback(groq, 100, async (c) => { if (c.model === "g") throw new AiError("BAD_KEY", "ключ Groq"); return "ок"; })).toBe("ок");
+    await expect(withAiFallback(groq, 100, async (c) => { throw new AiError("BAD_KEY", `ключ ${c.model}`); })).rejects.toThrow("ключ g");
+  });
+  it("ключ из переменной очищается от лишнего", async () => {
+    const { cleanEnvKey } = await import("@/lib/ai-server");
+    expect(cleanEnvKey(" GROQ=gsk_abc\n")).toBe("gsk_abc");
+    expect(cleanEnvKey('"nvapi-x"')).toBe("nvapi-x");
+    expect(cleanEnvKey("gsk_plain")).toBe("gsk_plain");
   });
   it("справки не влезают в окно основного — сразу запасной с большим окном", async () => {
     const used: string[] = [];
