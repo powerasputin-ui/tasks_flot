@@ -3,7 +3,7 @@ import type { MemoDoc } from "@/lib/memo";
 /** Общие с браузером типы и чистые функции ИИ-сводки (без серверных модулей). */
 export type ConsolidatedItem = { text: string; directorate: string; versionId: string; bulletId: string };
 export type ConsolidatedTopic = { title: string; items: ConsolidatedItem[] };
-export type Consolidated = { title: string; summary: string; topics: ConsolidatedTopic[]; aiUsed: boolean; warning?: string };
+export type Consolidated = { title: string; summary: string; topics: ConsolidatedTopic[]; aiUsed: boolean; warning?: string; model?: string; switched?: boolean };
 
 /** Сводка как документ справки — для показа и выгрузки PDF/Word теми же средствами, что и обычная справка. */
 export function consolidatedToDoc(c: Consolidated): MemoDoc {

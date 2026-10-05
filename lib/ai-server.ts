@@ -80,22 +80,44 @@ type Chain = AiConfig & { fallback?: Chain };
  * (у бесплатного Groq — ~11 тыс. символов), а дальше есть звено шире — сразу идём к нему, чтобы ответ был по справкам целиком.
  * Если не сработали все — показываем ошибку первого звена (обычно самую понятную).
  */
-export async function withAiFallback<T>(cfg: Chain, contextLength: number, run: (c: AiConfig) => Promise<T>): Promise<T> {
+export async function withAiFallback<T>(cfg: Chain, contextLength: number, run: (c: AiConfig) => Promise<T>, preroute = true): Promise<T> {
   const fb = cfg.fallback;
-  if (fb && contextLength > aiBudget(cfg).contextChars && maxWindow(fb) > aiBudget(cfg).contextChars) return withAiFallback(fb, contextLength, run);
+  // «Авто»: справки не влезают в окно этого звена — сразу к звену шире. При явном выборе модели так не делаем.
+  if (preroute && fb && contextLength > aiBudget(cfg).contextChars && maxWindow(fb) > aiBudget(cfg).contextChars) return withAiFallback(fb, contextLength, run, preroute);
   try {
     return await run(cfg);
   } catch (e) {
     if (!fb || !(e instanceof AiError) || !RETRYABLE.has(e.code)) throw e;
     console.warn(`[ai] ${providerLabel(cfg.baseUrl)} ${cfg.model}: ${e.code} — пробуем ${providerLabel(fb.baseUrl)}`);
     try {
-      return await withAiFallback(fb, contextLength, run);
+      return await withAiFallback(fb, contextLength, run, preroute);
     } catch (next) {
       // не сработало ни одно звено — показываем причину каждого, иначе не понять, какой ключ чинить
       const rest = next instanceof AiError ? next.message : "сбой";
       throw new AiError(e.code, `${e.message} Запасной вариант тоже не сработал: ${rest}`);
     }
   }
+}
+
+/**
+ * Выбор модели человеком (как переключатель модели в чате): «auto» — эвристика (Groq, большие справки и сбои — NVIDIA);
+ * «primary» / «fallback» — сначала выбранная модель общего подключения, вторая — только если выбранная не ответила.
+ * С личным ключом выбора нет: работает его модель.
+ */
+export type AiEngine = "auto" | "primary" | "fallback";
+export function parseEngine(v: unknown): AiEngine {
+  return v === "primary" || v === "fallback" ? v : "auto";
+}
+export function chainForEngine(cfg: Chain & { shared?: boolean }, engine: AiEngine): { chain: Chain; preroute: boolean } {
+  if (!cfg.shared || engine === "auto") return { chain: cfg, preroute: true };
+  const { fallback, ...primary } = cfg;
+  if (engine === "fallback" && fallback) return { chain: { ...fallback, fallback: primary }, preroute: false };
+  return { chain: cfg, preroute: false };
+}
+
+/** Подпись модели для человека: «Groq · openai/gpt-oss-120b». */
+export function modelLabel(c: Pick<AiConfig, "baseUrl" | "model">): string {
+  return `${providerLabel(c.baseUrl)} · ${c.model}`;
 }
 
 function maxWindow(c: Chain): number {

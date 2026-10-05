@@ -125,8 +125,8 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
               <CheckCircle2 size={14} className="text-status-emerald" /> ИИ уже подключён для всех — ничего настраивать не нужно.
             </p>
             <p className="mt-1 text-on-surface-variant">
-              Модель: {providerName(shared.host)} · {shared.model}
-              {shared.fallback && <>; если она занята или справки не помещаются — {providerName(shared.fallback.host)} · {shared.fallback.model}</>}.
+              Доступные модели: {providerName(shared.host)} · {shared.model}
+              {shared.fallback && <> и {providerName(shared.fallback.host)} · {shared.fallback.model}</>}. Модель выбирается в строке чата слева от поля ввода: «Авто» или конкретная.
             </p>
           </div>
         ) : (

@@ -62,3 +62,25 @@ describe("адрес по ключу", () => {
     await expect(withAiFallback(cfg, 10, async (c) => { throw new AiError("BAD_KEY", `ключ ${c.model} не принят.`); })).rejects.toThrow("ключ g не принят. Запасной вариант тоже не сработал: ключ n не принят.");
   });
 });
+
+describe("выбор модели в чате", () => {
+  const shared = { provider: "openai" as const, baseUrl: "https://api.groq.com/openai/v1", model: "g", apiKey: "a", shared: true, fallback: { provider: "openai" as const, baseUrl: "https://integrate.api.nvidia.com/v1", model: "n", apiKey: "b" } };
+  it("«Авто» — как настроено, с переходом к большому окну; явный выбор — выбранная первой, вторая только при сбое", async () => {
+    const { chainForEngine } = await import("@/lib/ai-server");
+    expect(chainForEngine(shared, "auto")).toMatchObject({ preroute: true, chain: { model: "g" } });
+    expect(chainForEngine(shared, "primary")).toMatchObject({ preroute: false, chain: { model: "g", fallback: { model: "n" } } });
+    const nv = chainForEngine(shared, "fallback");
+    expect(nv).toMatchObject({ preroute: false, chain: { model: "n", fallback: { model: "g" } } });
+    expect((nv.chain.fallback as { fallback?: unknown }).fallback).toBeUndefined();
+  });
+  it("явно выбран Groq — большие справки не уводятся в NVIDIA (сжимаются под Groq)", async () => {
+    const used: string[] = [];
+    await withAiFallback(shared, 50000, async (c) => { used.push(c.model); return 1; }, false);
+    expect(used).toEqual(["g"]);
+  });
+  it("со своим ключом выбора нет — работает его модель", async () => {
+    const { chainForEngine } = await import("@/lib/ai-server");
+    const own = { ...shared, shared: false };
+    expect(chainForEngine(own, "fallback")).toMatchObject({ preroute: true, chain: { model: "g" } });
+  });
+});

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, ChevronDown, Plus, Send, Settings2, Square } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
+import { AiModelPicker, useAiEngine } from "@/components/AiModelPicker";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -18,19 +19,16 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const ai = useAiEngine();
+  const [configuredOverride, setConfigured] = useState<boolean | null>(null);
+  const configured = configuredOverride ?? ai.configured;
+  // какая модель ответила на последний вопрос и была ли это выбранная
+  const [answeredBy, setAnsweredBy] = useState<{ model: string; switched: boolean } | null>(null);
   const [open, setOpen] = useState(false);
   // модель с маленьким окном (бесплатный Groq) видела справки не целиком
   const [trimmed, setTrimmed] = useState<"compact" | "cut" | null>(null);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetch("/api/ai/settings")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((s) => setConfigured(!!s?.configured))
-      .catch(() => setConfigured(false));
-  }, []);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -56,7 +54,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const r = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds, messages: history }), signal: ctl.signal });
+      const r = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds, messages: history, engine: ai.engine }), signal: ctl.signal });
       if (!r.ok || !r.body) {
         const d = await r.json().catch(() => null);
         if (d?.error === "NOT_CONFIGURED") setConfigured(false);
@@ -64,6 +62,8 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
         setMessages(history);
         return;
       }
+      const m = r.headers.get("X-AI-Model");
+      setAnsweredBy(m ? { model: decodeURIComponent(m), switched: r.headers.get("X-AI-Switched") === "1" } : null);
       const t = r.headers.get("X-AI-Context");
       setTrimmed(t === "compact" || t === "cut" ? t : null);
       const reader = r.body.getReader();
@@ -129,6 +129,12 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
                   </div>
                 </div>
               ))}
+              {answeredBy && !busy && messages.length > 0 && (
+                <p className="text-[11px] text-on-surface-variant">
+                  Ответила модель: {answeredBy.model}
+                  {answeredBy.switched && " — выбранная модель не ответила, ответила запасная"}
+                </p>
+              )}
               {trimmed && !busy && messages.length > 0 && (
                 <p className="text-[11px] leading-snug text-on-surface-variant">
                   {trimmed === "cut"
@@ -152,6 +158,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
           <button type="button" onClick={() => setOpen((v) => !v)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary hover:bg-primary-soft" title="Помощник" aria-label="Помощник">
             <Bot size={18} />
           </button>
+          <AiModelPicker engine={ai.engine} onChange={ai.setEngine} shared={ai.shared} own={ai.own} />
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}

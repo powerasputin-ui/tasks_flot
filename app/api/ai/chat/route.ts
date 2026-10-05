@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { AiError, aiBudget, buildContextInfo, chatSystem, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
-import { aiErrorResponse, canUseAi, loadEffectiveAiConfig, loadLatestMemoIds, loadMemosForAi, withAiFallback } from "@/lib/ai-server";
+import { aiErrorResponse, canUseAi, chainForEngine, loadEffectiveAiConfig, loadLatestMemoIds, loadMemosForAi, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -14,7 +14,7 @@ async function POSTHandler(request: NextRequest) {
   if (!canUseAi(actor)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const limited = await enforceRateLimit(`ai-chat:${actor.id}`, 40, 600000, "вопросов помощнику");
   if (limited) return limited;
-  const b = (await request.json().catch(() => null)) as { versionIds?: unknown; messages?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { versionIds?: unknown; messages?: unknown; engine?: unknown } | null;
   const messages: ChatMessage[] = (Array.isArray(b?.messages) ? (b!.messages as Array<{ role?: string; content?: unknown }>) : [])
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .slice(-MAX_MESSAGES)
@@ -27,15 +27,21 @@ async function POSTHandler(request: NextRequest) {
     const memos = await loadMemosForAi(actor, requested ? b?.versionIds : await loadLatestMemoIds(actor));
     if (memos.length === 0) return NextResponse.json({ error: "NO_CONTEXT", message: "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
     const fullLength = buildContextInfo(memos).text.length;
-    const { stream, trimmed } = await withAiFallback(cfg, fullLength, async (c) => {
+    const { chain, preroute } = chainForEngine(cfg, parseEngine(b?.engine));
+    let used = chain as Parameters<typeof modelLabel>[0];
+    const { stream, trimmed } = await withAiFallback(chain, fullLength, async (c) => {
+      used = c;
       const budget = aiBudget(c);
       const ctx = buildContextInfo(memos, budget.contextChars);
       const st = await streamText(c, { system: chatSystem(ctx.text), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
       return { stream: st, trimmed: ctx.trimmed };
-    });
+    }, preroute);
     // ИИ видел справки не целиком — чат покажет это человеку
     const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" };
     if (trimmed) headers["X-AI-Context"] = trimmed;
+    // какая модель ответила и была ли она первой в выборе (заголовки — только ASCII, поэтому закодировано)
+    headers["X-AI-Model"] = encodeURIComponent(modelLabel(used));
+    if (used.model !== chain.model || used.baseUrl !== chain.baseUrl) headers["X-AI-Switched"] = "1";
     return new Response(stream, { headers });
   } catch (e) {
     return aiErrorResponse(e);

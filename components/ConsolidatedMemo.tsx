@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, FileDown, Loader2, Sparkles } from "lucide-react";
 import { MemoReader } from "@/components/MemoReader";
 import { consolidatedToDoc, type Consolidated } from "@/lib/ai-shared";
+import { useAiEngine } from "@/components/AiModelPicker";
 
 type Row = { id: string; cycleNumber: number; title: string; meetingDate: string | null; sentAt: string; directorate: string | null; bullets: number };
 
@@ -58,12 +59,15 @@ export function ConsolidatedMemo({ onSelection }: { onSelection: (ids: string[])
     });
   }
 
+  // та же модель, что выбрана в строке чата («Авто» по умолчанию)
+  const ai = useAiEngine();
+
   async function build() {
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      const r = await fetch("/api/ai/consolidate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds: [...picked] }) });
+      const r = await fetch("/api/ai/consolidate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds: [...picked], engine: ai.engine }) });
       const d = await r.json();
       if (!r.ok) setError(d.message ?? "Не удалось собрать сводку.");
       else setResult(d);
@@ -135,7 +139,11 @@ export function ConsolidatedMemo({ onSelection }: { onSelection: (ids: string[])
             </p>
           )}
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            {result.aiUsed && <span className="text-[12px] text-on-surface-variant">Сформировано ИИ — проверьте по источникам.</span>}
+            {result.aiUsed && (
+              <span className="text-[12px] text-on-surface-variant">
+                Сформировано ИИ{result.model ? ` (${result.model}${result.switched ? " — выбранная модель не ответила, собрала запасная" : ""})` : ""} — проверьте по источникам.
+              </span>
+            )}
             <span className="ml-auto flex items-center gap-2">
               <button onClick={() => void download("pdf")} className="btn-ghost h-8">
                 <FileDown size={14} /> PDF
