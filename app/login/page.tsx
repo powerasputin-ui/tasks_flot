@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, EyeOff } from "lucide-react";
@@ -12,17 +12,39 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // сервер недоступен даже для простой проверки — вероятно, ограничение сети (корпоративный прокси)
+  const [unreachable, setUnreachable] = useState(false);
+
+  // будим сервер и базу, пока человек набирает логин и пароль: к нажатию «Войти» ответ придёт за секунду, а не за 15–30
+  useEffect(() => {
+    fetch("/api/health", { cache: "no-store" })
+      .then(() => setUnreachable(false))
+      .catch(() => setUnreachable(true));
+  }, []);
+
+  /** Вход с одним повтором: прокси иногда обрывает первый, долгий запрос. */
+  async function postLogin(): Promise<Response> {
+    const once = () =>
+      fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(45000),
+      });
+    try {
+      return await once();
+    } catch {
+      await new Promise((r) => setTimeout(r, 1500));
+      return once();
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      const res = await postLogin();
       if (!res.ok) {
         // слишком много попыток — сервер сам пишет, через сколько можно повторить; иначе человек решит, что забыл пароль
         const d = await res.json().catch(() => null);
@@ -32,6 +54,7 @@ export default function LoginPage() {
       router.push("/");
       router.refresh();
     } catch {
+      setUnreachable(true);
       setError("Нет связи с сервером. Повторите попытку.");
     } finally {
       setLoading(false);
@@ -82,6 +105,12 @@ export default function LoginPage() {
           <p className="animate-fade-in mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
             <AlertCircle size={15} className="shrink-0" />
             {error}
+          </p>
+        )}
+        {unreachable && (
+          <p className="mb-4 rounded-md border border-outline-variant bg-surface-high px-3 py-2 text-[12px] leading-snug text-on-surface-variant">
+            Страница открылась, а сервер не отвечает — так бывает в корпоративной сети, когда прокси обрывает или не пропускает запросы.
+            Попробуйте ещё раз через минуту; если не поможет — попросите ИТ-службу разрешить адрес <b>{typeof window !== "undefined" ? window.location.host : "tasks-flot.vercel.app"}</b> (включая отправку данных на /api/).
           </p>
         )}
 

@@ -3,7 +3,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { blockedInViewOnly } from "@/lib/view-only";
 
 // /api/cron/* проверяет свой секрет сам (вызывает Vercel Cron, сессии у него нет)
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/cron/reminders"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/cron/reminders", "/api/health"];
 // Статические файлы из public (логотип и т.п.) нужны и на странице входа.
 const STATIC_FILE = /\.(svg|png|jpe?g|webp|ico|woff2?)$/i;
 
