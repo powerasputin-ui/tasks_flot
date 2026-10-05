@@ -19,7 +19,7 @@ async function POSTHandler(request: NextRequest) {
     res.cookies.set(VIEW_AS_COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   }
-  const target = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, role: true, directorateId: true, isActive: true } });
+  const target = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, role: true, directorateId: true, isActive: true, submits: true } });
   if (!target || !canViewAs(real, target)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   // сессионная кука: режим не переживает закрытие браузера
   res.cookies.set(VIEW_AS_COOKIE, target.id, { httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production" });

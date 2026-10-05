@@ -172,7 +172,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <>
       {/* на очень узком экране лишнее обрезается по ширине (clip, а не auto: auto заодно обрезал бы выпадающие меню по высоте) */}
-      <header className="z-30 flex h-16 shrink-0 items-center gap-4 overflow-x-clip border-b border-outline-variant bg-surface px-4">
+      <header className="z-30 flex h-16 shrink-0 items-center gap-2 overflow-x-clip sm:gap-4 border-b border-outline-variant bg-surface px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" title="ГШП Оперативка">
           <Image src="/logo.svg" alt="" width={36} height={36} className="shrink-0" priority />
           <span className="hidden min-w-0 flex-col lg:flex">
@@ -222,14 +222,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Suspense>
         )}
 
-        <nav className="flex h-full shrink-0 items-stretch gap-1 lg:ml-2">
+        {/* на узком экране пункты меню прокручиваются, а колокольчик и меню пользователя справа всегда видны */}
+        <nav className="flex h-full min-w-0 items-stretch gap-1 overflow-x-auto lg:ml-2 [scrollbar-width:none]">
           {nav.map((item) => {
             const active = pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center border-b-2 px-3 text-[13px] font-semibold transition-colors ${
+                className={`flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 text-[13px] font-semibold transition-colors ${
                   active ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
                 }`}
               >
@@ -241,7 +242,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
-          <div id="header-actions" className="flex items-center" />
+          <div id="header-actions" className="hidden items-center sm:flex" />
           {me && <NotificationsBell />}
           {(effRole === "SYSTEM_ADMIN" || effRole === "ADMIN" || effRole === "DIRECTOR") && (
             <Link
@@ -252,7 +253,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Settings size={18} />
             </Link>
           )}
-          <span className="mx-2 h-6 w-px bg-outline-variant" />
+          <span className="mx-2 hidden h-6 w-px bg-outline-variant sm:block" />
           {me && (
             <Popover
               align="right"

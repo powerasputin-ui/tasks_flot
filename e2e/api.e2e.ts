@@ -17,6 +17,10 @@ vi.mock("@/lib/session", () => {
       if (!state.actor) throw new AuthError("UNAUTHENTICATED");
       return state.actor;
     },
+    requireRealActor: async () => {
+      if (!state.actor) throw new AuthError("UNAUTHENTICATED");
+      return state.actor;
+    },
     requireFreshSession: async () => {
       if (!state.actor) throw new AuthError("UNAUTHENTICATED");
       return { userId: state.actor.id, role: state.actor.role, directorateId: state.actor.directorateId };
@@ -63,6 +67,7 @@ import * as archiveOne from "@/app/api/memo-archive/[id]/route";
 import * as archiveExport from "@/app/api/memo-archive/[id]/export/route";
 import * as archiveReturn from "@/app/api/memo-archive/[id]/return/route";
 import * as archiveTable from "@/app/api/memo-archive/[id]/table/route";
+import * as viewAs from "@/app/api/view-as/route";
 import * as weeksList from "@/app/api/weeks/route";
 import * as weekOne from "@/app/api/weeks/[cycleId]/route";
 import * as cronReminders from "@/app/api/cron/reminders/route";
@@ -1506,11 +1511,14 @@ describe("админ, который подаёт как руководител�
     }
     const inSummary = async () => ((await call(directorB, cyclesCurrent.GET, "/api/cycles/current")).data.summary as Array<{ id: string }>).some((p) => p.id === u.id);
     expect(await inSummary()).toBe(false); // как «Куратор (первичный)»: админ без позиций в подачу не входит
+    const viewAsCall = () => call(directorB, viewAs.POST, "/api/view-as", { method: "POST", body: { userId: u.id } });
+    expect((await viewAsCall()).status).toBe(403); // без флага директор не смотрит админа
 
     // включить может только админ; директор — нет
     expect((await call(directorB, user.PATCH, `/api/users/${u.id}`, { method: "PATCH", id: u.id, body: { submits: true } })).status).toBe(403);
     expect((await call(admin, user.PATCH, `/api/users/${u.id}`, { method: "PATCH", id: u.id, body: { submits: true } })).status).toBe(200);
     expect(await inSummary()).toBe(true);
+    expect((await viewAsCall()).status).toBe(200); // с флагом — может (смотрит как руководителя)
 
     // напоминание приходит ему лично
     const r = await call(directorB, cycleRemind.POST, `/api/cycles/${cyc.id}/remind`, { method: "POST", id: cyc.id, body: { userIds: [u.id] } });
