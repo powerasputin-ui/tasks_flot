@@ -43,7 +43,7 @@ export function HoverText({ text, lines = 3, className = "", query }: { text: st
             className="fixed z-50 max-h-[50vh] overflow-y-auto rounded-md border border-outline-variant bg-surface p-3.5 text-[13px] font-normal leading-relaxed text-on-surface shadow-lg [overflow-wrap:anywhere]"
             style={{ left: pos.left, top: pos.top, width: CARD_W, maxWidth: "calc(100vw - 16px)", transform: pos.above ? "translateY(-100%)" : undefined }}
           >
-            <p className="whitespace-pre-wrap"><Highlight text={text} query={query} /></p>
+            <p className="whitespace-pre-wrap [overflow-wrap:anywhere]"><Highlight text={text} query={query} /></p>
           </div>,
           document.body
         )}

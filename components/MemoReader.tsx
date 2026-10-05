@@ -35,7 +35,7 @@ export function MemoReader({ title, doc, sources, query, onShowInTable }: { titl
         {sections.map((section) => (
           <section key={section.id} className="mb-4">
             {section.title.trim() && (
-              <h3 className="mb-1 font-bold text-on-surface" style={TEXT}>
+              <h3 className="mb-1 font-bold text-on-surface [overflow-wrap:anywhere]" style={TEXT}>
                 {++no}. {section.title}
               </h3>
             )}
@@ -47,7 +47,7 @@ export function MemoReader({ title, doc, sources, query, onShowInTable }: { titl
                     <span className="w-4 shrink-0 select-none text-on-surface" style={TEXT}>
                       •
                     </span>
-                    <p className="min-w-0 flex-1 whitespace-pre-wrap text-justify text-on-surface" style={TEXT}>
+                    <p className="min-w-0 flex-1 whitespace-pre-wrap text-justify text-on-surface [overflow-wrap:anywhere]" style={TEXT}>
                       <Highlight text={b.text} query={query} />
                     </p>
                     {src.length > 0 && (
@@ -67,7 +67,7 @@ export function MemoReader({ title, doc, sources, query, onShowInTable }: { titl
                                 <div key={s.id} className="text-[12px] leading-snug">
                                   <p className="font-semibold text-on-surface">{s.title}</p>
                                   <p className="text-on-surface-variant">{[s.ownerName, s.statusName, s.deadline ? `срок ${fmtDate(s.deadline)}` : null, s.trackName].filter(Boolean).join(" · ")}</p>
-                                  {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface">{s.comment}</p>}
+                                  {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{s.comment}</p>}
                                   {onShowInTable && (
                                     <button
                                       onClick={() => {

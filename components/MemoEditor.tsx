@@ -1175,7 +1175,7 @@ function BulletFragment({
                       <p className="text-on-surface-variant">
                         {[s.ownerName, s.statusName, s.deadline ? `срок ${fmtDate(s.deadline)}` : null, s.trackName].filter(Boolean).join(" · ")}
                       </p>
-                      {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface">{s.comment}</p>}
+                      {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{s.comment}</p>}
                       <a href={`/table?item=${s.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-primary hover:underline">
                         Открыть строку в таблице
                       </a>

@@ -124,7 +124,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
               )}
               {messages.map((m, i) => (
                 <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
-                  <div className={`max-w-[92%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${m.role === "user" ? "bg-primary text-white" : "bg-surface-low text-on-surface"}`}>
+                  <div className={`max-w-[92%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${m.role === "user" ? "bg-primary text-white" : "bg-surface-low text-on-surface"}`}>
                     {m.content || (busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : "")}
                   </div>
                 </div>
