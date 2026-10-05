@@ -5,6 +5,8 @@ import { requireActor } from "@/lib/session";
 import { canEditMemo, loadMemo, loadSectionDefs, loadSources } from "@/lib/memo-load";
 import { setIncluded } from "@/lib/memo";
 import { withApiErrors } from "@/lib/api-guard";
+import { diffMemo, isEmptyDiff, stampChanges } from "@/lib/memo-changes";
+import { logMemoEdit } from "@/lib/memo-log";
 
 // Решение «в справку / не в справку» по одной строке (из таблицы или из редактора). Тело: { itemId, include }.
 async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -20,9 +22,13 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   const sources = await loadSources(cycle.directorateId ?? "", undefined, defs);
   const item = sources.find((s) => s.id === body.itemId);
   if (!item) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  const doc = setIncluded(state.doc, item, body.include, defs, sources);
+  const changed = setIncluded(state.doc, item, body.include, defs, sources);
+  const now = new Date();
+  const doc = stampChanges(state.doc, changed, actor.name, now); // кто включил/изменил пункт — видно в справке
   const res = await prisma.cycle.updateMany({ where: { id, memoVersion: state.version }, data: { memoDraft: doc as unknown as Prisma.InputJsonValue, memoVersion: { increment: 1 } } });
   if (res.count !== 1) return NextResponse.json({ error: "CONFLICT" }, { status: 409 });
+  const diff = { ...diffMemo(state.doc, changed), meeting: false };
+  if (!isEmptyDiff(diff)) await logMemoEdit({ id: actor.id, name: actor.name, role: actor.role }, cycle, diff, now);
   return NextResponse.json({ ok: true, included: body.include, version: state.version + 1 });
 }
 

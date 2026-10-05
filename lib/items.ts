@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canRestoreItem, canViewItems, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
+import { changedFields, notifyOwnerOfEdit } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
 import type { ItemRecord } from "@/lib/table-view";
@@ -134,6 +135,8 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
       );
       return row;
     });
+    const touched = changedFields(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>);
+    if (touched.length) await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, `изменил (${touched.join(", ")})`);
     return { ok: true, id, record: updated };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
@@ -162,6 +165,7 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
     await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: archived ? "ARCHIVE" : "RESTORE" }, tx);
     return row;
   });
+  await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, archived ? "удалил (в архив)" : "вернул из архива");
   return { ok: true, id, record };
 }
 

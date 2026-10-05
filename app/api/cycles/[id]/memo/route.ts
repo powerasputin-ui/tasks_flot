@@ -6,6 +6,8 @@ import { MEMO_LIMITS, canEditMemo, loadMemo } from "@/lib/memo-load";
 import { notIncluded, parseMemoDoc } from "@/lib/memo";
 import { cycleSummary } from "@/lib/cycles";
 import { withApiErrors } from "@/lib/api-guard";
+import { diffMemo, isEmptyDiff, stampChanges } from "@/lib/memo-changes";
+import { logMemoEdit } from "@/lib/memo-log";
 
 // Справка цикла для редактора: документ, версия, пометки, строки-источники, то, что не вошло, участие подачи.
 async function GETHandler(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -64,14 +66,23 @@ async function PUTHandler(request: NextRequest, { params }: { params: Promise<{ 
     if (meetingDate && Number.isNaN(meetingDate.getTime())) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
   }
 
+  // кто и что поменял: метки на пунктах ставит сервер, сеанс правки — в журнал, директору — уведомление, если правит не он
+  const before = parseMemoDoc(cycle.memoDraft);
+  const now = new Date();
+  const stamped = stampChanges(before, doc, actor.name, now);
+  const diff = {
+    ...diffMemo(before, doc),
+    meeting: meetingDate !== undefined && (meetingDate?.getTime() ?? null) !== (cycle.meetingDate?.getTime() ?? null),
+  };
   const res = await prisma.cycle.updateMany({
     where: { id, memoVersion: body.version, status: { not: "FINAL" } },
-    data: { memoDraft: doc as unknown as Prisma.InputJsonValue, memoVersion: { increment: 1 }, ...(meetingDate !== undefined ? { meetingDate } : {}) },
+    data: { memoDraft: stamped as unknown as Prisma.InputJsonValue, memoVersion: { increment: 1 }, ...(meetingDate !== undefined ? { meetingDate } : {}) },
   });
   if (res.count !== 1) {
     const current = await prisma.cycle.findUnique({ where: { id }, select: { memoVersion: true } });
     return NextResponse.json({ error: "CONFLICT", currentVersion: current?.memoVersion }, { status: 409 });
   }
+  if (!isEmptyDiff(diff)) await logMemoEdit({ id: actor.id, name: actor.name, role: actor.role }, cycle, diff, now);
   return NextResponse.json({ ok: true, version: body.version + 1 });
 }
 

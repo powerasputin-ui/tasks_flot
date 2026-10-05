@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, Bell, ArrowUp, EyeOff, FileDown, Info, Merge, Minus, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
+import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, EyeOff, FileDown, Info, Merge, Minus, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
+import { loadBootstrap } from "@/lib/client-bootstrap";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { manualBullet, memoTitle, mergeBullets, sectionOf, sourceText, splitTitleDate, type BulletFlags, type MemoBullet, type MemoDoc, type MemoSectionDoc, type SectionDef } from "@/lib/memo";
 import type { MemoSource } from "@/lib/memo-load";
@@ -226,6 +227,11 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   const [reminded, setReminded] = useState<Set<string>>(new Set());
   const [remindNote, setRemindNote] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100); // масштаб листа в редакторе — как в Word: кнопки +/− или Ctrl+колесо
+  // кто я — чтобы отмечать пункты, которые менял кто-то другой
+  const [meName, setMeName] = useState<string | null>(null);
+  useEffect(() => {
+    void loadBootstrap().then((b) => setMeName(b?.user?.name ?? null));
+  }, []);
 
   const docRef = useRef<MemoDoc | null>(null);
   const meetingRef = useRef("");
@@ -637,6 +643,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
               last={blk.last}
               flags={data.flags[b.id]}
               editable={editable}
+              meName={meName}
               canMergeNext={bi < section.bullets.length - 1}
               sources={b.itemIds.map((id) => sourceById.get(id)).filter((x): x is MemoSource => !!x)}
               registerTextarea={(el) => {
@@ -816,6 +823,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
             </label>
             <span className="ml-auto flex items-center gap-2">
               <SaveState state={save} onReload={() => void load()} />
+              <MemoHistoryButton cycleId={cycleId} />
               {editable && (
                 <Popover
                   align="right"
@@ -983,6 +991,7 @@ function BulletFragment({
   last,
   flags,
   editable,
+  meName,
   sources,
   canMergeNext,
   isFirst,
@@ -1012,6 +1021,7 @@ function BulletFragment({
   last: boolean;
   flags?: BulletFlags;
   editable: boolean;
+  meName: string | null;
   sources: MemoSource[];
   canMergeNext: boolean;
   isFirst: boolean;
@@ -1040,6 +1050,7 @@ function BulletFragment({
   // пункт собрался из строки, но в «Виде справки» не отмечено ничего текстового — объясняем, почему он пустой
   const emptyByView = !bullet.text.trim() && bullet.itemIds.length > 0 && !bullet.edited;
   const showHint = last && hasHint(bullet, flags);
+  const byOther = !!bullet.changedBy && !!meName && bullet.changedBy !== meName;
   // кнопки действий пункта попадают в Tab только пока фокус внутри пункта: иначе на странице сотни лишних остановок
   const [inside, setInside] = useState(false);
   const tab = inside ? 0 : -1;
@@ -1079,7 +1090,12 @@ function BulletFragment({
         if (!e.currentTarget.contains(e.relatedTarget)) setInside(false);
       }}
     >
-      <span className="shrink-0 select-none text-on-surface" style={{ ...TEXT_STYLE, width: MARKER_W }}>
+      {/* пункт менял кто-то другой — янтарная точка, при наведении «кто и когда» */}
+      <span
+        className={`shrink-0 select-none ${byOther ? "font-bold text-status-amber" : "text-on-surface"}`}
+        style={{ ...TEXT_STYLE, width: MARKER_W }}
+        title={byOther ? `Изменил(а) ${bullet.changedBy}${bullet.changedAt ? `, ${new Date(bullet.changedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}` : undefined}
+      >
         {first ? "•" : ""}
       </span>
       <div style={{ width: TEXT_W }}>
@@ -1203,5 +1219,54 @@ function BulletFragment({
         </span>
       )}
     </div>
+  );
+}
+
+type HistoryEntry = { id: string; who: string; kind: "draft" | "review" | "sent"; from: string; to: string; summary: string };
+
+/** История правок справки: кто, когда и что делал (правки сеансами, начало сборки, отправка ЗГД). */
+function MemoHistoryButton({ cycleId }: { cycleId: string }) {
+  const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  const fmt = (v: string) => new Date(v).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return (
+    <Popover
+      align="right"
+      width={360}
+      trigger={({ toggle }) => (
+        <button
+          onClick={() => {
+            toggle();
+            setEntries(null);
+            void fetch(`/api/cycles/${cycleId}/memo/history`)
+              .then((r) => (r.ok ? r.json() : { entries: [] }))
+              .then((d) => setEntries(d.entries ?? []))
+              .catch(() => setEntries([]));
+          }}
+          className="btn-ghost h-8"
+          title="Кто и когда правил справку"
+        >
+          <History size={14} /> История
+        </button>
+      )}
+    >
+      {() => (
+        <div className="max-h-[60vh] overflow-y-auto p-3">
+          <p className="label-caps mb-2">История правок справки</p>
+          {!entries && <p className="text-[12px] text-on-surface-variant">Загрузка…</p>}
+          {entries?.length === 0 && <p className="text-[12px] text-on-surface-variant">Правок пока не было.</p>}
+          <ul className="space-y-2">
+            {entries?.map((e) => (
+              <li key={e.id} className="text-[12px] leading-snug">
+                <span className="font-semibold text-on-surface">{e.who}</span>{" "}
+                <span className="text-on-surface-variant">
+                  {e.kind === "draft" ? (e.from.slice(0, 16) === e.to.slice(0, 16) ? fmt(e.to) : `${fmt(e.from)} – ${fmt(e.to).slice(-5)}`) : fmt(e.to)}
+                </span>
+                <span className="block text-on-surface">{e.kind === "draft" ? `правил(а) справку: ${e.summary}` : e.summary}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Popover>
   );
 }

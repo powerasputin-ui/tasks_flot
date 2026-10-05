@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { AuditAction, Prisma } from "@prisma/client";
 
-export type AuditableEntity = "OperationalItem";
+export type AuditableEntity = "OperationalItem" | "Memo";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 

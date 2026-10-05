@@ -7,6 +7,7 @@ import { createNotification } from "@/lib/notifications";
 import { loadTableRows } from "@/lib/table-view";
 import { prepareVersion } from "@/lib/memo-versions";
 import { refreshMemoDraft } from "@/lib/memo-load";
+import { logMemoEvent } from "@/lib/memo-log";
 import { isDirectorial, isSubmitter, type Actor } from "@/lib/permissions";
 
 /**
@@ -104,6 +105,7 @@ export async function startReview(actor: Actor, id: string): Promise<CycleResult
     return moved.count === 1 ? tx.cycle.findUniqueOrThrow({ where: { id } }) : null;
   });
   if (!started) return { ok: false, error: "BAD_STATE" };
+  await logMemoEvent({ id: actor.id, name: (actor as { name?: string }).name ?? "—", role: actor.role }, started, "review", `${(actor as { name?: string }).name ?? "Кто-то"} начал сборку оперативки №${started.number} — поданные позиции заморожены.`);
   // «Сборка»: справка догоняет поданное. Черновик мог быть создан раньше, когда почти ничего не было подано, — без этого
   // директор отправил бы ЗГД справку без поданных позиций. Правки директора не трогаются.
   await refreshMemoDraft(started).catch(() => null);
@@ -172,6 +174,7 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   });
   if (created === "CHANGED") return { ok: false, error: "CHANGED", message: "Пока готовилась отправка, кто-то подал или снял позицию. Проверьте справку и отправьте ещё раз." };
 
+  await logMemoEvent({ id: actor.id, name: actor.name, role: actor.role }, cycle, "sent", `${actor.name} отправил справку ЗГД (оперативка №${cycle.number}${cycle.revision > 1 ? `, ред. ${cycle.revision}` : ""}).`);
   // ЗГД получает уведомление, что пришла справка — ссылка сразу на неё
   const executives = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
   for (const e of executives) {

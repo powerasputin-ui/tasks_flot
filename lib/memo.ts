@@ -21,6 +21,9 @@ export type MemoBullet = {
    * Такой пункт автоматика не выкидывает, даже если строка не подана: явное решение человека сильнее правила.
    */
   pinned?: boolean;
+  /** Кто последним менял текст или видимость пункта и когда (ставит сервер при сохранении; клиенту не доверяем). */
+  changedBy?: string;
+  changedAt?: string;
 };
 
 export type MemoSectionDoc = {
@@ -494,6 +497,8 @@ export function parseMemoDoc(value: unknown): MemoDoc | null {
         hidden: !!b.hidden,
         sourceHash: String(b.sourceHash ?? ""),
         ...(b.pinned ? { pinned: true } : {}),
+        ...(typeof b.changedBy === "string" && b.changedBy ? { changedBy: b.changedBy } : {}),
+        ...(typeof b.changedAt === "string" && b.changedAt ? { changedAt: b.changedAt } : {}),
       })),
     })),
   };

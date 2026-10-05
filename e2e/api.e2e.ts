@@ -58,6 +58,7 @@ import * as directorates from "@/app/api/directorates/route";
 import * as segments from "@/app/api/segments/route";
 import * as memo from "@/app/api/cycles/[id]/memo/route";
 import * as memoRefresh from "@/app/api/cycles/[id]/memo/refresh/route";
+import * as memoHistory from "@/app/api/cycles/[id]/memo/history/route";
 import * as memoExport from "@/app/api/cycles/[id]/memo/export/route";
 import * as memoSections from "@/app/api/memo-sections/route";
 import * as memoInclude from "@/app/api/cycles/[id]/memo/include/route";
@@ -388,7 +389,7 @@ describe("удаление, возврат, замечания", () => {
 
     const note = await prisma.itemNote.findFirst({ where: { itemId: headItem } });
     expect(note?.text).toContain("уточните сумму");
-    const notif = await prisma.notification.findFirst({ where: { userId: head.id, message: { contains: TAG } } });
+    const notif = await prisma.notification.findFirst({ where: { userId: head.id, type: "ITEM_RETURNED", message: { contains: TAG } } });
     expect(notif?.type).toBe("ITEM_RETURNED");
   });
 
@@ -954,6 +955,52 @@ describe("справка директора", () => {
     const got = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
     expect(got.data.doc.sections[0].bullets.map((b: { text: string }) => b.text)).toContain("Пятый.");
     expect(got.data.doc.sections[0].bullets[0].text).toBe("Моя редакция первого пункта.");
+  });
+
+  it("журнал правок: правки не директора — один сеанс, одно уведомление директору, метка «кто менял» на пункте", async () => {
+    const editor = { ...headB, memoEditor: true };
+    const unread = () => prisma.notification.count({ where: { userId: directorB.id, type: "CHANGE_ATTENTION", message: { contains: "правит черновик справки" } } });
+    const n0 = await unread();
+    for (const text of ["Правка составителя 1.", "Правка составителя 2."]) {
+      const r = await call(editor, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+      const doc = r.data.doc;
+      doc.sections[0].bullets[1] = { ...doc.sections[0].bullets[1], text, changedBy: "Подделка" };
+      expect((await call(editor, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc, version: r.data.version } })).status).toBe(200);
+    }
+    expect(await unread()).toBe(n0 + 1); // два сохранения подряд — одно уведомление
+    const got = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    expect(got.data.doc.sections[0].bullets[1].changedBy).toBe(headB.name); // метку ставит сервер, подделка не прошла
+    expect(got.data.doc.sections[0].bullets[0].changedBy).toBe(directorB.name);
+    const h = await call(directorB, memoHistory.GET, `/api/cycles/${cycleId}/memo/history`, { id: cycleId });
+    expect(h.status).toBe(200);
+    const mine = h.data.entries.filter((e: { who: string; kind: string }) => e.who === headB.name && e.kind === "draft");
+    expect(mine).toHaveLength(1);
+    expect(mine[0].summary).toContain("изменено пунктов: 2");
+    // правит сам директор — себе не уведомляем
+    const r = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    r.data.doc.sections[0].bullets[1].text = "Правка директора.";
+    expect((await call(directorB, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc: r.data.doc, version: r.data.version } })).status).toBe(200);
+    expect(await unread()).toBe(n0 + 1);
+    expect((await call(headB, memoHistory.GET, `/api/cycles/${cycleId}/memo/history`, { id: cycleId })).status).toBe(404);
+  });
+
+  it("правка чужой позиции — уведомление ответственному с перечнем полей; свою правку себе не шлём", async () => {
+    const id = ids[2];
+    const owner = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).responsibleId;
+    expect(owner).toBe(headB.id);
+    const count = () => prisma.notification.count({ where: { userId: headB.id, link: `/table?item=${id}` } });
+    const n0 = await count();
+    let v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+    expect((await call(headB, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, comment: "Сам поправил." } })).status).toBe(200);
+    expect(await count()).toBe(n0);
+    v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+    expect((await call(directorB, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, comment: "Директор поправил." } })).status).toBe(200);
+    v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+    expect((await call(directorB, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, comment: "Директор ещё раз." } })).status).toBe(200);
+    expect(await count()).toBe(n0 + 1); // правки подряд — одно уведомление
+    const n = await prisma.notification.findFirstOrThrow({ where: { userId: headB.id, link: `/table?item=${id}` }, orderBy: { createdAt: "desc" } });
+    expect(n.message).toContain(directorB.name);
+    expect(n.message).toContain("комментарий");
   });
 
   it("файлы: PDF и Word по справке", async () => {
