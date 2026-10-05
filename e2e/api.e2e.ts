@@ -1596,11 +1596,11 @@ describe("ограничение частоты запросов и защита
       last = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: {} });
       statuses.push(last.status);
     }
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true); // ключа нет — 400, но лимит уже считается
+    expect(statuses.slice(0, 10).every((s) => s === 409)).toBe(true); // ИИ не подключён — 409, но лимит уже считается
     expect(statuses.slice(10)).toEqual([429, 429]);
     expect(last!.res.headers.get("retry-after")).toBeTruthy();
     expect(last!.data.message).toContain("Слишком много");
-    expect((await call(curator, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: {} })).status).toBe(400);
+    expect((await call(curator, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: {} })).status).toBe(409);
     await prisma.rateLimit.deleteMany({ where: { key: { contains: management.id } } });
   });
 

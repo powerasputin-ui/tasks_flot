@@ -95,7 +95,7 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
         setResult({ ok: false, text: d.message ?? "Не удалось выполнить." });
         return;
       }
-      if (kind === "test") setResult({ ok: true, text: `Связь есть · модель ${d.model} · ${(d.ms / 1000).toFixed(1)} с` });
+      if (kind === "test") setResult({ ok: true, text: d.details ?? `Связь есть · модель ${d.model} · ${(d.ms / 1000).toFixed(1)} с` });
       else {
         onChanged(true);
         close();

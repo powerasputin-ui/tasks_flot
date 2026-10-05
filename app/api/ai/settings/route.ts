@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { AI_DEFAULTS, AiError, decryptKey, encryptKey, keyHint, normalizeBaseUrl, type AiProvider } from "@/lib/ai";
-import { canUseAi, sharedAiConfig } from "@/lib/ai-server";
+import { baseUrlForKey, canUseAi, sharedAiConfig } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 
 const forbidden = () => NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -31,14 +31,16 @@ async function PUTHandler(request: NextRequest) {
   const b = (await request.json().catch(() => null)) as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | null;
   const provider: AiProvider | null = b?.provider === "openai" || b?.provider === "anthropic" ? b.provider : null;
   if (!provider) return NextResponse.json({ error: "INVALID_INPUT", message: "Выберите тип подключения." }, { status: 400 });
-  const baseUrl = normalizeBaseUrl(b?.baseUrl ?? "", provider);
-  if (!baseUrl) return NextResponse.json({ error: "INVALID_INPUT", message: "Адрес API недопустим: нужен http:// или https:// и внешний адрес провайдера." }, { status: 400 });
+  const normalized = normalizeBaseUrl(b?.baseUrl ?? "", provider);
+  if (!normalized) return NextResponse.json({ error: "INVALID_INPUT", message: "Адрес API недопустим: нужен http:// или https:// и внешний адрес провайдера." }, { status: 400 });
   const model = (b?.model ?? "").trim() || AI_DEFAULTS[provider].model;
   const key = (b?.apiKey ?? "").trim();
   try {
     const existing = await prisma.aiSetting.findUnique({ where: { userId: actor.id } });
     if (!key && !existing) return NextResponse.json({ error: "INVALID_INPUT", message: "Вставьте ключ API." }, { status: 400 });
     const apiKeyEnc = key ? encryptKey(key) : existing!.apiKeyEnc;
+    // адрес оставили пустым (= OpenAI), а ключ Groq или NVIDIA — сохраняем адрес провайдера ключа
+    const baseUrl = key ? baseUrlForKey(key, normalized) : normalized;
     await prisma.aiSetting.upsert({
       where: { userId: actor.id },
       create: { userId: actor.id, provider, baseUrl, model, apiKeyEnc },
