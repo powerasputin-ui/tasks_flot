@@ -8,7 +8,13 @@ import { AiModelPicker, useAiEngine } from "@/components/AiModelPicker";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
-const QUICK = ["Сделай выжимку: главное коротко", "Что просит решения или помощи?", "Какие риски и сдвинутые сроки?", "Что не сделано или зависло?"];
+const QUICK = [
+  "Выжимка: главное и на что обратить внимание",
+  "Найди слабые места справки",
+  "Где мне стоит вмешаться, даже если не просили?",
+  "Сроки: что просрочено, без срока или под угрозой",
+  "Какие вопросы задать директору?",
+];
 
 /**
  * Чат-помощник ЗГД внизу страницы, как в ChatGPT: отвечает по открытой справке (или по справкам, отмеченным в «Сводке»).
@@ -125,13 +131,13 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
               {messages.map((m, i) => (
                 <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
                   <div className={`max-w-[92%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${m.role === "user" ? "bg-primary text-white" : "bg-surface-low text-on-surface"}`}>
-                    {m.content || (busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : "")}
+                    {m.content ? (m.role === "assistant" ? <LightMarkdown text={m.content} /> : m.content) : busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : ""}
                   </div>
                 </div>
               ))}
               {answeredBy && !busy && messages.length > 0 && (
                 <p className="text-[11px] text-on-surface-variant">
-                  Ответила модель: {answeredBy.model}
+                  ИИ может неточно пересказать факт — сверяйте выводы с пунктами по номерам [n]. Ответила модель: {answeredBy.model}
                   {answeredBy.switched && " — выбранная модель не ответила, ответила запасная"}
                 </p>
               )}
@@ -193,5 +199,27 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
         </form>
       </div>
     </div>
+  );
+}
+
+/**
+ * Модели (особенно Groq) иногда пишут Markdown, хотя их просят простой текст: **жирное** показываем жирным,
+ * строки-заголовки «# …» — жирной строкой, остальное как есть (переносы строк сохраняются).
+ */
+function LightMarkdown({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, i, all) => {
+        const heading = /^#{1,6}\s+/.test(line);
+        const clean = line.replace(/^#{1,6}\s+/, "").replace(/^\s*[-*]\s+/, "• ");
+        const parts = clean.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+        return (
+          <span key={i}>
+            {heading ? <strong>{clean.replace(/\*\*/g, "")}</strong> : parts.map((p, j) => (/^\*\*[^*]+\*\*$/.test(p) ? <strong key={j}>{p.slice(2, -2)}</strong> : <span key={j}>{p}</span>))}
+            {i < all.length - 1 && "\n"}
+          </span>
+        );
+      })}
+    </>
   );
 }
