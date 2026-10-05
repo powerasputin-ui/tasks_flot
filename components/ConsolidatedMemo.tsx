@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchFirstByteRetry } from "@/lib/fetch-retry";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, FileDown, Loader2, Sparkles } from "lucide-react";
 import { MemoReader } from "@/components/MemoReader";
@@ -67,7 +68,8 @@ export function ConsolidatedMemo({ onSelection }: { onSelection: (ids: string[])
     setError(null);
     setResult(null);
     try {
-      const r = await fetch("/api/ai/consolidate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds: [...picked], engine: ai.engine }) });
+      // сервер сразу шлёт «живые» пробелы; если не начал отвечать за 20 с — зависший экземпляр, повторяем
+      const r = await fetchFirstByteRetry("/api/ai/consolidate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds: [...picked], engine: ai.engine }) }, 20000);
       const d = await r.json();
       if (!r.ok) setError(d.message ?? "Не удалось собрать сводку.");
       else setResult(d);

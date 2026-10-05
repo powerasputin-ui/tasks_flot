@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchFirstByteRetry } from "@/lib/fetch-retry";
 import { useEffect, useRef, useState } from "react";
 import { Bot, ChevronDown, Plus, Send, Settings2, Square } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
@@ -60,7 +61,8 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const r = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds, messages: history, engine: ai.engine }), signal: ctl.signal });
+      // ответ ИИ начинается через секунды; не начался за 45 с — зависший экземпляр сервера, спрашиваем ещё раз
+      const r = await fetchFirstByteRetry("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds, messages: history, engine: ai.engine }), signal: ctl.signal }, 45000);
       if (!r.ok || !r.body) {
         const d = await r.json().catch(() => null);
         if (d?.error === "NOT_CONFIGURED") setConfigured(false);

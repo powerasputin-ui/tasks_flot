@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchRetry } from "@/lib/fetch-retry";
+import { fetchFirstByteRetry, fetchRetry } from "@/lib/fetch-retry";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -21,10 +21,47 @@ describe("fetchRetry: повтор при обрыве после простоя
       expect(g).toHaveBeenCalledTimes(1);
     }
   });
+  it("зависший запрос обрывается по таймеру и повторяется; отмену самим человеком не повторяет", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", (_u: string, init: RequestInit) => {
+      calls++;
+      if (calls === 1) return new Promise((_r, rej) => init.signal!.addEventListener("abort", () => rej(new DOMException("timeout", "TimeoutError"))));
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    });
+    expect((await fetchRetry("/api/x", {}, 1, 30)).status).toBe(200);
+    expect(calls).toBe(2);
+    const ctl = new AbortController();
+    let n = 0;
+    vi.stubGlobal("fetch", (_u: string, init: RequestInit) => { n++; return new Promise((_r, rej) => init.signal!.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")))); });
+    const p = fetchRetry("/api/x", { signal: ctl.signal }, 1, 5000);
+    ctl.abort();
+    await expect(p).rejects.toThrow();
+    expect(n).toBe(1);
+  });
   it("запись (POST) не повторяет — иначе действие выполнилось бы дважды", async () => {
     const f = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", f);
     await expect(fetchRetry("/api/x", { method: "POST" }, 1)).rejects.toThrow();
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fetchFirstByteRetry: ИИ не висит на зависшем экземпляре", () => {
+  it("не начал отвечать вовремя — повтор; кнопка «Стоп» — без повтора", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", (_u: string, init: RequestInit) => {
+      calls++;
+      if (calls === 1) return new Promise((_r, rej) => init.signal!.addEventListener("abort", () => rej(new DOMException("t", "TimeoutError"))));
+      return Promise.resolve(new Response("ответ", { status: 200 }));
+    });
+    expect(await (await fetchFirstByteRetry("/api/ai/chat", { method: "POST" }, 20)).text()).toBe("ответ");
+    expect(calls).toBe(2);
+    const stop = new AbortController();
+    let n = 0;
+    vi.stubGlobal("fetch", (_u: string, init: RequestInit) => { n++; return new Promise((_r, rej) => init.signal!.addEventListener("abort", () => rej(new DOMException("a", "AbortError")))); });
+    const p = fetchFirstByteRetry("/api/ai/chat", { method: "POST", signal: stop.signal }, 5000);
+    stop.abort();
+    await expect(p).rejects.toThrow();
+    expect(n).toBe(1);
   });
 });

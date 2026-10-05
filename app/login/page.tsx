@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchRetry } from "@/lib/fetch-retry";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, EyeOff } from "lucide-react";
@@ -17,7 +18,7 @@ export default function LoginPage() {
 
   // будим сервер и базу, пока человек набирает логин и пароль: к нажатию «Войти» ответ придёт за секунду, а не за 15–30
   useEffect(() => {
-    fetch("/api/health", { cache: "no-store" })
+    fetchRetry("/api/health", { cache: "no-store" }, 1000, 10000)
       .then(() => setUnreachable(false))
       .catch(() => setUnreachable(true));
   }, []);
@@ -29,7 +30,8 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
-        signal: AbortSignal.timeout(45000),
+        // запуск экземпляра сервера на Vercel изредка зависает — не ждём дольше 20 с, а повторяем (см. lib/fetch-retry)
+        signal: AbortSignal.timeout(20000),
       });
     try {
       return await once();
