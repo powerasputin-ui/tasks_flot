@@ -12,6 +12,42 @@ const FALLBACK: Defaults = {
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-sonnet-4-5" },
 };
 
+/** Готовые бесплатные варианты для теста: адрес и модель подставляются, ключ человек получает у провайдера сам. */
+const PRESETS: Array<{ id: string; label: string; baseUrl: string; model: string; keyUrl: string; note: string }> = [
+  {
+    id: "groq-gptoss",
+    label: "Groq · GPT-OSS 120B (бесплатно, рекомендую)",
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "openai/gpt-oss-120b",
+    keyUrl: "https://console.groq.com/keys",
+    note: "Проверено: лучший бесплатный вариант для чата по справкам, ключ бессрочный. Лимит ~8 тыс. токенов в минуту: справки сжимаются до ≈11 тыс. символов (3–5 страниц) — сначала без строк-источников, затем обрезка; об этом пишется под ответом. Для сводки по нескольким дирекциям лучше NVIDIA. Ключ начинается с gsk_.",
+  },
+  {
+    id: "groq-gptoss-20b",
+    label: "Groq · GPT-OSS 20B (бесплатно, быстрее)",
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "openai/gpt-oss-20b",
+    keyUrl: "https://console.groq.com/keys",
+    note: "Запасной вариант на том же ключе Groq: быстрее, но слабее. Те же лимиты и сжатие справок.",
+  },
+  {
+    id: "nvidia-deepseek",
+    label: "NVIDIA · DeepSeek V4.1 Flash (бесплатно)",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    model: "deepseek-ai/deepseek-v4.1-flash",
+    keyUrl: "https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash",
+    note: "Большое окно — подходит для сводки по нескольким дирекциям. Бесплатно ~40 запросов в минуту, но объём бесплатных запросов ограничен (не бессрочно). Перед ключом NVIDIA попросит принять условия модели. Ключ начинается с nvapi-.",
+  },
+  {
+    id: "gemini",
+    label: "Google Gemini · 3.5 Flash (бесплатно)",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-3.5-flash",
+    keyUrl: "https://aistudio.google.com/apikey",
+    note: "Сильный и с большим контекстом. На бесплатном тарифе Google может использовать запросы для обучения — только для неважных справок.",
+  },
+];
+
 /**
  * Подключение ИИ: тип, адрес, модель, ключ → «Проверить связь» → «Сохранить».
  * Ключ уходит только на сервер приложения и обратно не возвращается — после сохранения виден лишь его конец.
@@ -24,6 +60,8 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [preset, setPreset] = useState("");
+  const chosen = PRESETS.find((x) => x.id === preset);
 
   useEffect(() => {
     fetch("/api/ai/settings")
@@ -78,17 +116,50 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
       </div>
 
       <label className="block text-[12px] text-on-surface-variant">
+        Готовый вариант
+        <select
+          value={preset}
+          onChange={(e) => {
+            const p = PRESETS.find((x) => x.id === e.target.value);
+            setPreset(e.target.value);
+            if (p) {
+              setProvider("openai");
+              setBaseUrl(p.baseUrl);
+              setModel(p.model);
+            }
+          }}
+          className="select mt-1 w-full"
+        >
+          <option value="">Свои настройки</option>
+          {PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {chosen && (
+        <p className="rounded-md bg-surface-high px-3 py-2 text-[12px] leading-snug text-on-surface-variant">
+          {chosen.note}{" "}
+          <a href={chosen.keyUrl} target="_blank" rel="noreferrer" className="font-semibold text-primary hover:underline">
+            Получить ключ
+          </a>
+        </p>
+      )}
+
+      <label className="block text-[12px] text-on-surface-variant">
         Тип подключения
         <select
           value={provider}
           onChange={(e) => {
             setProvider(e.target.value as Provider);
+            setPreset("");
             setBaseUrl("");
             setModel("");
           }}
           className="select mt-1 w-full"
         >
-          <option value="openai">OpenAI-совместимый (OpenAI, DeepSeek, OpenRouter, Ollama…)</option>
+          <option value="openai">OpenAI-совместимый (OpenAI, NVIDIA, Groq, Gemini, OpenRouter…)</option>
           <option value="anthropic">Anthropic (Claude)</option>
         </select>
       </label>
@@ -107,10 +178,16 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           autoComplete="off"
-          placeholder={state?.configured ? "Оставьте пустым, чтобы не менять" : "sk-…"}
+          placeholder={state?.configured ? "Оставьте пустым, чтобы не менять" : chosen?.id.startsWith("nvidia") ? "nvapi-…" : chosen?.id.startsWith("groq") ? "gsk_…" : "Ключ API"}
           className="input mt-1 w-full"
         />
       </label>
+
+      {/groq\.com/i.test(baseUrl) && !chosen && (
+        <p className="rounded-md bg-status-amber/10 px-3 py-2 text-[12px] leading-snug text-on-surface">
+          Бесплатный Groq принимает ~8 тыс. токенов в минуту: справки будут сжиматься (сначала без строк-источников, потом обрезаться), ответы — короче.
+        </p>
+      )}
 
       {result && (
         <p className={`flex items-start gap-1.5 text-[12px] leading-snug ${result.ok ? "text-status-emerald" : "text-status-red"}`}>

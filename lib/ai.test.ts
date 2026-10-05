@@ -217,3 +217,71 @@ describe("SSRF: DNS и редиректы", () => {
     expect(() => decryptKey(enc)).toThrow();
   });
 });
+
+describe("рассуждения открытых моделей не показываются", () => {
+  it("целый ответ: <think>…</think> вырезается, в т.ч. без открывающего тега", async () => {
+    const { stripThinking } = await import("@/lib/ai");
+    expect(stripThinking("<think>план</think>\nОтвет")).toBe("Ответ");
+    expect(stripThinking("план без тега</think>Ответ")).toBe("Ответ");
+    expect(stripThinking("Просто ответ")).toBe("Просто ответ");
+  });
+  it("поток: тег, разрезанный между кусками, не протекает", async () => {
+    const { thinkingFilter } = await import("@/lib/ai");
+    const f = thinkingFilter();
+    const out = ["<thi", "nk>секрет", " мысли</th", "ink>Отв", "ет <", "b>"].map(f).join("");
+    expect(out).toBe("Ответ <b>");
+    const g = thinkingFilter();
+    expect(g("цена <") + g.flush()).toBe("цена <");
+  });
+});
+
+describe("узкое окно (бесплатный Groq): справки сжимаются под лимит", () => {
+  it("бюджет: Groq — маленький, остальные — обычный", async () => {
+    const { aiBudget } = await import("@/lib/ai");
+    expect(aiBudget({ baseUrl: "https://api.groq.com/openai/v1" })).toMatchObject({ small: true, contextChars: 11000 });
+    expect(aiBudget({ baseUrl: "https://integrate.api.nvidia.com/v1" }).small).toBe(false);
+  });
+  it("история: последние сообщения в пределах бюджета, начинается с вопроса", async () => {
+    const { fitHistory } = await import("@/lib/ai");
+    const m = (role: "user" | "assistant", n: number) => ({ role, content: "x".repeat(n) });
+    const out = fitHistory([m("user", 500), m("assistant", 500), m("user", 500), m("assistant", 2500), m("user", 400)], 3000);
+    // 400 + 2500 влезают, следующий ответ уже нет; ответ без своего вопроса отбрасывается
+    expect(out.map((x) => [x.role, x.content.length])).toEqual([["user", 400]]);
+    const fits = fitHistory([m("user", 500), m("assistant", 900), m("user", 400)], 3000);
+    expect(fits.map((x) => x.role)).toEqual(["user", "assistant", "user"]);
+  });
+});
+
+describe("поток ответа не зависает", () => {
+  it("модель сначала шлёт служебные куски без текста (рассуждения, роль) — ответ всё равно доходит целиком", async () => {
+    const { streamText } = await import("@/lib/ai");
+    const sse = [
+      'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning":"думаю"}}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning":"ещё думаю"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"При"}}]}\n\ndata: {"choices":[{"delta":{"content":"вет"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const s of sse) c.enqueue(new TextEncoder().encode(s));
+        c.close();
+      },
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(body, { headers: { "content-type": "text/event-stream" } })) as typeof fetch;
+    try {
+      const s = await streamText({ provider: "openai", baseUrl: "https://93.184.216.34/v1", model: "m", apiKey: "k" }, { system: "s", messages: [{ role: "user", content: "q" }] });
+      const r = s.getReader();
+      let out = "";
+      for (;;) {
+        const { done, value } = await r.read();
+        if (done) break;
+        out += new TextDecoder().decode(value);
+      }
+      expect(out).toBe("Привет");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }, 5000);
+});

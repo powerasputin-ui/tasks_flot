@@ -124,6 +124,8 @@ function build(cfg: AiConfig, req: Req, stream: boolean): { url: string; init: R
         stream,
         messages: [{ role: "system", content: req.system }, ...req.messages],
         ...(req.json ? { response_format: { type: "json_object" } } : {}),
+        // у gpt-oss рассуждения расходуют лимит ответа (и бесплатные токены) — просим коротко
+        ...(/gpt-oss/i.test(cfg.model) ? { reasoning_effort: "low" } : {}),
       }),
       signal: req.signal,
     },
@@ -144,7 +146,8 @@ async function send(cfg: AiConfig, req: Req, stream: boolean): Promise<Response>
   if (res.ok) return res;
   await res.body?.cancel().catch(() => {}); // тело ответа провайдера пользователю не показываем — оно может содержать чужие данные
   if (res.status === 401 || res.status === 403) throw new AiError("BAD_KEY", "ИИ отклонил ключ (неверный или без доступа к модели).");
-  if (res.status === 429) throw new AiError("RATE_LIMIT", "Превышен лимит запросов у провайдера ИИ. Попробуйте позже.");
+  if (res.status === 429) throw new AiError("RATE_LIMIT", "Превышен лимит запросов у провайдера ИИ (у бесплатных тарифов он маленький). Подождите минуту или выберите меньше справок.");
+  if (res.status === 413) throw new AiError("RATE_LIMIT", "Справки слишком большие для этой модели или бесплатного тарифа. Выберите меньше справок или другую модель.");
   if (res.status === 404) throw new AiError("PROVIDER", "Модель или адрес API не найдены. Проверьте название модели и адрес.");
   if (res.status >= 300 && res.status < 400) throw new AiError("PROVIDER", "Провайдер ИИ ответил перенаправлением — такие адреса не поддерживаются. Проверьте адрес API.");
   throw new AiError("PROVIDER", `Ошибка провайдера ИИ (${res.status}).`);
@@ -155,8 +158,49 @@ export async function complete(cfg: AiConfig, req: Req): Promise<string> {
   const res = await send(cfg, req, false);
   const data = (await res.json().catch(() => null)) as { choices?: Array<{ message?: { content?: string } }>; content?: Array<{ text?: string }> } | null;
   const text = cfg.provider === "anthropic" ? data?.content?.map((c) => c.text ?? "").join("") : data?.choices?.[0]?.message?.content;
-  if (!text) throw new AiError("BAD_ANSWER", "ИИ вернул пустой ответ.");
-  return text;
+  const clean = stripThinking(text ?? "");
+  if (!clean) throw new AiError("BAD_ANSWER", "ИИ вернул пустой ответ.");
+  return clean;
+}
+
+/** Открытые «рассуждающие» модели (DeepSeek, Qwen, Kimi…) пишут черновик в <think>…</think> — пользователю он не нужен. */
+export function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*?<\/think>/i, "").trim();
+}
+
+/** То же для потока: куски внутри <think>…</think> не отдаются; тег может прийти разрезанным между кусками. */
+export function thinkingFilter(): ((piece: string) => string) & { flush: () => string } {
+  let inside = false;
+  let pending = "";
+  const filter = (piece: string) => {
+    let s = pending + piece;
+    pending = "";
+    let out = "";
+    while (s) {
+      const tag = inside ? "</think>" : "<think>";
+      const i = s.toLowerCase().indexOf(tag);
+      if (i >= 0) {
+        if (!inside) out += s.slice(0, i);
+        s = s.slice(i + tag.length);
+        inside = !inside;
+        continue;
+      }
+      // хвост может быть началом тега — придержим его до следующего куска
+      let keep = 0;
+      for (let k = Math.min(tag.length - 1, s.length); k > 0; k--) if (tag.startsWith(s.slice(-k).toLowerCase())) { keep = k; break; }
+      if (!inside) out += s.slice(0, s.length - keep);
+      pending = s.slice(s.length - keep);
+      s = "";
+    }
+    return out;
+  };
+  /** Конец потока: придержанный хвост был не тегом — отдаём его. */
+  const flush = () => {
+    const rest = inside ? "" : pending;
+    pending = "";
+    return rest;
+  };
+  return Object.assign(filter, { flush });
 }
 
 /** Ответ потоком: отдаёт только текст, без служебных событий провайдера. */
@@ -165,29 +209,42 @@ export async function streamText(cfg: AiConfig, req: Req): Promise<ReadableStrea
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const reader = res.body!.getReader();
+  const visible = thinkingFilter();
   let buf = "";
   return new ReadableStream({
+    // Читаем, пока не появится видимый текст или ответ не кончится: если выйти из pull без enqueue, поток встаёт навсегда
+    // (так и было у моделей, которые сначала долго присылают одни рассуждения или служебные куски без текста).
     async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        controller.close();
-        return;
-      }
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const raw of lines) {
-        const line = raw.trim();
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        try {
-          const j = JSON.parse(payload);
-          const piece = cfg.provider === "anthropic" ? (j.type === "content_block_delta" ? j.delta?.text : "") : j.choices?.[0]?.delta?.content;
-          if (piece) controller.enqueue(enc.encode(piece));
-        } catch {
-          /* неполная строка — пропускаем */
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          const tail = visible.flush();
+          if (tail) controller.enqueue(enc.encode(tail));
+          controller.close();
+          return;
         }
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        let sent = false;
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const j = JSON.parse(payload);
+            const piece = cfg.provider === "anthropic" ? (j.type === "content_block_delta" ? j.delta?.text : "") : j.choices?.[0]?.delta?.content;
+            const shown = piece ? visible(piece) : "";
+            if (shown) {
+              controller.enqueue(enc.encode(shown));
+              sent = true;
+            }
+          } catch {
+            /* неполная строка — пропускаем */
+          }
+        }
+        if (sent) return;
       }
     },
     cancel() {
@@ -217,7 +274,37 @@ export function indexBullets(memos: MemoForAi[]): Array<{ n: number; memo: MemoF
   return out;
 }
 
-export function buildContext(memos: MemoForAi[]): string {
+/**
+ * Сколько можно отправить за раз. У бесплатного Groq всего ~8 тыс. токенов в минуту на запрос вместе с ответом,
+ * поэтому для него справки сжимаются (сначала убираются строки-источники, потом текст обрезается), а ответ короче.
+ * Русский текст ≈ 3 символа на токен; берём с запасом.
+ */
+export type AiBudget = { small: boolean; contextChars: number; historyChars: number; chatOut: number; consolidateOut: number };
+export function aiBudget(cfg: Pick<AiConfig, "baseUrl">): AiBudget {
+  let host = "";
+  try {
+    host = new URL(cfg.baseUrl).hostname;
+  } catch {
+    /* адрес уже проверен при сохранении */
+  }
+  if (host === "api.groq.com") return { small: true, contextChars: 11000, historyChars: 3000, chatOut: 1200, consolidateOut: 2000 };
+  return { small: false, contextChars: CONTEXT_LIMIT, historyChars: 40000, chatOut: 1500, consolidateOut: 3500 };
+}
+
+export function buildContext(memos: MemoForAi[], limit = CONTEXT_LIMIT): string {
+  return buildContextInfo(memos, limit).text;
+}
+
+/** Контекст и пометка, ужат ли он: «compact» — без строк-источников, «cut» — текст справок обрезан. */
+export function buildContextInfo(memos: MemoForAi[], limit = CONTEXT_LIMIT): { text: string; trimmed: false | "compact" | "cut" } {
+  const full = renderContext(memos, true);
+  if (full.length <= limit) return { text: full, trimmed: false };
+  const compact = renderContext(memos, false);
+  if (compact.length <= limit) return { text: compact, trimmed: "compact" };
+  return { text: `${compact.slice(0, limit)}\n[…текст справок сокращён из-за размера]`, trimmed: "cut" };
+}
+
+function renderContext(memos: MemoForAi[], withSources: boolean): string {
   const idx = indexBullets(memos);
   const parts: string[] = [];
   for (const memo of memos) {
@@ -231,6 +318,7 @@ export function buildContext(memos: MemoForAi[]): string {
         if (section.trim()) lines.push(`Раздел: ${section}`);
       }
       lines.push(`[${x.n}] ${x.text}`);
+      if (!withSources) continue;
       const bullet = memo.doc.sections.flatMap((s) => s.bullets).find((b) => b.id === x.bulletId);
       for (const id of bullet?.itemIds ?? []) {
         const src = byId.get(id);
@@ -239,8 +327,23 @@ export function buildContext(memos: MemoForAi[]): string {
     }
     parts.push(lines.join("\n"));
   }
-  const all = parts.join("\n\n");
-  return all.length > CONTEXT_LIMIT ? `${all.slice(0, CONTEXT_LIMIT)}\n[…текст справок сокращён из-за размера]` : all;
+  return parts.join("\n\n");
+}
+
+/** Для узкой модели берём последние сообщения, пока они влезают в бюджет (последний вопрос — всегда). */
+export function fitHistory(messages: ChatMessage[], chars: number): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  let used = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const len = m.content.length;
+    if (out.length > 0 && used + len > chars) break;
+    out.unshift(out.length === 0 && len > chars ? { ...m, content: m.content.slice(0, chars) } : m);
+    used += Math.min(len, chars);
+  }
+  // история должна начинаться с вопроса пользователя
+  while (out.length > 1 && out[0].role !== "user") out.shift();
+  return out;
 }
 
 const RULES =

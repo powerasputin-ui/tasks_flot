@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
-import { AiError, buildContext, chatSystem, streamText, type ChatMessage } from "@/lib/ai";
+import { AiError, aiBudget, buildContextInfo, chatSystem, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
 import { aiErrorResponse, canUseAi, loadAiConfig, loadLatestMemoIds, loadMemosForAi } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -26,8 +26,13 @@ async function POSTHandler(request: NextRequest) {
     const requested = Array.isArray(b?.versionIds) && b!.versionIds.length > 0;
     const memos = await loadMemosForAi(actor, requested ? b?.versionIds : await loadLatestMemoIds(actor));
     if (memos.length === 0) return NextResponse.json({ error: "NO_CONTEXT", message: "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
-    const stream = await streamText(cfg, { system: chatSystem(buildContext(memos)), messages, maxTokens: 1500, signal: request.signal });
-    return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+    const budget = aiBudget(cfg);
+    const ctx = buildContextInfo(memos, budget.contextChars);
+    const stream = await streamText(cfg, { system: chatSystem(ctx.text), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
+    // ИИ видел справки не целиком — чат покажет это человеку
+    const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" };
+    if (ctx.trimmed) headers["X-AI-Context"] = ctx.trimmed;
+    return new Response(stream, { headers });
   } catch (e) {
     return aiErrorResponse(e);
   }

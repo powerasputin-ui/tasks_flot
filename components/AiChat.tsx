@@ -20,6 +20,8 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
+  // модель с маленьким окном (бесплатный Groq) видела справки не целиком
+  const [trimmed, setTrimmed] = useState<"compact" | "cut" | null>(null);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -62,6 +64,8 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
         setMessages(history);
         return;
       }
+      const t = r.headers.get("X-AI-Context");
+      setTrimmed(t === "compact" || t === "cut" ? t : null);
       const reader = r.body.getReader();
       const dec = new TextDecoder();
       let acc = "";
@@ -125,6 +129,13 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
                   </div>
                 </div>
               ))}
+              {trimmed && !busy && messages.length > 0 && (
+                <p className="text-[11px] leading-snug text-on-surface-variant">
+                  {trimmed === "cut"
+                    ? "У этой модели маленькое окно: справки переданы не целиком, ответ — по их началу. Выберите меньше справок или модель NVIDIA."
+                    : "У этой модели маленькое окно: справки переданы в сжатом виде (без строк-источников)."}
+                </p>
+              )}
               {error && <p className="text-[12px] text-status-red">{error}</p>}
               <div ref={bottom} />
             </div>
