@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { AiModelChoice } from "@/components/AiModelPicker";
 
 type Provider = "openai" | "anthropic";
 type Defaults = Record<Provider, { baseUrl: string; model: string }>;
 type Shared = { model: string; host: string; fallback: { model: string; host: string } | null } | null;
 type State = { configured: boolean; own?: boolean; shared?: Shared; provider?: Provider; baseUrl?: string; model?: string; keyHint?: string; defaults: Defaults };
 
-const providerName = (host: string) => (host.includes("groq") ? "Groq" : host.includes("nvidia") ? "NVIDIA" : host.includes("googleapis") ? "Google" : host.includes("openrouter") ? "OpenRouter" : host);
 
 const FALLBACK: Defaults = {
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -120,15 +120,16 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
       <div>
         <p className="text-[13px] font-semibold text-on-surface">Подключение ИИ</p>
         {shared && !own ? (
-          <div className="mt-1.5 rounded-md bg-status-emerald/10 px-3 py-2 text-[12px] leading-snug text-on-surface">
-            <p className="flex items-center gap-1.5 font-semibold">
-              <CheckCircle2 size={14} className="text-status-emerald" /> ИИ уже подключён для всех — ничего настраивать не нужно.
-            </p>
-            <p className="mt-1 text-on-surface-variant">
-              Доступные модели: {providerName(shared.host)} · {shared.model}
-              {shared.fallback && <> и {providerName(shared.fallback.host)} · {shared.fallback.model}</>}. Модель выбирается в строке чата слева от поля ввода: «Авто» или конкретная.
-            </p>
-          </div>
+          <>
+            <div className="mt-1.5 rounded-md bg-status-emerald/10 px-3 py-2 text-[12px] leading-snug text-on-surface">
+              <p className="flex items-center gap-1.5 font-semibold">
+                <CheckCircle2 size={14} className="text-status-emerald" /> ИИ уже подключён для всех — ничего настраивать не нужно.
+              </p>
+            </div>
+            <p className="label-caps mb-1.5 mt-3">Модель</p>
+            <AiModelChoice shared={shared} />
+            <p className="mt-1.5 text-[11px] text-on-surface-variant">Тот же выбор — в строке чата рядом с кнопкой «Отправить».</p>
+          </>
         ) : (
           <p className="mt-0.5 text-[12px] leading-snug text-on-surface-variant">Вставьте ключ API любого провайдера. Ключ хранится на сервере в зашифрованном виде и в браузер не возвращается.</p>
         )}

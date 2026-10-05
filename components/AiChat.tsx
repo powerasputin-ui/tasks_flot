@@ -158,7 +158,6 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
           <button type="button" onClick={() => setOpen((v) => !v)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary hover:bg-primary-soft" title="Помощник" aria-label="Помощник">
             <Bot size={18} />
           </button>
-          <AiModelPicker engine={ai.engine} onChange={ai.setEngine} shared={ai.shared} own={ai.own} />
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -168,6 +167,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
             aria-label="Вопрос помощнику"
             className="min-w-0 flex-1 bg-transparent text-[14px] text-on-surface outline-none placeholder:text-outline"
           />
+          <AiModelPicker engine={ai.engine} onChange={ai.setEngine} shared={ai.shared} own={ai.own} />
           {busy ? (
             <button type="button" onClick={() => abort.current?.abort()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-high text-on-surface" title="Остановить" aria-label="Остановить">
               <Square size={13} fill="currentColor" />
