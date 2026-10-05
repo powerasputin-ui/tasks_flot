@@ -537,7 +537,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           </div>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
-              <p className="label-caps">{defaultArchive === "archived" ? "Архив позиций" : "Рабочая таблица"}</p>
+              <p className="label-caps">{defaultArchive === "archived" ? "Архив действий" : "Рабочая таблица"}</p>
               <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface">{selectedName}</h2>
               <p className="mt-0.5 text-[12px] text-on-surface-variant">
                 {loading ? "Загрузка…" : `${visibleRows.length} позиций · ${operCount} отправлено директору`}

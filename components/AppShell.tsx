@@ -33,22 +33,22 @@ const ROLE_ORDER: Record<string, number> = { EXECUTIVE: 0, ADMIN: 1, DIRECTOR: 2
 export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>> = {
   HEAD: [
     { href: "/table", label: "Таблица" },
-    { href: "/archive", label: "Архив" },
+    { href: "/archive", label: "Архив действий" },
   ],
   DIRECTOR: [
     { href: "/operativka", label: "Оперативка" },
     { href: "/table", label: "Общая таблица" },
-    { href: "/archive", label: "Архив" },
+    { href: "/archive", label: "Архив действий" },
   ],
   ADMIN: [
     { href: "/operativka", label: "Оперативка" },
     { href: "/table", label: "Общая таблица" },
-    { href: "/archive", label: "Архив" },
+    { href: "/archive", label: "Архив действий" },
   ],
   EXECUTIVE: [{ href: "/operativka", label: "Оперативка" }],
   SYSTEM_ADMIN: [
     { href: "/table", label: "Таблица" },
-    { href: "/archive", label: "Архив" },
+    { href: "/archive", label: "Архив действий" },
   ],
 };
 
