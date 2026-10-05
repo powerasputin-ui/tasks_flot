@@ -20,7 +20,7 @@ async function GETHandler() {
   }
   const directorateId = requireDirectorate(actor);
   const [user, segments, tracks, statuses, attractiveness, users, columns, layout] = await Promise.all([
-    prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true } }),
+    prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true, submits: true } }),
     prisma.segment.findMany({ where: { isActive: true, directorateId }, orderBy: { sortOrder: "asc" } }),
     prisma.track.findMany({ where: { isActive: true, directorateId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, segmentId: true } }),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
@@ -33,7 +33,8 @@ async function GETHandler() {
   // список дирекций нужен только админу (переключатель); остальным — название своей
   const isAdmin = actor.role === "ADMIN" || actor.role === "SYSTEM_ADMIN";
   return NextResponse.json({
-    user,
+    // роль — как её видит сервер (в «Посмотреть как» директор видит подающего админа руководителем), а не как записана в базе
+    user: user ? { ...user, role: actor.role, memoEditor: actor.memoEditor ?? user.memoEditor } : user,
     segments,
     tracks,
     statuses,

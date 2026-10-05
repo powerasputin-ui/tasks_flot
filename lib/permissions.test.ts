@@ -12,6 +12,8 @@ import {
   canManageUser,
   canManageUsers,
   canViewAs,
+  isSubmitter,
+  viewAsRole,
   canViewItems,
   checkRoleChange,
   isDirectorial,
@@ -194,6 +196,23 @@ describe("«Посмотреть как»", () => {
     expect(canViewAs(directorA, t("HEAD", A))).toBe(true);
     expect(canViewAs(directorA, t("HEAD", "dirB"))).toBe(false);
     for (const r of ["DIRECTOR", "ADMIN", "EXECUTIVE"] as const) expect(canViewAs(directorA, t(r, A))).toBe(false);
+  });
+
+  it("админ, который подаёт как руководитель: директор своей дирекции смотрит его — и видит руководителем", () => {
+    expect(canViewAs(directorA, { ...t("ADMIN", A), submits: true })).toBe(true);
+    expect(canViewAs(directorA, { ...t("ADMIN", "dirB"), submits: true })).toBe(false);
+    expect(canViewAs(directorA, { ...t("ADMIN", A), submits: false })).toBe(false);
+    expect(canViewAs(directorA, { ...t("DIRECTOR", A), submits: true })).toBe(false); // другого директора — нет
+    expect(viewAsRole("DIRECTOR", "ADMIN")).toBe("HEAD");
+    expect(viewAsRole("ADMIN", "ADMIN")).toBe("ADMIN");
+    expect(viewAsRole("DIRECTOR", "HEAD")).toBe("HEAD");
+  });
+
+  it("кто подаёт: руководитель всегда, админ и директор — по флагу", () => {
+    expect(isSubmitter({ role: "HEAD" })).toBe(true);
+    expect(isSubmitter({ role: "ADMIN" })).toBe(false);
+    expect(isSubmitter({ role: "ADMIN", submits: true })).toBe(true);
+    expect(isSubmitter({ role: "DIRECTOR", submits: true })).toBe(true);
   });
 
   it("руководитель и ЗГД смотреть глазами других не могут", () => {

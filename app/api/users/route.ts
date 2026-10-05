@@ -29,7 +29,7 @@ async function GETHandler(request: NextRequest) {
         ? { OR: [inDir, { directorateId: null }] }
         : { ...inDir, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }
       : { isActive: true, ...inDir },
-    select: { id: true, name: true, role: true, isActive: true, directorateId: true, ...(manager ? { email: true, memoEditor: true } : {}) },
+    select: { id: true, name: true, role: true, isActive: true, directorateId: true, submits: true, ...(manager ? { email: true, memoEditor: true } : {}) },
     orderBy: { name: "asc" },
   });
   return NextResponse.json({ users });

@@ -7,7 +7,7 @@ import { createNotification } from "@/lib/notifications";
 import { loadTableRows } from "@/lib/table-view";
 import { prepareVersion } from "@/lib/memo-versions";
 import { refreshMemoDraft } from "@/lib/memo-load";
-import { isDirectorial, type Actor } from "@/lib/permissions";
+import { isDirectorial, isSubmitter, type Actor } from "@/lib/permissions";
 
 /**
  * Цикл оперативки (ТЗ v4, раздел 5): OPEN → IN_REVIEW → FINAL.
@@ -211,7 +211,7 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
   return { ok: true };
 }
 
-export type PersonSummary = { id: string; name: string; role: string; total: number; sent: number };
+export type PersonSummary = { id: string; name: string; role: string; submits: boolean; total: number; sent: number };
 
 /** Что сделать не подавшему: у кого позиций нет вовсе — сначала их завести, у кого есть — отправить директору. */
 function whatToDo(total: number): string {
@@ -223,16 +223,16 @@ function whatToDo(total: number): string {
 /** Кто сколько заполнил и сколько отправил куратору (руководители и кураторы, заполняющие позиции). */
 export async function cycleSummary(directorateId: string): Promise<PersonSummary[]> {
   const [users, items] = await Promise.all([
-    prisma.user.findMany({ where: { directorateId, isActive: true, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { directorateId, isActive: true, role: { in: ["HEAD", "DIRECTOR", "ADMIN"] } }, select: { id: true, name: true, role: true, submits: true }, orderBy: { name: "asc" } }),
     prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null, responsibleId: { not: null } }, select: { responsibleId: true, operFlag: true } }),
   ]);
   return users
     .map((u) => {
       const mine = items.filter((i) => i.responsibleId === u.id);
-      return { id: u.id, name: u.name, role: u.role, total: mine.length, sent: mine.filter((i) => i.operFlag).length };
+      return { id: u.id, name: u.name, role: u.role, submits: isSubmitter(u), total: mine.length, sent: mine.filter((i) => i.operFlag).length };
     })
-    // директор и админ без своих позиций — не «участники подачи»: им нечего подавать, в «не подали» и в напоминания они не попадают
-    .filter((p) => p.role === "HEAD" || p.total > 0);
+    // директор и админ без своих позиций — не «участники подачи», если только админ не включил им «Подаёт как руководитель»
+    .filter((p) => p.submits || p.total > 0);
 }
 
 /**
@@ -250,7 +250,7 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
   const names = missing.map((p) => p.name).join(", ");
   const due = cycle.deadline.toLocaleDateString("ru-RU");
   // сам не подавший руководитель получает личное напоминание
-  for (const p of missing.filter((m) => m.role === "HEAD")) {
+  for (const p of missing.filter((m) => m.submits)) {
     await createNotification({
       userId: p.id,
       type: "SUBMISSION_MISSING",

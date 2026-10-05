@@ -20,7 +20,14 @@ export type Actor = {
   viewAs?: { realId: string; realName: string; realRole: UserRole };
   /** Составитель справки для ЗГД: назначает админ (директор и админ ведут справку по роли). */
   memoEditor?: boolean;
+  /** Админ/директор, который ещё и подаёт свои позиции как руководитель. */
+  submits?: boolean;
 };
+
+/** Тот, кто подаёт свои позиции директору: руководитель всегда, админ или директор — если админ включил «Подаёт как руководитель». */
+export function isSubmitter(u: { role: string; submits?: boolean | null }): boolean {
+  return u.role === "HEAD" || !!u.submits;
+}
 export type ItemOwnership = { responsibleId: string | null };
 
 /** Директор и админ: «руководящие» роли с правами править всё и вести цикл (директор — в пределах своей дирекции, это проверяет запрос). */
@@ -148,13 +155,22 @@ export function canExportWorkTable(role: UserRole): boolean {
  */
 export function canViewAs(
   real: { id: string; role: UserRole; directorateId?: string | null },
-  target: { id: string; role: UserRole; directorateId: string | null; isActive: boolean }
+  target: { id: string; role: UserRole; directorateId: string | null; isActive: boolean; submits?: boolean | null }
 ): boolean {
   if (target.id === real.id || !target.isActive) return false;
   if (real.role === "SYSTEM_ADMIN") return true;
   if (real.role === "ADMIN") return target.role !== "SYSTEM_ADMIN";
-  if (real.role === "DIRECTOR") return target.role === "HEAD" && !!real.directorateId && target.directorateId === real.directorateId;
+  // директор — руководителей и подающих как руководитель своей дирекции (смотрит их как руководителя, см. requireActor)
+  if (real.role === "DIRECTOR") return (target.role === "HEAD" || (target.role === "ADMIN" && !!target.submits)) && !!real.directorateId && target.directorateId === real.directorateId;
   return false;
+}
+
+/**
+ * Какой ролью видится тот, на кого смотрят. Директор смотрит подающего админа как руководителя: его таблицу и подачу,
+ * без админских прав и других дирекций. Остальные видят человека в его роли.
+ */
+export function viewAsRole(realRole: UserRole, targetRole: UserRole): UserRole {
+  return realRole === "DIRECTOR" && targetRole !== "HEAD" ? "HEAD" : targetRole;
 }
 
 /** Кто ведёт справку для ЗГД: директор и админ по роли, а также люди, которых назначил админ. */

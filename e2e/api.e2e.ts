@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 // Сессия подменяется: тест вызывает настоящие маршруты от имени выбранного пользователя.
-const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean } }));
+const state = vi.hoisted(() => ({ actor: null as null | { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean; submits?: boolean } }));
 vi.mock("@/lib/session", () => {
   class AuthError extends Error {}
   return {
@@ -78,7 +78,7 @@ import * as aiConsolidateExport from "@/app/api/ai/consolidate/export/route";
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
 
-type Actor = { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean };
+type Actor = { id: string; role: string; name: string; directorateId: string | null; memoEditor?: boolean; submits?: boolean };
 let curator: Actor;
 let head: Actor;
 // тестовая «вторая дирекция» и её люди; в базе живут только на время прогона
@@ -1488,6 +1488,40 @@ describe("недели в «Общей таблице»", () => {
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${next.data.id}/finalize`, { method: "POST", id: next.data.id, body: {} })).status).toBe(200);
     const v = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: next.data.id } });
     expect((v.rows as unknown as Array<{ id: string; inMemo: boolean }>).find((x) => x.id === late.data.row.id)?.inMemo).toBe(true);
+  });
+});
+
+describe("админ, который подаёт как руководитель", () => {
+  it("с флагом он в списке подачи и получает напоминание даже без позиций; без флага — нет; флаг меняет только админ", async () => {
+    const u = await prisma.user.create({ data: { name: `${TAG} Админ-руководитель`, email: `${TAG}.adminhead@e2e.local`, passwordHash: "x", role: "ADMIN", directorateId: dirB } });
+    testUserIds.push(u.id);
+    let cyc = await prisma.cycle.findFirst({ where: { directorateId: dirB, status: "OPEN" } });
+    const mineCycle = !cyc;
+    if (!cyc) {
+      await prisma.cycle.updateMany({ where: { directorateId: dirB, status: "IN_REVIEW" }, data: { status: "FINAL" } });
+      const start = await call(directorB, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 6 * 864e5).toISOString() } });
+      expect(start.status).toBe(201);
+      created.cycles.push(start.data.id);
+      cyc = await prisma.cycle.findUniqueOrThrow({ where: { id: start.data.id } });
+    }
+    const inSummary = async () => ((await call(directorB, cyclesCurrent.GET, "/api/cycles/current")).data.summary as Array<{ id: string }>).some((p) => p.id === u.id);
+    expect(await inSummary()).toBe(false); // как «Куратор (первичный)»: админ без позиций в подачу не входит
+
+    // включить может только админ; директор — нет
+    expect((await call(directorB, user.PATCH, `/api/users/${u.id}`, { method: "PATCH", id: u.id, body: { submits: true } })).status).toBe(403);
+    expect((await call(admin, user.PATCH, `/api/users/${u.id}`, { method: "PATCH", id: u.id, body: { submits: true } })).status).toBe(200);
+    expect(await inSummary()).toBe(true);
+
+    // напоминание приходит ему лично
+    const r = await call(directorB, cycleRemind.POST, `/api/cycles/${cyc.id}/remind`, { method: "POST", id: cyc.id, body: { userIds: [u.id] } });
+    expect(r.status).toBe(200);
+    expect(await prisma.notification.count({ where: { userId: u.id, type: "SUBMISSION_MISSING" } })).toBe(1);
+
+    // у себя он видит полосу «подано ваших X из Y»
+    const mine = await call({ id: u.id, role: "ADMIN", name: u.name, directorateId: dirB, submits: true } as Actor, cyclesCurrent.GET, "/api/cycles/current");
+    expect(mine.data.mine).toEqual({ total: 0, sent: 0 });
+    // свою оперативку закрываем, чтобы следующие проверки могли начать новую
+    if (mineCycle) await prisma.cycle.update({ where: { id: cyc.id }, data: { status: "FINAL" } });
   });
 });
 

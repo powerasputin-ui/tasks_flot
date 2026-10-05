@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -12,7 +12,7 @@ import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
-type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null; memoEditor?: boolean };
+type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null; memoEditor?: boolean; submits?: boolean };
 type Directorate = { id: string; name: string; isActive: boolean };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
@@ -291,9 +291,20 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                             <FileText size={15} />
                           </button>
                         ) : u.role === "DIRECTOR" || u.role === "ADMIN" ? (
-                          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-soft text-primary opacity-70" title="Составляет справку по должности — отдельно назначать не нужно">
-                            <FileText size={15} />
-                          </span>
+                          <>
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-soft text-primary opacity-70" title="Составляет справку по должности — отдельно назначать не нужно">
+                              <FileText size={15} />
+                            </span>
+                            <button
+                              onClick={() => patch(u.id, { submits: !u.submits }, u.submits ? "Больше не подаёт позиции как руководитель." : "Теперь подаёт позиции как руководитель: в списке подачи и в напоминаниях.")}
+                              className={`btn-icon h-8 w-8 ${u.submits ? "bg-primary-soft text-primary" : ""}`}
+                              title={u.submits ? "Подаёт позиции как руководитель — выключить" : "Подаёт позиции как руководитель (в списке подачи, напоминаниях, «Посмотреть как» у директора)"}
+                              aria-label="Подаёт как руководитель"
+                              aria-pressed={!!u.submits}
+                            >
+                              <ClipboardCheck size={15} />
+                            </button>
+                          </>
                         ) : null)}
                         <button
                           onClick={() => {

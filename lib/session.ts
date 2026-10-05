@@ -3,7 +3,7 @@ import { SESSION_COOKIE, isRevoked, verifySessionToken, type SessionPayload } fr
 import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/lib/permissions";
 import { DIRECTORATE_COOKIE, VIEW_AS_COOKIE, listDirectorates } from "@/lib/directorates";
-import { canViewAs } from "@/lib/permissions";
+import { canViewAs, viewAsRole } from "@/lib/permissions";
 
 export async function getSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
@@ -66,11 +66,11 @@ export async function requireRealActor(): Promise<Actor & { name: string }> {
   return loadActor();
 }
 
-const viewTargetCache = new Map<string, { at: number; user: { id: string; name: string; role: Actor["role"]; directorateId: string | null; isActive: boolean; memoEditor: boolean } | null }>();
+const viewTargetCache = new Map<string, { at: number; user: { id: string; name: string; role: Actor["role"]; directorateId: string | null; isActive: boolean; memoEditor: boolean; submits: boolean } | null }>();
 async function loadViewTarget(id: string) {
   const hit = viewTargetCache.get(id);
   if (hit && Date.now() - hit.at < ACTOR_TTL_MS) return hit.user;
-  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, directorateId: true, isActive: true, memoEditor: true } });
+  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, directorateId: true, isActive: true, memoEditor: true, submits: true } });
   viewTargetCache.set(id, { at: Date.now(), user });
   return user;
 }
@@ -82,8 +82,11 @@ export async function requireActor(): Promise<Actor & { name: string }> {
   if (viewId && (real.role === "ADMIN" || real.role === "SYSTEM_ADMIN" || real.role === "DIRECTOR")) {
     const target = await loadViewTarget(viewId);
     if (target && canViewAs(real, target)) {
-      const directorateId = target.role === "ADMIN" || target.role === "SYSTEM_ADMIN" ? await adminDirectorate(target.directorateId) : target.directorateId;
-      return { id: target.id, name: target.name, role: target.role, directorateId, memoEditor: target.memoEditor, viewAs: { realId: real.id, realName: real.name, realRole: real.role } };
+      // директор смотрит подающего админа как руководителя: его таблицу и подачу, без админских прав и чужих дирекций
+      const role = viewAsRole(real.role, target.role);
+      const asHead = role !== target.role;
+      const directorateId = !asHead && (target.role === "ADMIN" || target.role === "SYSTEM_ADMIN") ? await adminDirectorate(target.directorateId) : target.directorateId;
+      return { id: target.id, name: target.name, role, directorateId, memoEditor: asHead ? false : target.memoEditor, submits: target.submits, viewAs: { realId: real.id, realName: real.name, realRole: real.role } };
     }
   }
   return resolveDirectorate(real);
@@ -106,13 +109,13 @@ async function loadActor(): Promise<Actor & { name: string }> {
   }
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, role: true, isActive: true, directorateId: true, memoEditor: true, sessionsValidAfter: true },
+    select: { id: true, name: true, role: true, isActive: true, directorateId: true, memoEditor: true, submits: true, sessionsValidAfter: true },
   });
   if (!user || !user.isActive || isRevoked(session, user.sessionsValidAfter)) {
     actorCache.delete(session.userId);
     throw new AuthError("UNAUTHENTICATED");
   }
-  const actor = { id: user.id, name: user.name, role: user.role, directorateId: user.directorateId, memoEditor: user.memoEditor };
+  const actor = { id: user.id, name: user.name, role: user.role, directorateId: user.directorateId, memoEditor: user.memoEditor, submits: user.submits };
   actorCache.set(session.userId, { at: Date.now(), actor, validAfter: user.sessionsValidAfter });
   return actor;
 }

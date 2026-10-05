@@ -43,7 +43,7 @@ type Row = ItemRow & {
   staleWeeks: number;
 };
 
-type Me = { id: string; role: string; memoEditor?: boolean } | null;
+type Me = { id: string; role: string; memoEditor?: boolean; submits?: boolean } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag", "memo"];
@@ -525,7 +525,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
 
       <section className="flex min-w-0 flex-1 flex-col">
-        {me?.role === "HEAD" && !preview && defaultArchive !== "archived" && <CycleStrip />}
+        {(me?.role === "HEAD" || me?.submits) && !preview && defaultArchive !== "archived" && <CycleStrip />}
         <div className="border-b border-outline-variant bg-surface px-6 py-4">
           <div className="mb-3">
             <SegmentSelect segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />

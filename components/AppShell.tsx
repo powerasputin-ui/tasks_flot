@@ -109,7 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [me, setMe] = useState<Me>(null);
   // люди, глазами которых можно посмотреть систему (грузятся при открытии меню)
-  const [people, setPeople] = useState<Array<{ id: string; name: string; role: string; directorateId: string | null }> | null>(null);
+  const [people, setPeople] = useState<Array<{ id: string; name: string; role: string; directorateId: string | null; submits?: boolean }> | null>(null);
   const [viewAs, setViewAs] = useState<{ id: string; name: string; role: string; realName: string } | null>(null);
   const [directorate, setDirectorate] = useState<{ id: string; name: string } | null>(null);
   const [directorates, setDirectorates] = useState<Array<{ id: string; name: string }>>([]);
@@ -285,13 +285,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                         {!people && <p className="px-3.5 py-2 text-[12px] text-outline">Загрузка…</p>}
                         {people && people.filter((u) => u.id !== me?.id).length === 0 && <p className="px-3.5 py-2 text-[12px] text-outline">Других пользователей нет</p>}
                         {(people ?? [])
-                          .filter((u) => u.id !== me?.id && (me?.role !== "DIRECTOR" || u.role === "HEAD"))
+                          .filter((u) => u.id !== me?.id && (me?.role !== "DIRECTOR" || u.role === "HEAD" || (u.role === "ADMIN" && u.submits)))
                           .sort((x, y) => (ROLE_ORDER[x.role] ?? 9) - (ROLE_ORDER[y.role] ?? 9) || x.name.localeCompare(y.name, "ru"))
                           .map((u) => (
                             <MenuItem key={u.id} onClick={() => startViewAs(u.id)} icon={<Avatar name={u.name} size={18} />}>
                               <span className="flex flex-col leading-tight">
                                 <span>{u.name}</span>
-                                <span className="text-[11px] text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
+                                <span className="text-[11px] text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}{u.submits && u.role !== "HEAD" ? " · подаёт как руководитель" : ""}</span>
                               </span>
                             </MenuItem>
                           ))}

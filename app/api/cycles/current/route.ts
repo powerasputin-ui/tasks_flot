@@ -41,7 +41,10 @@ async function GETHandler() {
   const directorateId = requireDirectorate(actor);
   const cycle = await activeCycle(directorateId);
   if (cycle && isDirectorial(actor.role)) await sendMissingReminders(cycle);
-  return NextResponse.json({ cycle, summary: cycle ? await cycleSummary(directorateId) : [], finals, directorate: names.get(directorateId) ?? null });
+  const summary = cycle ? await cycleSummary(directorateId) : [];
+  // админ/директор, который ещё и подаёт как руководитель, видит над таблицей свою полосу «подано ваших X из Y»
+  const me = actor.submits ? summary.find((p) => p.id === actor.id) : undefined;
+  return NextResponse.json({ cycle, summary, finals, directorate: names.get(directorateId) ?? null, ...(actor.submits ? { mine: me ? { total: me.total, sent: me.sent } : { total: 0, sent: 0 } } : {}) });
 }
 
 export const GET = withApiErrors(GETHandler);
