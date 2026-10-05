@@ -49,3 +49,6 @@ async function POSTHandler(request: NextRequest) {
 }
 
 export const POST = withApiErrors(POSTHandler);
+
+// длинный ответ модели с переходом на запасную может идти дольше минуты
+export const maxDuration = 300;

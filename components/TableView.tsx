@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { ShowMore, useChunk } from "@/components/ui/ShowMore";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -268,7 +269,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`/api/items?${baseParams.toString()}`)
+    fetchRetry(`/api/items?${baseParams.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRows(d.rows ?? []))
       .catch(() => setError("Не удалось загрузить данные. Проверьте соединение и повторите."))

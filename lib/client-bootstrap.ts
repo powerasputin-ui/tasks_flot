@@ -20,12 +20,14 @@ export type Bootstrap = {
   viewAs?: { id: string; name: string; role: string; realName: string } | null;
 };
 
+import { fetchRetry } from "@/lib/fetch-retry";
+
 const TTL_MS = 60_000;
 let cached: { at: number; promise: Promise<Bootstrap | null> } | null = null;
 
 export function loadBootstrap(force = false): Promise<Bootstrap | null> {
   if (!force && cached && Date.now() - cached.at < TTL_MS) return cached.promise;
-  const promise = fetch("/api/bootstrap")
+  const promise = fetchRetry("/api/bootstrap")
     .then((r) => (r.ok ? (r.json() as Promise<Bootstrap>) : null))
     .catch(() => null);
   cached = { at: Date.now(), promise };

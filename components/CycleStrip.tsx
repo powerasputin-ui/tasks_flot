@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { useEffect, useState } from "react";
 import { CalendarClock, Lock } from "lucide-react";
 
@@ -27,7 +28,7 @@ export function CycleStrip() {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/cycles/current")
+    fetchRetry("/api/cycles/current")
       .then((r) => (r.ok ? (r.json() as Promise<Payload>) : null))
       .then((d) => alive && setData(d))
       .catch(() => undefined);

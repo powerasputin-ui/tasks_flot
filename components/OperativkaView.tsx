@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { loadBootstrap } from "@/lib/client-bootstrap";
@@ -61,7 +62,7 @@ export function OperativkaView() {
   const [summaryIds, setSummaryIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
-    const [boot, cur] = await Promise.all([loadBootstrap(), fetch("/api/cycles/current").then((r) => r.json())]);
+    const [boot, cur] = await Promise.all([loadBootstrap(), fetchRetry("/api/cycles/current").then((r) => r.json())]);
     setRole(boot?.user?.role ?? null);
     setMemoEditor(!!boot?.user?.memoEditor);
     setCycle(cur.cycle);
