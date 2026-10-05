@@ -718,7 +718,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <div className="px-3.5 py-2">
               <p className="mb-2 text-[12px] text-on-surface-variant">Удалить позицию «{ctx.row.name.length > 40 ? `${ctx.row.name.slice(0, 40)}…` : ctx.row.name}»?</p>
               <div className="flex gap-2">
-                <button onClick={() => ctxAction(ctx.row, "delete")} className="btn-primary h-8 flex-1 bg-status-red hover:bg-status-red">Удалить</button>
+                <button onClick={() => ctxAction(ctx.row, "delete")} className="btn-danger h-8 flex-1">Удалить</button>
                 <button onClick={() => setCtx(null)} className="btn-ghost h-8">Нет</button>
               </div>
             </div>

@@ -180,7 +180,7 @@ export function ColumnsSettings() {
                   <span className="flex-1 text-[13px] text-on-surface">Удалить колонку «{col.label}»? Она пропадёт у всех, введённые значения сохранятся в истории.</span>
                   <button
                     onClick={async () => { await api(`/api/columns/${customId}`, "DELETE", undefined, "Не удалось удалить колонку."); setConfirmKey(null); }}
-                    className="btn-primary h-8 bg-status-red hover:bg-status-red"
+                    className="btn-danger h-8"
                   >
                     Да, удалить
                   </button>

@@ -214,7 +214,20 @@ export function ItemPanel({
   const disabled = !canEdit || (base?.archived ?? false);
   const editable = canEdit && !(base?.archived ?? false) && !previewMode;
 
-  const footer = (
+  // подтверждение удаления занимает всю панель вместо кнопок — иначе на узкой карточке «Нет» уезжает за край
+  const footer = confirmArchive && !isNew && !base!.archived && canDelete && !previewMode ? (
+    <div className="space-y-2">
+      <p className="text-[13px] text-on-surface">
+        <span className="font-semibold">Удалить позицию?</span> <span className="text-on-surface-variant">Она уйдёт в архив, вернуть можно оттуда.</span>
+      </p>
+      <div className="flex justify-end gap-2">
+        <button onClick={() => setConfirmArchive(false)} className="btn-ghost">Нет</button>
+        <button onClick={toggleArchive} className="btn-danger">
+          <Trash2 size={15} /> Да, удалить
+        </button>
+      </div>
+    </div>
+  ) : (
     <div className="flex items-center justify-between gap-2">
       <div className="flex items-center gap-2">
         {editable && (
@@ -234,18 +247,11 @@ export function ItemPanel({
           <RotateCcw size={15} /> Вернуть в работу
         </button>
       )}
-      {!isNew && !base!.archived && canDelete && !previewMode &&
-        (confirmArchive ? (
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-on-surface-variant">Удалить позицию?</span>
-            <button onClick={toggleArchive} className="btn-primary h-8 bg-status-red hover:bg-status-red">Да, удалить</button>
-            <button onClick={() => setConfirmArchive(false)} className="btn-ghost h-8">Нет</button>
-          </div>
-        ) : (
-          <button onClick={() => setConfirmArchive(true)} className="btn-ghost text-status-red hover:bg-status-red/10" title="Удалить позицию">
-            <Trash2 size={15} /> Удалить
-          </button>
-        ))}
+      {!isNew && !base!.archived && canDelete && !previewMode && (
+        <button onClick={() => setConfirmArchive(true)} className="btn-ghost text-status-red hover:bg-status-red/10" title="Удалить позицию">
+          <Trash2 size={15} /> Удалить
+        </button>
+      )}
     </div>
   );
 

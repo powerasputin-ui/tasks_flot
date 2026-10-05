@@ -185,6 +185,7 @@ body {
 
 /* Кнопки */
 .btn-primary,
+.btn-danger,
 .btn-ghost,
 .btn-success {
   display: inline-flex;
@@ -207,6 +208,16 @@ body {
 .btn-primary:hover {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
+}
+/* Необратимое действие (удалить): красная, а не синяя */
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+  border: 1px solid var(--red);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--red) 85%, #000);
+  border-color: color-mix(in srgb, var(--red) 85%, #000);
 }
 .btn-primary:disabled {
   opacity: 0.5;

@@ -417,7 +417,7 @@ function Builder({
             <button onClick={saveChanges} disabled={!dirty} className="btn-ghost h-8">Сохранить изменения</button>
             {confirmDelete ? (
               <>
-                <button onClick={remove} className="btn-primary h-8 bg-status-red hover:bg-status-red">Да, удалить</button>
+                <button onClick={remove} className="btn-danger h-8">Да, удалить</button>
                 <button onClick={() => setConfirmDelete(false)} className="btn-ghost h-8">Нет</button>
               </>
             ) : (
