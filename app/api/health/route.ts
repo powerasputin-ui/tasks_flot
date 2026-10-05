@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const flood = burstLimited(`health:${clientIp(request)}`, 20, 60_000);
   if (flood) return flood;
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await prisma.directorate.findFirst({ select: { id: true } }); // обычное чтение: при «мёртвом» соединении повторится само
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ ok: false }, { status: 503, headers: { "Cache-Control": "no-store" } });
