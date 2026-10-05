@@ -3,7 +3,7 @@ import { canViewVersion } from "@/lib/memo-versions";
 import { listDirectorates } from "@/lib/directorates";
 import { parseMemoDoc } from "@/lib/memo";
 import { effectiveDate, type VersionSource } from "@/lib/memo-archive";
-import { AiError, aiBudget, decryptKey, normalizeBaseUrl, type AiConfig, type AiProvider, type MemoForAi } from "@/lib/ai";
+import { AiError, aiBudget, decryptKey, normalizeBaseUrl, providerLabel, type AiConfig, type AiProvider, type MemoForAi } from "@/lib/ai";
 import type { Actor } from "@/lib/permissions";
 
 export const MAX_VERSIONS = 12;
@@ -21,7 +21,8 @@ export async function loadAiConfig(userId: string): Promise<AiConfig | null> {
   const s = await prisma.aiSetting.findUnique({ where: { userId } });
   if (!s) return null;
   try {
-    return { provider: s.provider as AiProvider, baseUrl: s.baseUrl, model: s.model, apiKey: decryptKey(s.apiKeyEnc) };
+    const apiKey = decryptKey(s.apiKeyEnc);
+    return { provider: s.provider as AiProvider, baseUrl: baseUrlForKey(apiKey, s.baseUrl), model: s.model, apiKey };
   } catch {
     throw new AiError("NOT_CONFIGURED", "Сохранённый ключ не удалось прочитать — введите его заново в настройках ИИ.");
   }
@@ -47,8 +48,9 @@ export function cleanEnvKey(raw: string | undefined): string {
 function envConfig(prefix: "AI" | "AI_FALLBACK", d: { baseUrl: string; model: string }): AiConfig | null {
   const apiKey = cleanEnvKey(process.env[`${prefix}_API_KEY`]);
   if (!apiKey) return null;
-  const baseUrl = normalizeBaseUrl(process.env[`${prefix}_BASE_URL`]?.trim() || d.baseUrl, "openai");
-  if (!baseUrl) return null;
+  const base = normalizeBaseUrl(process.env[`${prefix}_BASE_URL`]?.trim() || d.baseUrl, "openai");
+  if (!base) return null;
+  const baseUrl = baseUrlForKey(apiKey, base);
   return { provider: "openai", baseUrl, model: process.env[`${prefix}_MODEL`]?.trim() || d.model, apiKey };
 }
 
@@ -85,16 +87,36 @@ export async function withAiFallback<T>(cfg: Chain, contextLength: number, run: 
     return await run(cfg);
   } catch (e) {
     if (!fb || !(e instanceof AiError) || !RETRYABLE.has(e.code)) throw e;
+    console.warn(`[ai] ${providerLabel(cfg.baseUrl)} ${cfg.model}: ${e.code} — пробуем ${providerLabel(fb.baseUrl)}`);
     try {
       return await withAiFallback(fb, contextLength, run);
-    } catch {
-      throw e;
+    } catch (next) {
+      // не сработало ни одно звено — показываем причину каждого, иначе не понять, какой ключ чинить
+      const rest = next instanceof AiError ? next.message : "сбой";
+      throw new AiError(e.code, `${e.message} Запасной вариант тоже не сработал: ${rest}`);
     }
   }
 }
 
 function maxWindow(c: Chain): number {
   return Math.max(aiBudget(c).contextChars, c.fallback ? maxWindow(c.fallback) : 0);
+}
+
+/**
+ * Ключ сам говорит, чей он: gsk_ — Groq, nvapi- — NVIDIA. Если адрес оставили пустым (по умолчанию OpenAI) или указали
+ * не тот, а ключ явно чужой — берём адрес провайдера ключа: иначе запрос гарантированно отклонят.
+ */
+export function baseUrlForKey(apiKey: string, baseUrl: string): string {
+  const host = (() => {
+    try {
+      return new URL(baseUrl).hostname;
+    } catch {
+      return "";
+    }
+  })();
+  if (apiKey.startsWith("gsk_") && !host.includes("groq")) return "https://api.groq.com/openai/v1";
+  if (apiKey.startsWith("nvapi-") && !host.includes("nvidia")) return "https://integrate.api.nvidia.com/v1";
+  return baseUrl;
 }
 
 /** Версии справок по id: только те, которые этому человеку разрешено видеть (чужие и несуществующие молча отбрасываются). */

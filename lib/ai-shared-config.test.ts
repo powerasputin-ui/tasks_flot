@@ -48,3 +48,17 @@ describe("запасной провайдер", () => {
     expect(used).toEqual(["n"]);
   });
 });
+
+describe("адрес по ключу", () => {
+  it("ключ Groq с адресом OpenAI по умолчанию уходит в Groq; NVIDIA — в NVIDIA; свои адреса не трогаем", async () => {
+    const { baseUrlForKey } = await import("@/lib/ai-server");
+    expect(baseUrlForKey("gsk_x", "https://api.openai.com/v1")).toBe("https://api.groq.com/openai/v1");
+    expect(baseUrlForKey("nvapi-x", "https://api.openai.com/v1")).toBe("https://integrate.api.nvidia.com/v1");
+    expect(baseUrlForKey("sk-x", "https://api.openai.com/v1")).toBe("https://api.openai.com/v1");
+    expect(baseUrlForKey("gsk_x", "https://api.groq.com/openai/v1")).toBe("https://api.groq.com/openai/v1");
+  });
+  it("отказали все звенья — в ошибке причина каждого", async () => {
+    const cfg = { provider: "openai" as const, baseUrl: "https://api.groq.com/openai/v1", model: "g", apiKey: "a", fallback: { provider: "openai" as const, baseUrl: "https://integrate.api.nvidia.com/v1", model: "n", apiKey: "b" } };
+    await expect(withAiFallback(cfg, 10, async (c) => { throw new AiError("BAD_KEY", `ключ ${c.model} не принят.`); })).rejects.toThrow("ключ g не принят. Запасной вариант тоже не сработал: ключ n не принят.");
+  });
+});
