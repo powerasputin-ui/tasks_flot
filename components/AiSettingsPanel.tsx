@@ -5,7 +5,10 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 type Provider = "openai" | "anthropic";
 type Defaults = Record<Provider, { baseUrl: string; model: string }>;
-type State = { configured: boolean; provider?: Provider; baseUrl?: string; model?: string; keyHint?: string; defaults: Defaults };
+type Shared = { model: string; host: string; fallback: { model: string; host: string } | null } | null;
+type State = { configured: boolean; own?: boolean; shared?: Shared; provider?: Provider; baseUrl?: string; model?: string; keyHint?: string; defaults: Defaults };
+
+const providerName = (host: string) => (host.includes("groq") ? "Groq" : host.includes("nvidia") ? "NVIDIA" : host.includes("googleapis") ? "Google" : host.includes("openrouter") ? "OpenRouter" : host);
 
 const FALLBACK: Defaults = {
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -31,12 +34,12 @@ const PRESETS: Array<{ id: string; label: string; baseUrl: string; model: string
     note: "Запасной вариант на том же ключе Groq: быстрее, но слабее. Те же лимиты и сжатие справок.",
   },
   {
-    id: "nvidia-deepseek",
-    label: "NVIDIA · DeepSeek V4.1 Flash (бесплатно)",
+    id: "nvidia-nemotron",
+    label: "NVIDIA · Nemotron 3 Super (бесплатно)",
     baseUrl: "https://integrate.api.nvidia.com/v1",
-    model: "deepseek-ai/deepseek-v4.1-flash",
-    keyUrl: "https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash",
-    note: "Большое окно — подходит для сводки по нескольким дирекциям. Бесплатно ~40 запросов в минуту, но объём бесплатных запросов ограничен (не бессрочно). Перед ключом NVIDIA попросит принять условия модели. Ключ начинается с nvapi-.",
+    model: "nvidia/nemotron-3-super-120b-a12b",
+    keyUrl: "https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b",
+    note: "Проверено: большое окно — справки нескольких дирекций целиком, сводка ~15 с. Бесплатно ~40 запросов в минуту; NVIDIA просит не отправлять конфиденциальные данные. Ключ начинается с nvapi-.",
   },
   {
     id: "gemini",
@@ -61,6 +64,8 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [preset, setPreset] = useState("");
+  // при общем подключении своя форма не нужна — открывается по ссылке
+  const [ownOpen, setOwnOpen] = useState(false);
   const chosen = PRESETS.find((x) => x.id === preset);
 
   useEffect(() => {
@@ -68,7 +73,7 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
       .then((r) => r.json())
       .then((s: State) => {
         setState(s);
-        if (s.configured && s.provider) {
+        if (s.own && s.provider) {
           setProvider(s.provider);
           setBaseUrl(s.baseUrl ?? "");
           setModel(s.model ?? "");
@@ -102,19 +107,50 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
 
   async function disconnect() {
     await fetch("/api/ai/settings", { method: "DELETE" });
-    onChanged(false);
+    onChanged(!!state?.shared); // свой ключ убран — остаётся общее подключение, если оно есть
     close();
   }
 
-  const canTest = !!apiKey.trim() || !!state?.configured;
+  const own = !!state?.own;
+  const shared = state?.shared ?? null;
+  const canTest = !!apiKey.trim() || own;
 
   return (
     <div className="space-y-3 p-4">
       <div>
         <p className="text-[13px] font-semibold text-on-surface">Подключение ИИ</p>
-        <p className="mt-0.5 text-[12px] leading-snug text-on-surface-variant">Вставьте ключ API любого провайдера. Ключ хранится на сервере в зашифрованном виде и в браузер не возвращается.</p>
+        {shared && !own ? (
+          <div className="mt-1.5 rounded-md bg-status-emerald/10 px-3 py-2 text-[12px] leading-snug text-on-surface">
+            <p className="flex items-center gap-1.5 font-semibold">
+              <CheckCircle2 size={14} className="text-status-emerald" /> ИИ уже подключён для всех — ничего настраивать не нужно.
+            </p>
+            <p className="mt-1 text-on-surface-variant">
+              Модель: {providerName(shared.host)} · {shared.model}
+              {shared.fallback && <>; если она занята или справки не помещаются — {providerName(shared.fallback.host)} · {shared.fallback.model}</>}.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-0.5 text-[12px] leading-snug text-on-surface-variant">Вставьте ключ API любого провайдера. Ключ хранится на сервере в зашифрованном виде и в браузер не возвращается.</p>
+        )}
       </div>
 
+      {shared && !own && !ownOpen ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={() => void call("test")} disabled={busy !== null} className="btn-ghost h-8">
+            {busy === "test" && <Loader2 size={14} className="animate-spin" />} Проверить связь
+          </button>
+          <button onClick={() => setOwnOpen(true)} className="text-[12px] text-on-surface-variant hover:text-on-surface hover:underline">
+            Использовать свой ключ (необязательно)
+          </button>
+          {result && (
+            <p className={`flex w-full items-start gap-1.5 text-[12px] leading-snug ${result.ok ? "text-status-emerald" : "text-status-red"}`}>
+              {result.ok ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <XCircle size={14} className="mt-0.5 shrink-0" />}
+              {result.text}
+            </p>
+          )}
+        </div>
+      ) : (
+        <>
       <label className="block text-[12px] text-on-surface-variant">
         Готовый вариант
         <select
@@ -172,13 +208,13 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
         <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults[provider].model} className="input mt-1 w-full" />
       </label>
       <label className="block text-[12px] text-on-surface-variant">
-        Ключ API {state?.configured && <span className="text-on-surface">· сохранён {state.keyHint}</span>}
+        Ключ API {own && <span className="text-on-surface">· сохранён {state?.keyHint}</span>}
         <input
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           autoComplete="off"
-          placeholder={state?.configured ? "Оставьте пустым, чтобы не менять" : chosen?.id.startsWith("nvidia") ? "nvapi-…" : chosen?.id.startsWith("groq") ? "gsk_…" : "Ключ API"}
+          placeholder={own ? "Оставьте пустым, чтобы не менять" : chosen?.id.startsWith("nvidia") ? "nvapi-…" : chosen?.id.startsWith("groq") ? "gsk_…" : "Ключ API"}
           className="input mt-1 w-full"
         />
       </label>
@@ -200,15 +236,17 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
         <button onClick={() => void call("test")} disabled={!canTest || busy !== null} className="btn-ghost h-8">
           {busy === "test" && <Loader2 size={14} className="animate-spin" />} Проверить связь
         </button>
-        <button onClick={() => void call("save")} disabled={(!apiKey.trim() && !state?.configured) || busy !== null} className="btn-primary h-8">
+        <button onClick={() => void call("save")} disabled={(!apiKey.trim() && !own) || busy !== null} className="btn-primary h-8">
           {busy === "save" && <Loader2 size={14} className="animate-spin" />} Сохранить
         </button>
-        {state?.configured && (
+        {own && (
           <button onClick={() => void disconnect()} className="ml-auto text-[12px] font-semibold text-status-red hover:underline">
-            Отключить
+            {state?.shared ? "Убрать свой ключ" : "Отключить"}
           </button>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

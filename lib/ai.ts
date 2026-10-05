@@ -126,6 +126,8 @@ function build(cfg: AiConfig, req: Req, stream: boolean): { url: string; init: R
         ...(req.json ? { response_format: { type: "json_object" } } : {}),
         // у gpt-oss рассуждения расходуют лимит ответа (и бесплатные токены) — просим коротко
         ...(/gpt-oss/i.test(cfg.model) ? { reasoning_effort: "low" } : {}),
+        // Nemotron без «размышлений» отвечает в 2–3 раза быстрее и не съедает лимит ответа рассуждениями (проверено на сводке)
+        ...(/nemotron/i.test(cfg.model) ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       }),
       signal: req.signal,
     },
@@ -288,7 +290,8 @@ export function aiBudget(cfg: Pick<AiConfig, "baseUrl">): AiBudget {
     /* адрес уже проверен при сохранении */
   }
   if (host === "api.groq.com") return { small: true, contextChars: 11000, historyChars: 3000, chatOut: 1200, consolidateOut: 2000 };
-  return { small: false, contextChars: CONTEXT_LIMIT, historyChars: 40000, chatOut: 1500, consolidateOut: 3500 };
+  // у «размышляющих» моделей (Nemotron, DeepSeek, GPT-OSS) рассуждения входят в лимит ответа — даём запас, иначе ответ пустой
+  return { small: false, contextChars: CONTEXT_LIMIT, historyChars: 40000, chatOut: 6000, consolidateOut: 10000 };
 }
 
 export function buildContext(memos: MemoForAi[], limit = CONTEXT_LIMIT): string {

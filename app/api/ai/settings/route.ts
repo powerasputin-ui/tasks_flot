@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { AI_DEFAULTS, AiError, decryptKey, encryptKey, keyHint, normalizeBaseUrl, type AiProvider } from "@/lib/ai";
-import { canUseAi } from "@/lib/ai-server";
+import { canUseAi, sharedAiConfig } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 
 const forbidden = () => NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -12,14 +12,17 @@ async function GETHandler() {
   const actor = await requireActor();
   if (!canUseAi(actor)) return forbidden();
   const s = await prisma.aiSetting.findUnique({ where: { userId: actor.id } });
-  if (!s) return NextResponse.json({ configured: false, defaults: AI_DEFAULTS });
+  // общее подключение организации: ключи на сервере, человеку показываем только какие модели работают
+  const org = sharedAiConfig();
+  const shared = org ? { model: org.model, host: new URL(org.baseUrl).hostname, fallback: org.fallback ? { model: org.fallback.model, host: new URL(org.fallback.baseUrl).hostname } : null } : null;
+  if (!s) return NextResponse.json({ configured: !!org, own: false, shared, defaults: AI_DEFAULTS });
   let hint = "…";
   try {
     hint = keyHint(decryptKey(s.apiKeyEnc));
   } catch {
     /* ключ нечитаем — покажем «…», человек введёт заново */
   }
-  return NextResponse.json({ configured: true, provider: s.provider, baseUrl: s.baseUrl, model: s.model, keyHint: hint, defaults: AI_DEFAULTS });
+  return NextResponse.json({ configured: true, own: true, shared, provider: s.provider, baseUrl: s.baseUrl, model: s.model, keyHint: hint, defaults: AI_DEFAULTS });
 }
 
 async function PUTHandler(request: NextRequest) {

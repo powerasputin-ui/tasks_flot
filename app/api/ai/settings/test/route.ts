@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { AI_DEFAULTS, complete, normalizeBaseUrl, type AiConfig } from "@/lib/ai";
-import { aiErrorResponse, canUseAi, loadAiConfig } from "@/lib/ai-server";
+import { aiErrorResponse, canUseAi, loadAiConfig, sharedAiConfig } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -13,7 +13,8 @@ async function POSTHandler(request: NextRequest) {
   if (limited) return limited;
   const b = (await request.json().catch(() => null)) as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | null;
   try {
-    const saved = await loadAiConfig(actor.id);
+    // форма пустая и своего ключа нет — проверяем общее подключение организации
+    const saved = (await loadAiConfig(actor.id)) ?? (!b?.apiKey?.trim() && !b?.baseUrl?.trim() ? sharedAiConfig() : null);
     const provider = b?.provider === "openai" || b?.provider === "anthropic" ? b.provider : saved?.provider;
     if (!provider) return NextResponse.json({ error: "INVALID_INPUT", message: "Выберите тип подключения." }, { status: 400 });
     const baseUrl = normalizeBaseUrl(b?.baseUrl ?? saved?.baseUrl ?? "", provider);
