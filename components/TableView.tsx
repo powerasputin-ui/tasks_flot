@@ -12,7 +12,7 @@ import { CycleStrip } from "@/components/CycleStrip";
 import { WeekSelect } from "@/components/WeekSelect";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
-import { canCreateItem, canDeleteItem, isDirectorial } from "@/lib/permissions";
+import { canCreateItem, canDeleteItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -420,7 +420,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   }
 
   // «Опер» — только для тех, кто не составляет справку сам (они видят «В справку» вместо этого); «В справку» — только составителям при активном цикле
-  const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "operFlag" || !canCompile) && (c.key !== "memo" || !!memo));
+  // «Отправить директору» нужно тем, кто подаёт свои позиции: руководителям (и составителям справки из них) и админам с флагом «подаёт как руководитель»
+  const submitsOwn = !!me && isSubmitter(me);
+  const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "operFlag" || !canCompile || submitsOwn) && (c.key !== "memo" || !!memo));
   // ширина колонки — как в Excel: у каждой своя, независимая, в пикселях; растягивание одной колонки не трогает остальные.
   // Последняя колонка ширины не задаёт — сама сжимается/растягивается под оставшееся место, так таблица всегда ровно по ширине контейнера.
   const fillerKey = visibleColumns.length ? visibleColumns[visibleColumns.length - 1].key : null;
@@ -483,7 +485,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       }
       case "operFlag": {
         if (row.archived) return "—";
-        if (!canEditRow(row)) return row.operFlag ? <span className="inline-flex items-center">отправлено</span> : "—";
+        // подающий админ/директор отправляет только свои строки; чужие он не «подаёт», а решает по ним в справке
+        const ownOnly = !!me && isDirectorial(me.role);
+        if (!canEditRow(row) || (ownOnly && row.ownerId !== me?.id)) return row.operFlag ? <span className="inline-flex items-center">отправлено</span> : "—";
         return (
           <button
             onClick={(e) => {
