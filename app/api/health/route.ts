@@ -20,5 +20,7 @@ export async function GET(request: NextRequest) {
     new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 8000)),
   ]);
   const body = { ok: db === "ok", db, dbMs: Date.now() - t, cold, uptimeMs: Date.now() - bootAt };
+  // каждый вызов — в журнал: если запрос висел, а строки нет, значит он не дошёл до нашего кода (зависание на стороне платформы)
+  console.log(`[health] ${JSON.stringify(body)} region=${process.env.VERCEL_REGION ?? "-"} id=${request.headers.get("x-vercel-id") ?? "-"}`);
   return NextResponse.json(body, { status: db === "ok" ? 200 : 503, headers: { "Cache-Control": "no-store" } });
 }

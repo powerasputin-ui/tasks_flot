@@ -37,6 +37,10 @@ export function isConnectionError(e: unknown): boolean {
 
 const url = withWakeTimeouts(process.env.DATABASE_URL);
 
+/** Запросы к базе дольше этого пишутся в журнал Vercel (поиск причины зависаний). */
+const SLOW_DB_MS = 2000;
+let firstQuery = true;
+
 function create(): PrismaClient {
   const base = new PrismaClient({
     ...(url ? { datasources: { db: { url } } } : {}),
@@ -46,12 +50,19 @@ function create(): PrismaClient {
   const extended = base.$extends({
     query: {
       $allModels: {
-        async $allOperations({ operation, args, query }) {
+        async $allOperations({ model, operation, args, query }) {
+          const t = Date.now();
           try {
             return await query(args);
           } catch (e) {
             if (!READS.has(operation) || !isConnectionError(e)) throw e;
+            console.warn(`[db-retry] ${model}.${operation} после ${Date.now() - t} мс: ${(e as Error).message.slice(0, 160)}`);
             return query(args);
+          } finally {
+            // диагностика зависаний на проде: какой запрос к базе был медленным и сколько ждал (первый — с подключением)
+            const ms = Date.now() - t;
+            if (ms > SLOW_DB_MS) console.warn(`[db-slow] ${model}.${operation} ${ms} мс${firstQuery ? " (первый запрос экземпляра — с подключением)" : ""}`);
+            firstQuery = false;
           }
         },
       },
