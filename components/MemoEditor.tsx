@@ -2,8 +2,9 @@
 
 import { fetchRetry } from "@/lib/fetch-retry";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, EyeOff, FileDown, Info, Merge, Minus, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
-import { Popover } from "@/components/ui/Popover";
+import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
+import { MenuItem, Popover } from "@/components/ui/Popover";
+import { useIsMobile } from "@/lib/use-mobile";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { manualBullet, memoTitle, mergeBullets, sectionOf, sourceText, splitTitleDate, type BulletFlags, type MemoBullet, type MemoDoc, type MemoSectionDoc, type SectionDef } from "@/lib/memo";
@@ -227,6 +228,8 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   const [reminding, setReminding] = useState(false);
   const [reminded, setReminded] = useState<Set<string>>(new Set());
   const [remindNote, setRemindNote] = useState<string | null>(null);
+  // телефон: справка «потоком» во всю ширину экрана, без листов А4 и масштаба
+  const mobile = useIsMobile();
   const [zoom, setZoom] = useState(100); // масштаб листа в редакторе — как в Word: кнопки +/− или Ctrl+колесо
   // кто я — чтобы отмечать пункты, которые менял кто-то другой
   const [meName, setMeName] = useState<string | null>(null);
@@ -751,7 +754,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   return (
     <>
       <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-4 lg:sticky lg:top-40 lg:self-start">
+        <aside className="space-y-4 max-md:order-2 lg:sticky lg:top-40 lg:self-start">
           <section className="surface p-4">
             <h3 className="label-caps">Подача</h3>
             <p className="mt-1 text-[13px] text-on-surface">
@@ -825,7 +828,39 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
             <span className="ml-auto flex items-center gap-2">
               <SaveState state={save} onReload={() => void load()} />
               <MemoHistoryButton cycleId={cycleId} />
-              {editable && (
+              {mobile && (
+                <Popover
+                  align="right"
+                  trigger={({ toggle }) => (
+                    <button onClick={toggle} className="btn-icon" title="Ещё" aria-label="Ещё действия со справкой">
+                      <MoreHorizontal size={18} />
+                    </button>
+                  )}
+                >
+                  {(close) => (
+                    <div className="py-1">
+                      {editable && (
+                        <MenuItem onClick={() => { close(); void refresh(); }} icon={<RefreshCw size={15} />}>
+                          Обновить из данных
+                        </MenuItem>
+                      )}
+                      <a href={`/api/cycles/${cycleId}/memo/export?format=pdf`} onClick={() => { void flush(); close(); }} download className="flex items-center gap-2.5 px-3.5 py-3 text-[15px] text-on-surface">
+                        <FileDown size={15} className="text-outline" /> Скачать PDF
+                      </a>
+                      <a href={`/api/cycles/${cycleId}/memo/export?format=docx`} onClick={() => { void flush(); close(); }} download className="flex items-center gap-2.5 px-3.5 py-3 text-[15px] text-on-surface">
+                        <FileDown size={15} className="text-outline" /> Скачать Word
+                      </a>
+                      {editable && (
+                        <div className="border-t border-outline-variant p-3">
+                          <p className="label-caps mb-2">Вид справки</p>
+                          <MemoViewSettings compact onApplied={() => void reloadAfterViewChange()} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Popover>
+              )}
+              {editable && !mobile && (
                 <Popover
                   align="right"
                   width={380}
@@ -843,17 +878,21 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                   )}
                 </Popover>
               )}
-              {editable && (
+              {editable && !mobile && (
                 <button onClick={() => void refresh()} className="btn-ghost h-8" title="Добавить в справку новые поданные позиции; ваши правки не затрагиваются">
                   <RefreshCw size={14} /> Обновить из данных
                 </button>
               )}
-              <a href={`/api/cycles/${cycleId}/memo/export?format=pdf`} onClick={() => void flush()} className="btn-ghost h-8" download>
-                <FileDown size={14} /> PDF
-              </a>
-              <a href={`/api/cycles/${cycleId}/memo/export?format=docx`} onClick={() => void flush()} className="btn-ghost h-8" download>
-                <FileDown size={14} /> Word
-              </a>
+              {!mobile && (
+                <>
+                  <a href={`/api/cycles/${cycleId}/memo/export?format=pdf`} onClick={() => void flush()} className="btn-ghost h-8" download>
+                    <FileDown size={14} /> PDF
+                  </a>
+                  <a href={`/api/cycles/${cycleId}/memo/export?format=docx`} onClick={() => void flush()} className="btn-ghost h-8" download>
+                    <FileDown size={14} /> Word
+                  </a>
+                </>
+              )}
             </span>
           </div>
 
@@ -872,7 +911,68 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
             </p>
           )}
 
-          {/* масштаб — как в Word: визуальный transform, сама вёрстка листов не пересчитывается */}
+          {mobile ? (
+            <article className="rounded-lg border border-outline-variant bg-surface p-3 shadow-sm">
+              {/* заголовок с датой совещания собирается сам; правится на ПК (там же поле даты рядом) */}
+              <h2 className="px-1 text-[16px] font-bold leading-snug text-on-surface">{doc.title || autoTitle}</h2>
+              {doc.sections.map((section, si) => {
+                const titled = section.kind !== "other" || section.title.trim() !== "";
+                const no = doc.sections.slice(0, si).filter((x) => x.kind !== "other" || x.title.trim() !== "").length + 1;
+                return (
+                  <section key={section.id} className="mt-4">
+                    {titled && (
+                      <div className="flex items-start gap-1.5">
+                        <span className="mt-px text-[16px] font-bold leading-snug text-on-surface">{no}.</span>
+                        <AutoText
+                          value={section.title}
+                          disabled={!editable}
+                          onChange={(v) => change({ ...doc, sections: doc.sections.map((x) => (x.id === section.id ? { ...x, title: v } : x)) })}
+                          className="text-[16px] font-bold leading-snug text-on-surface"
+                          label="Название раздела"
+                        />
+                      </div>
+                    )}
+                    <ul className="mt-1 space-y-2">
+                      {section.bullets.map((b, bi) => {
+                        const byOther = !!b.changedBy && !!meName && b.changedBy !== meName;
+                        return (
+                          <li key={b.id} className={`rounded-md border border-outline-variant/60 p-2 ${b.hidden ? "opacity-50" : ""}`}>
+                            <div className="flex gap-1.5">
+                              <span className={`mt-[3px] select-none text-[15px] ${byOther ? "font-bold text-status-amber" : "text-on-surface"}`} title={byOther ? `Изменил(а) ${b.changedBy}` : undefined}>•</span>
+                              <AutoText
+                                value={b.text}
+                                disabled={!editable || b.hidden}
+                                onChange={(v) => patchBullet(section.id, b.id, { text: v, edited: true })}
+                                className="text-[15px] leading-snug text-on-surface"
+                                label="Текст пункта"
+                              />
+                            </div>
+                            {byOther && <p className="ml-4 mt-0.5 text-[11px] text-status-amber">Изменил(а) {b.changedBy}{b.changedAt ? `, ${new Date(b.changedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}</p>}
+                            {editable && (
+                              <div className="mt-1.5 flex items-center justify-end gap-1">
+                                <button onClick={() => patchBullet(section.id, b.id, b.hidden && data.flags[b.id]?.sourceMissing ? { hidden: false, pinned: true } : { hidden: !b.hidden })} className="btn-ghost h-9 px-2.5 text-[13px]">
+                                  {b.hidden ? <><Eye size={14} /> Вернуть</> : <><EyeOff size={14} /> Скрыть</>}
+                                </button>
+                                <button onClick={() => moveBullet(section.id, bi, -1)} disabled={bi === 0} className="btn-icon h-9 w-9" aria-label="Пункт выше"><ArrowUp size={15} /></button>
+                                <button onClick={() => moveBullet(section.id, bi, 1)} disabled={bi === section.bullets.length - 1} className="btn-icon h-9 w-9" aria-label="Пункт ниже"><ArrowDown size={15} /></button>
+                                <button onClick={() => removeBullet(section.id, b.id)} className="btn-icon h-9 w-9 text-status-red" aria-label="Удалить пункт"><Trash2 size={15} /></button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {editable && (
+                      <button onClick={() => addBullet(section.id)} className="mt-2 flex h-9 items-center gap-1.5 px-1 text-[13px] font-semibold text-primary">
+                        <Plus size={14} /> Пункт
+                      </button>
+                    )}
+                  </section>
+                );
+              })}
+            </article>
+          ) : (
+          /* масштаб — как в Word: визуальный transform, сама вёрстка листов не пересчитывается */
           <div className="overflow-x-auto">
             <div onWheel={onPagesWheel} style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center" }}>
               {pages.map((blocks, pi) => (
@@ -890,6 +990,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -902,7 +1003,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
 
       {/* Масштаб — плавающая панель в левом нижнем углу (как в Word/просмотрщиках PDF), вне трансформированного
           контейнера листов, чтобы сама кнопка не масштабировалась вместе с ними. */}
-      <div className="fixed bottom-4 left-4 z-40 flex items-center gap-0.5 rounded-md border border-outline-variant bg-surface px-0.5 py-0.5 shadow-md">
+      <div className="fixed bottom-4 left-4 z-40 flex items-center gap-0.5 rounded-md border border-outline-variant bg-surface px-0.5 py-0.5 shadow-md max-md:hidden">
         <button onClick={() => zoomBy(-10)} disabled={zoom <= ZOOM_MIN} className={ICON} title="Уменьшить (Ctrl+колесо)" aria-label="Уменьшить масштаб"><Minus size={14} /></button>
         <button onClick={() => setZoom(100)} className="min-w-[3.5ch] px-1 text-center text-[12px] text-on-surface-variant hover:text-on-surface" title="Сбросить масштаб">{zoom}%</button>
         <button onClick={() => zoomBy(10)} disabled={zoom >= ZOOM_MAX} className={ICON} title="Увеличить (Ctrl+колесо)" aria-label="Увеличить масштаб"><Plus size={14} /></button>
@@ -1269,5 +1370,28 @@ function MemoHistoryButton({ cycleId }: { cycleId: string }) {
         </div>
       )}
     </Popover>
+  );
+}
+
+/** Поле, которое растёт по тексту (телефон: справка «потоком»). */
+function AutoText({ value, onChange, disabled, className = "", placeholder, label }: { value: string; onChange: (v: string) => void; disabled?: boolean; className?: string; placeholder?: string; label: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      rows={1}
+      disabled={disabled}
+      placeholder={placeholder}
+      aria-label={label}
+      onChange={(e) => onChange(e.target.value)}
+      className={`block w-full min-w-0 resize-none overflow-hidden rounded-sm bg-transparent px-1 outline-none focus:bg-surface-low disabled:text-on-surface-variant ${className}`}
+    />
   );
 }
