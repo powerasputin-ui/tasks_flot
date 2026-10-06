@@ -1586,6 +1586,14 @@ describe("админ, который подаёт как руководител�
     // у себя он видит полосу «подано ваших X из Y»
     const mine = await call({ id: u.id, role: "ADMIN", name: u.name, directorateId: dirB, submits: true } as Actor, cyclesCurrent.GET, "/api/cycles/current");
     expect(mine.data.mine).toEqual({ total: 0, sent: 0 });
+
+    // свою позицию он создаёт на себя: поданная засчитывается ему (найдено сквозной проверкой на проде 06.10.2026)
+    const adminActor = { id: u.id, role: "ADMIN", name: u.name, directorateId: dirB, submits: true } as Actor;
+    const own = await call(adminActor, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} позиция админа`, operFlag: true } });
+    expect(own.status).toBe(201);
+    created.items.push(own.data.row.id);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: own.data.row.id } })).responsibleId).toBe(u.id);
+    expect((await call(adminActor, cyclesCurrent.GET, "/api/cycles/current")).data.mine).toEqual({ total: 1, sent: 1 });
     // свою оперативку закрываем, чтобы следующие проверки могли начать новую
     if (mineCycle) await prisma.cycle.update({ where: { id: cyc.id }, data: { status: "FINAL" } });
   });

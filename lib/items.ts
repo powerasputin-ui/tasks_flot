@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canRestoreItem, canViewItems, type Actor } from "@/lib/permissions";
+import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canRestoreItem, canViewItems, isSubmitter, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { changedFields, notifyOwnerOfEdit } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
@@ -61,8 +61,9 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
   if (!canCreateItem(actor.role)) return { ok: false, error: "FORBIDDEN" };
   const directorateId = actor.directorateId;
   if (!directorateId) return { ok: false, error: "FORBIDDEN" };
-  // Руководитель создаёт позиции только на себя: ответственным по умолчанию становится он сам.
-  const responsibleId = actor.role === "HEAD" ? input.responsibleId ?? actor.id : input.responsibleId;
+  // Кто подаёт позиции как руководитель (руководитель; админ или директор с «Подаёт как руководитель»), создаёт их на себя:
+  // ответственным по умолчанию становится он сам — иначе его поданная позиция не засчитывается ему в подаче и напоминаниях.
+  const responsibleId = isSubmitter(actor) ? input.responsibleId ?? actor.id : input.responsibleId;
   if (!canAssignResponsible(actor, responsibleId)) return { ok: false, error: "FORBIDDEN" };
 
   if (!(await refsInDirectorate(directorateId, { ...input, responsibleId }))) return { ok: false, error: "INVALID_REFERENCE" };
