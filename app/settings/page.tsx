@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
@@ -28,6 +28,9 @@ type Directorate = {
 type UserPreset = { role: string; directorateId: string };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
+
+/** Группа «без дирекции» в списке людей у админа. */
+const NO_DIR = "__none";
 
 type SectionKey = "users" | "directorates" | "memo" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness" | "ai";
 type ColumnRow = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
@@ -60,7 +63,7 @@ export default function SettingsPage() {
       get("/api/statuses"),
       get("/api/attractiveness"),
       get("/api/tracks?all=1"),
-      get("/api/users?all=1"),
+      get("/api/users?all=1&everywhere=1"),
       get("/api/columns"),
       get("/api/directorates"),
       get("/api/memo-sections"),
@@ -243,8 +246,11 @@ function UsersSection({
 }) {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(!!preset);
-  // перенос между дирекциями — только админу и только когда дирекций больше одной
-  const canMove = isAdmin && directorates.length > 1;
+  // дирекция человека: админ выбирает её прямо в строке, а список сгруппирован по дирекциям — не надо искать, кто где
+  const canMove = isAdmin;
+  // фильтр по дирекции: "" — все, NO_DIR — без дирекции (ЗГД, админы), иначе id дирекции
+  const [dirFilter, setDirFilter] = useState("");
+  const [presetDir, setPresetDir] = useState<string | null>(null);
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
@@ -254,6 +260,20 @@ function UsersSection({
     const q = query.trim().toLowerCase();
     return q ? users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)) : users;
   }, [users, query]);
+
+  // группы: дирекции в их порядке, в конце — люди без дирекции. Пустые дирекции видны (кроме поиска), чтобы сразу добавить туда людей.
+  const groups = useMemo(() => {
+    if (!isAdmin) return [{ id: "", title: null as string | null, inactive: false, users: filtered }];
+    const known = new Set(directorates.map((d) => d.id));
+    const list = [
+      // ЗГД — всегда «на весь проект», даже если в старых данных у него осталась дирекция
+      ...directorates.map((d) => ({ id: d.id, title: d.name as string | null, inactive: !d.isActive, users: filtered.filter((u) => u.role !== "EXECUTIVE" && u.directorateId === d.id) })),
+      { id: NO_DIR, title: "Без дирекции — ЗГД и админы на весь проект", inactive: false, users: filtered.filter((u) => u.role === "EXECUTIVE" || !u.directorateId || !known.has(u.directorateId)) },
+    ];
+    return list.filter((g) => (dirFilter ? g.id === dirFilter : true) && (g.users.length > 0 || (!query.trim() && g.id !== NO_DIR)));
+  }, [isAdmin, directorates, filtered, dirFilter, query]);
+  const shown = groups.reduce((n, g) => n + g.users.length, 0);
+  const cols = canMove ? 5 : 4;
 
   return (
     <>
@@ -267,9 +287,20 @@ function UsersSection({
           </button>
         }
       />
-      <div className="relative mb-3 max-w-sm">
-        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по имени или e-mail" className="input w-full pl-9" />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative w-full max-w-sm">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по имени или e-mail" className="input w-full pl-9" />
+        </div>
+        {isAdmin && (
+          <select value={dirFilter} onChange={(e) => setDirFilter(e.target.value)} className="select w-full sm:w-auto" aria-label="Показать дирекцию">
+            <option value="">Все дирекции</option>
+            {directorates.map((d) => (
+              <option key={d.id} value={d.id}>{d.shortName || d.name}{d.isActive ? "" : " (отключена)"}</option>
+            ))}
+            <option value={NO_DIR}>Без дирекции (ЗГД, админы)</option>
+          </select>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
@@ -282,118 +313,148 @@ function UsersSection({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((u) => (
-              <tr key={u.id} className={`border-t border-outline-variant/50 ${u.isActive ? "" : "opacity-60"}`}>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar name={u.name} size={30} />
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-on-surface">{u.name}</p>
-                      <p className="truncate text-[12px] text-on-surface-variant">{u.email}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  {isAdmin ? (
-                    <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
-                      {Object.entries(ROLE_LABEL).filter(([k]) => k !== "SYSTEM_ADMIN" || u.role === "SYSTEM_ADMIN").map(([k, v]) => (
-                        <option key={k} value={k}>{v}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
-                  )}
-                </td>
-                {canMove && (
+            {groups.map((g) => (
+              <Fragment key={g.id || "all"}>
+                {g.title && (
+                  <tr className="border-t border-outline-variant bg-surface-low">
+                    <td colSpan={cols} className="px-4 py-2">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className={`text-[13px] font-semibold ${g.inactive ? "text-on-surface-variant" : "text-on-surface"}`}>
+                          {g.title}
+                          {g.inactive && " · отключена"}
+                        </span>
+                        <span className="text-[12px] text-on-surface-variant">{g.users.length === 0 ? "людей нет" : `${g.users.length} чел.`}</span>
+                        {g.id !== NO_DIR && !g.inactive && (
+                          <button
+                            onClick={() => {
+                              setPresetDir(g.id);
+                              setCreating(true);
+                            }}
+                            className="ml-auto text-[12px] font-semibold text-primary hover:underline"
+                          >
+                            + добавить в эту дирекцию
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {g.users.map((u) => (
+                <tr key={u.id} className={`border-t border-outline-variant/50 ${u.isActive ? "" : "opacity-60"}`}>
                   <td className="px-4 py-3">
-                    {u.role === "EXECUTIVE" ? (
-                      <span className="text-[12px] text-on-surface-variant">все дирекции</span>
-                    ) : (
-                      <select
-                        value={u.directorateId ?? ""}
-                        onChange={(e) => {
-                          const to = directorates.find((d) => d.id === e.target.value);
-                          if (window.confirm(to ? `Перевести ${u.name} в «${to.name}»? Он(а) будет видеть только её таблицу и оперативку.` : `Убрать ${u.name} из дирекции?`))
-                            patch(u.id, { directorateId: e.target.value || null }, "Переведён(а) в другую дирекцию.");
-                        }}
-                        className="select w-full"
-                        aria-label="Дирекция"
-                      >
-                        {(u.role === "ADMIN" || u.role === "SYSTEM_ADMIN") && <option value="">без дирекции</option>}
-                        {directorates.filter((d) => d.isActive || d.id === u.directorateId).map((d) => (
-                          <option key={d.id} value={d.id}>{d.shortName || d.name}</option>
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={u.name} size={30} />
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-on-surface">{u.name}</p>
+                        <p className="truncate text-[12px] text-on-surface-variant">{u.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {isAdmin ? (
+                      <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
+                        {Object.entries(ROLE_LABEL).filter(([k]) => k !== "SYSTEM_ADMIN" || u.role === "SYSTEM_ADMIN").map(([k, v]) => (
+                          <option key={k} value={k}>{v}</option>
                         ))}
                       </select>
+                    ) : (
+                      <span className="text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
                     )}
                   </td>
-                )}
-                <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
-                <td className="px-4 py-3">
-                  {isAdmin || u.role === "HEAD" ? (
-                  <div className="flex items-center justify-end gap-1.5">
-                    {resetFor === u.id ? (
-                      <>
-                        <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Новый пароль (8+)" className="input h-8 w-36" />
-                        <button
-                          disabled={newPassword.length < 8}
-                          onClick={async () => { await patch(u.id, { password: newPassword }, "Пароль изменён."); setResetFor(null); setNewPassword(""); }}
-                          className="btn-primary h-8"
-                        >
-                          OK
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {isAdmin && (u.role === "HEAD" ? (
-                          <button
-                            onClick={() => patch(u.id, { memoEditor: !u.memoEditor }, u.memoEditor ? "Снят с составления справки." : "Назначен составителем справки.")}
-                            className={`btn-icon h-8 w-8 ${u.memoEditor ? "bg-primary-soft text-primary" : ""}`}
-                            title={u.memoEditor ? "Снять с составления справки" : "Назначить составителем справки"}
-                            aria-label={u.memoEditor ? "Снять с составления справки" : "Назначить составителем справки"}
-                          >
-                            <FileText size={15} />
-                          </button>
-                        ) : u.role === "DIRECTOR" || u.role === "ADMIN" ? (
-                          <>
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-soft text-primary opacity-70" title="Составляет справку по должности — отдельно назначать не нужно">
-                              <FileText size={15} />
-                            </span>
-                            <button
-                              onClick={() => patch(u.id, { submits: !u.submits }, u.submits ? "Больше не подаёт позиции как руководитель." : "Теперь подаёт позиции как руководитель: в списке подачи и в напоминаниях.")}
-                              className={`btn-icon h-8 w-8 ${u.submits ? "bg-primary-soft text-primary" : ""}`}
-                              title={u.submits ? "Подаёт позиции как руководитель — выключить" : "Подаёт позиции как руководитель (в списке подачи, напоминаниях, «Посмотреть как» у директора)"}
-                              aria-label="Подаёт как руководитель"
-                              aria-pressed={!!u.submits}
-                            >
-                              <ClipboardCheck size={15} />
-                            </button>
-                          </>
-                        ) : null)}
-                        <button
-                          onClick={() => {
-                            const name = window.prompt("Имя (Фамилия И.О.)", u.name)?.trim();
-                            if (name && name !== u.name) patch(u.id, { name }, "Имя изменено.");
+                  {canMove && (
+                    <td className="px-4 py-3">
+                      {u.role === "EXECUTIVE" ? (
+                        <span className="text-[12px] text-on-surface-variant">все дирекции</span>
+                      ) : (
+                        <select
+                          value={u.directorateId ?? ""}
+                          onChange={(e) => {
+                            const to = directorates.find((d) => d.id === e.target.value);
+                            const admin = u.role === "ADMIN" || u.role === "SYSTEM_ADMIN";
+                          const text = !to ? `Убрать ${u.name} из дирекции?` : admin ? `Сделать «${to.name}» домашней дирекцией ${u.name}? Работать он(а) по-прежнему может во всех дирекциях.` : `Перевести ${u.name} в «${to.name}»? Он(а) будет видеть только её таблицу и оперативку.`;
+                          if (window.confirm(text))
+                              patch(u.id, { directorateId: e.target.value || null }, "Переведён(а) в другую дирекцию.");
                           }}
-                          className="btn-icon h-8 w-8"
-                          title="Изменить имя"
+                          className="select w-full"
+                          aria-label="Дирекция"
                         >
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => { setResetFor(u.id); setNewPassword(""); }} className="btn-icon h-8 w-8" title="Сменить пароль"><KeyRound size={15} /></button>
-                        <button onClick={() => patch(u.id, { isActive: !u.isActive })} className="btn-ghost h-8">{u.isActive ? "Отключить" : "Включить"}</button>
-                      </>
-                    )}
-                  </div>
-                  ) : (
-                    <div className="flex justify-end">
-                      <span className="text-[12px] text-outline">Директоров и админов ведёт админ</span>
-                    </div>
+                          {(u.role === "ADMIN" || u.role === "SYSTEM_ADMIN") && <option value="">без дирекции</option>}
+                          {directorates.filter((d) => d.isActive || d.id === u.directorateId).map((d) => (
+                            <option key={d.id} value={d.id}>{d.shortName || d.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
                   )}
-                </td>
-              </tr>
+                  <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
+                  <td className="px-4 py-3">
+                    {isAdmin || u.role === "HEAD" ? (
+                    <div className="flex items-center justify-end gap-1.5">
+                      {resetFor === u.id ? (
+                        <>
+                          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Новый пароль (8+)" className="input h-8 w-36" />
+                          <button
+                            disabled={newPassword.length < 8}
+                            onClick={async () => { await patch(u.id, { password: newPassword }, "Пароль изменён."); setResetFor(null); setNewPassword(""); }}
+                            className="btn-primary h-8"
+                          >
+                            OK
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {isAdmin && (u.role === "HEAD" ? (
+                            <button
+                              onClick={() => patch(u.id, { memoEditor: !u.memoEditor }, u.memoEditor ? "Снят с составления справки." : "Назначен составителем справки.")}
+                              className={`btn-icon h-8 w-8 ${u.memoEditor ? "bg-primary-soft text-primary" : ""}`}
+                              title={u.memoEditor ? "Снять с составления справки" : "Назначить составителем справки"}
+                              aria-label={u.memoEditor ? "Снять с составления справки" : "Назначить составителем справки"}
+                            >
+                              <FileText size={15} />
+                            </button>
+                          ) : u.role === "DIRECTOR" || u.role === "ADMIN" ? (
+                            <>
+                              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-soft text-primary opacity-70" title="Составляет справку по должности — отдельно назначать не нужно">
+                                <FileText size={15} />
+                              </span>
+                              <button
+                                onClick={() => patch(u.id, { submits: !u.submits }, u.submits ? "Больше не подаёт позиции как руководитель." : "Теперь подаёт позиции как руководитель: в списке подачи и в напоминаниях.")}
+                                className={`btn-icon h-8 w-8 ${u.submits ? "bg-primary-soft text-primary" : ""}`}
+                                title={u.submits ? "Подаёт позиции как руководитель — выключить" : "Подаёт позиции как руководитель (в списке подачи, напоминаниях, «Посмотреть как» у директора)"}
+                                aria-label="Подаёт как руководитель"
+                                aria-pressed={!!u.submits}
+                              >
+                                <ClipboardCheck size={15} />
+                              </button>
+                            </>
+                          ) : null)}
+                          <button
+                            onClick={() => {
+                              const name = window.prompt("Имя (Фамилия И.О.)", u.name)?.trim();
+                              if (name && name !== u.name) patch(u.id, { name }, "Имя изменено.");
+                            }}
+                            className="btn-icon h-8 w-8"
+                            title="Изменить имя"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button onClick={() => { setResetFor(u.id); setNewPassword(""); }} className="btn-icon h-8 w-8" title="Сменить пароль"><KeyRound size={15} /></button>
+                          <button onClick={() => patch(u.id, { isActive: !u.isActive })} className="btn-ghost h-8">{u.isActive ? "Отключить" : "Включить"}</button>
+                        </>
+                      )}
+                    </div>
+                    ) : (
+                      <div className="flex justify-end">
+                        <span className="text-[12px] text-outline">Директоров и админов ведёт админ</span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+                ))}
+              </Fragment>
             ))}
-            {filtered.length === 0 && (
-              <tr><td colSpan={canMove ? 5 : 4} className="px-4 py-10 text-center text-[13px] text-outline">Пользователи не найдены.</td></tr>
+            {shown === 0 && !groups.some((g) => g.title) && (
+              <tr><td colSpan={cols} className="px-4 py-10 text-center text-[13px] text-outline">Пользователи не найдены.</td></tr>
             )}
           </tbody>
         </table>
@@ -404,10 +465,11 @@ function UsersSection({
           act={act}
           isAdmin={isAdmin}
           directorates={directorates}
-          currentDirectorate={preset?.directorateId ?? currentDirectorate}
+          currentDirectorate={presetDir ?? preset?.directorateId ?? (dirFilter && dirFilter !== NO_DIR ? dirFilter : currentDirectorate)}
           initialRole={preset?.role}
           onClose={() => {
             setCreating(false);
+            setPresetDir(null);
             onPresetUsed();
           }}
         />
