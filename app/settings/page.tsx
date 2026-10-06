@@ -305,7 +305,8 @@ function UsersSection({
       </div>
 
       <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
-        <table className="w-full table-fixed border-collapse text-[13px]">
+        {/* телефон: каждая строка — карточка, ячейки (роль, дирекция, статус, кнопки) идут друг под другом */}
+        <table className="w-full table-fixed border-collapse text-[13px] max-md:block max-md:[&_tbody]:block max-md:[&_td]:block max-md:[&_td]:px-3 max-md:[&_td]:py-1.5 max-md:[&_thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:py-1.5">
           <thead className="bg-surface-high">
             <tr>
               {["Пользователь", "Роль", ...(canMove ? ["Дирекция"] : []), "Статус", ""].map((h, i) => (
@@ -734,8 +735,8 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
 function AddRow({ placeholder, onAdd, extra }: { placeholder: string; onAdd: (name: string) => void; extra?: ReactNode }) {
   const [value, setValue] = useState("");
   return (
-    <div className="mb-3 flex max-w-xl gap-2">
-      <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} className="input flex-1" onKeyDown={(e) => e.key === "Enter" && value.trim() && (onAdd(value.trim()), setValue(""))} />
+    <div className="mb-3 flex max-w-xl gap-2 max-md:flex-wrap">
+      <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} className="input min-w-0 flex-1 max-md:basis-full" onKeyDown={(e) => e.key === "Enter" && value.trim() && (onAdd(value.trim()), setValue(""))} />
       {extra}
       <button disabled={!value.trim()} onClick={() => { onAdd(value.trim()); setValue(""); }} className="btn-primary">
         <Plus size={16} />
