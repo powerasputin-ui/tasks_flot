@@ -63,7 +63,7 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
     select: { id: true },
   });
   for (const r of recipients) {
-    await createNotification({ userId: r.id, type: "MEMO_RETURNED", message: `ЗГД вернул справку «${v.title}»: ${comment}`, link: "/operativka" });
+    await createNotification({ userId: r.id, type: "MEMO_RETURNED", message: `ЗГД вернул справку «${v.title}»: ${comment}`, link: "/operativka", directorateId: v.directorateId });
   }
   return NextResponse.json({ ok: true });
 }

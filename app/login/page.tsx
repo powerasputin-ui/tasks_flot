@@ -18,6 +18,10 @@ export default function LoginPage() {
 
   // будим сервер и базу, пока человек набирает логин и пароль: к нажатию «Войти» ответ придёт за секунду, а не за 15–30
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("reason") === "directorate") setError("Ваша дирекция отключена — обратитесь к администратору.");
+  }, []);
+
+  useEffect(() => {
     fetchRetry("/api/health", { cache: "no-store" }, 1000, 10000)
       .then(() => setUnreachable(false))
       .catch(() => setUnreachable(true));
@@ -50,7 +54,7 @@ export default function LoginPage() {
       if (!res.ok) {
         // слишком много попыток — сервер сам пишет, через сколько можно повторить; иначе человек решит, что забыл пароль
         const d = await res.json().catch(() => null);
-        setError(res.status === 429 ? d?.message ?? "Слишком много попыток входа. Попробуйте позже." : res.status === 401 || res.status === 400 ? "Неверный e-mail или пароль" : "Сервер временно недоступен. Повторите попытку.");
+        setError(res.status === 429 || d?.error === "DIRECTORATE_DISABLED" ? d?.message ?? "Слишком много попыток входа. Попробуйте позже." : res.status === 401 || res.status === 400 ? "Неверный e-mail или пароль" : "Сервер временно недоступен. Повторите попытку.");
         return;
       }
       router.push("/");

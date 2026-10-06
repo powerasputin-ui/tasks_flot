@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { listDirectorates } from "@/lib/directorates";
 import { createSessionToken, verifyPassword, DUMMY_PASSWORD_HASH, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/auth";
 import { loginSchema } from "@/lib/validation";
 import { burstLimited, clientIp, enforceRateLimit } from "@/lib/rate-limit";
@@ -34,6 +35,10 @@ export async function POST(request: NextRequest) {
   const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
   if (!user || !user.isActive || !valid) {
     return NextResponse.json({ error: "INVALID_CREDENTIALS" }, { status: 401 });
+  }
+  // руководитель и директор отключённой дирекции не входят — пароль верный, поэтому говорим причину прямо
+  if ((user.role === "HEAD" || user.role === "DIRECTOR") && !(await listDirectorates()).some((d) => d.id === user.directorateId && d.isActive)) {
+    return NextResponse.json({ error: "DIRECTORATE_DISABLED", message: "Ваша дирекция отключена — обратитесь к администратору." }, { status: 403 });
   }
   await prisma.rateLimit.deleteMany({ where: { key: acctKey } }); // верный вход сбрасывает счётчик неудач этой связки
 

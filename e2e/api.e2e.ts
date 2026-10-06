@@ -55,6 +55,10 @@ import * as exportReport from "@/app/api/export/report/route";
 import * as cycleFinalize from "@/app/api/cycles/[id]/finalize/route";
 import * as cycleReport from "@/app/api/cycles/[id]/report/route";
 import * as directorates from "@/app/api/directorates/route";
+import * as directorateOne from "@/app/api/directorates/[id]/route";
+import * as login from "@/app/api/auth/login/route";
+import { hashPassword } from "@/lib/auth";
+import { notifyDirectors } from "@/lib/memo-log";
 import * as segments from "@/app/api/segments/route";
 import * as memo from "@/app/api/cycles/[id]/memo/route";
 import * as memoRefresh from "@/app/api/cycles/[id]/memo/refresh/route";
@@ -988,7 +992,7 @@ describe("справка директора", () => {
     const id = ids[2];
     const owner = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).responsibleId;
     expect(owner).toBe(headB.id);
-    const count = () => prisma.notification.count({ where: { userId: headB.id, link: `/table?item=${id}` } });
+    const count = () => prisma.notification.count({ where: { userId: headB.id, link: { startsWith: `/table?item=${id}` } } });
     const n0 = await count();
     let v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
     expect((await call(headB, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, comment: "Сам поправил." } })).status).toBe(200);
@@ -998,7 +1002,8 @@ describe("справка директора", () => {
     v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
     expect((await call(directorB, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, comment: "Директор ещё раз." } })).status).toBe(200);
     expect(await count()).toBe(n0 + 1); // правки подряд — одно уведомление
-    const n = await prisma.notification.findFirstOrThrow({ where: { userId: headB.id, link: `/table?item=${id}` }, orderBy: { createdAt: "desc" } });
+    const n = await prisma.notification.findFirstOrThrow({ where: { userId: headB.id, link: { startsWith: `/table?item=${id}` } }, orderBy: { createdAt: "desc" } });
+    expect(n.link).toBe(`/table?item=${id}&dir=${dirB}`); // админ из другой дирекции переключится на нужную
     expect(n.message).toContain(directorB.name);
     expect(n.message).toContain("комментарий");
   });
@@ -1627,7 +1632,7 @@ describe("напоминание не подавшим", () => {
     expect(first.data).toMatchObject({ sent: 1, skippedRecent: 0 });
     expect(await mine()).toBe(before + 1);
     const n = await prisma.notification.findFirstOrThrow({ where: { userId: headB.id, type: "SUBMISSION_MISSING", message: { startsWith: "Напоминание" } }, orderBy: { createdAt: "desc" } });
-    expect(n.link).toBe("/table");
+    expect(n.link).toBe(`/table?dir=${dirB}`);
     expect(n.message).toContain("ещё ничего не отправили");
 
     // сразу повторно — не отправляется (защита от нажатий «по кругу»)
@@ -1784,5 +1789,108 @@ describe("сборка догоняет поданное", () => {
     const after = await call(directorB, memo.GET, `/api/cycles/${cyc.id}/memo`, { id: cyc.id });
     expect(JSON.stringify(after.data.doc)).toContain(`Позднее-${TAG}`); // поданное догнало
     expect(after.data.doc.title).toBe("Мой заголовок директора"); // правки не потеряны
+  });
+});
+
+describe("дирекции: заведение, директор, роли, отключение, обзор ЗГД", () => {
+  let dirC = "";
+  let headC: Actor;
+  const password = "Passw0rd-e2e";
+
+  afterAll(async () => {
+    if (!dirC) return;
+    await prisma.notification.deleteMany({ where: { link: { contains: `dir=${dirC}` } } });
+    await prisma.notification.deleteMany({ where: { user: { email: `${TAG}.headc@e2e.local` } } });
+    await prisma.user.deleteMany({ where: { email: `${TAG}.headc@e2e.local` } });
+    await prisma.track.deleteMany({ where: { directorateId: dirC } });
+    await prisma.memoSection.deleteMany({ where: { directorateId: dirC } });
+    await prisma.segment.deleteMany({ where: { directorateId: dirC } });
+    await prisma.customColumn.deleteMany({ where: { directorateId: dirC } });
+    await prisma.appSetting.deleteMany({ where: { key: `table.columns:${dirC}` } });
+    await prisma.directorate.deleteMany({ where: { id: dirC } });
+  });
+
+  it("новая дирекция: короткое название и копия «Общей таблицы» другой дирекции — без позиций и людей", async () => {
+    expect((await call(director, directorates.POST, "/api/directorates", { method: "POST", body: { name: `${TAG} Дирекция В` } })).status).toBe(403);
+    const r = await call(admin, directorates.POST, "/api/directorates", { method: "POST", body: { name: `${TAG} Дирекция В`, shortName: "ДВ", copyFrom: dirB } });
+    expect(r.status).toBe(201);
+    dirC = r.data.directorate.id;
+    const [tracksB, tracksC, segC, itemsC, peopleC] = await Promise.all([
+      prisma.track.count({ where: { directorateId: dirB } }),
+      prisma.track.findMany({ where: { directorateId: dirC }, include: { segment: true, memoSection: true } }),
+      prisma.segment.count({ where: { directorateId: dirC } }),
+      prisma.operationalItem.count({ where: { directorateId: dirC } }),
+      prisma.user.count({ where: { directorateId: dirC } }),
+    ]);
+    expect(tracksB).toBeGreaterThan(0);
+    expect(tracksC).toHaveLength(tracksB);
+    expect(tracksC.every((t) => (!t.segment || t.segment.directorateId === dirC) && (!t.memoSection || t.memoSection.directorateId === dirC))).toBe(true);
+    expect(segC).toBe(await prisma.segment.count({ where: { directorateId: dirB } }));
+    expect(itemsC).toBe(0);
+    expect(peopleC).toBe(0);
+    expect((await prisma.directorate.findUniqueOrThrow({ where: { id: dirC } })).shortName).toBe("ДВ");
+
+    const list = await call(admin, directorates.GET, "/api/directorates");
+    const card = list.data.directorates.find((d: { id: string }) => d.id === dirC);
+    expect(card).toMatchObject({ shortName: "ДВ", directors: [], people: 0, openCycle: null });
+  });
+
+  it("без директора уведомления о правках справки получают админы", async () => {
+    const editor = { id: headB.id, name: `${TAG} составитель`, role: "HEAD" };
+    await notifyDirectors(editor, { id: "x", number: 1, directorateId: dirC }, `${TAG} правка без директора`);
+    const toAdmins = await prisma.notification.findMany({ where: { message: `${TAG} правка без директора` }, include: { user: { select: { role: true } } } });
+    expect(toAdmins.length).toBeGreaterThan(0);
+    expect(toAdmins.every((n) => n.user.role === "ADMIN")).toBe(true);
+    expect(toAdmins[0].link).toBe(`/operativka?dir=${dirC}`);
+  });
+
+  it("роль и дирекция сходятся: руководителю дирекция обязательна, ЗГД — без дирекции", async () => {
+    const r = await call(admin, users.POST, "/api/users", { method: "POST", body: { name: `${TAG} рук В`, email: `${TAG}.headc@e2e.local`, password, role: "HEAD", directorateId: dirC } });
+    expect(r.status).toBe(201);
+    headC = { id: r.data.user.id, name: r.data.user.name, role: "HEAD", directorateId: dirC };
+    await prisma.user.update({ where: { id: headC.id }, data: { passwordHash: await hashPassword(password) } });
+    const bad = await call(admin, user.PATCH, `/api/users/${headC.id}`, { method: "PATCH", id: headC.id, body: { directorateId: null } });
+    expect(bad.status).toBe(400);
+    expect(bad.data.error).toBe("NEEDS_DIRECTORATE");
+    // ЗГД: дирекция снимается сама; обратно руководителем без дирекции — нельзя
+    expect((await call(admin, user.PATCH, `/api/users/${headC.id}`, { method: "PATCH", id: headC.id, body: { role: "EXECUTIVE" } })).status).toBe(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: headC.id } })).directorateId).toBeNull();
+    expect((await call(admin, user.PATCH, `/api/users/${headC.id}`, { method: "PATCH", id: headC.id, body: { role: "HEAD" } })).data.error).toBe("NEEDS_DIRECTORATE");
+    expect((await call(admin, user.PATCH, `/api/users/${headC.id}`, { method: "PATCH", id: headC.id, body: { role: "HEAD", directorateId: dirC } })).status).toBe(200);
+  });
+
+  it("отключённая дирекция: её руководитель не входит и видит причину; включили — входит", async () => {
+    let n = 0;
+    const tryLogin = async () => {
+      const req = new NextRequest("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `10.9.${n++}.1` },
+        body: JSON.stringify({ email: `${TAG}.headc@e2e.local`, password }),
+      });
+      const res = await login.POST(req);
+      return { status: res.status, data: await res.json() };
+    };
+    expect((await tryLogin()).status).toBe(200);
+    expect((await call(admin, directorateOne.PATCH, `/api/directorates/${dirC}`, { method: "PATCH", id: dirC, body: { isActive: false } })).status).toBe(200);
+    const off = await tryLogin();
+    expect(off.status).toBe(403);
+    expect(off.data.error).toBe("DIRECTORATE_DISABLED");
+    expect((await call(admin, directorateOne.PATCH, `/api/directorates/${dirC}`, { method: "PATCH", id: dirC, body: { isActive: true, shortName: "" } })).status).toBe(200);
+    expect((await tryLogin()).status).toBe(200);
+    expect((await prisma.directorate.findUniqueOrThrow({ where: { id: dirC } })).shortName).toBeNull();
+  });
+
+  it("порядок дирекций: «выше» ставит дирекцию перед соседкой", async () => {
+    const order = async () => (await prisma.directorate.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true } })).map((d) => d.id);
+    const i = (await order()).indexOf(dirC);
+    expect((await call(admin, directorateOne.PATCH, `/api/directorates/${dirC}`, { method: "PATCH", id: dirC, body: { move: "up" } })).status).toBe(200);
+    expect((await order()).indexOf(dirC)).toBe(Math.max(0, i - 1));
+  });
+
+  it("ЗГД видит по каждой дирекции, прислала ли она справку на этой неделе; остальным обзор не отдаётся", async () => {
+    const z = await call(management, archive.GET, "/api/memo-archive");
+    expect(z.data.overview.find((d: { id: string }) => d.id === dirC)).toMatchObject({ lastSentAt: null, thisWeek: false });
+    expect(z.data.overview.some((d: { thisWeek: boolean }) => d.thisWeek)).toBe(true); // дирекция Б отправляла в этих тестах
+    expect((await call(directorB, archive.GET, "/api/memo-archive")).data.overview).toBeUndefined();
   });
 });

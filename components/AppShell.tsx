@@ -125,6 +125,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       setPreview(b?.viewAs ? { id: b.viewAs.id, name: b.viewAs.name, role: b.viewAs.role } : null);
       setDirectorate(b?.directorate ?? null);
       setDirectorates(b?.directorates ?? []);
+      // ссылка из уведомления помнит дирекцию (?dir=): админ, работающий сейчас в другой, переключается на неё,
+      // иначе позиция или справка «не найдётся». Остальным параметр не нужен — убираем его из адреса.
+      const url = new URL(window.location.href);
+      const dir = url.searchParams.get("dir");
+      if (!dir) return;
+      url.searchParams.delete("dir");
+      const admin = b?.user?.role === "ADMIN" || b?.user?.role === "SYSTEM_ADMIN";
+      if (admin && !b?.viewAs && b?.directorate?.id !== dir && (b?.directorates ?? []).some((d) => d.id === dir)) {
+        void fetch("/api/directorates/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: dir }) }).then(() => {
+          clearBootstrap();
+          window.location.replace(url.toString());
+        });
+      } else window.history.replaceState(window.history.state, "", url.toString());
     });
   }, [pathname]);
 

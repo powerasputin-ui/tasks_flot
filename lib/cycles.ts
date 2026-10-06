@@ -209,6 +209,7 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
       type: "ITEM_RETURNED",
       message: `Куратор вернул позицию «${existing.title}»: ${text}`,
       link: "/table",
+      directorateId: existing.directorateId,
     });
   }
   return { ok: true };
@@ -259,6 +260,7 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
       type: "SUBMISSION_MISSING",
       message: `Оперативка №${cycle.number}: срок подачи ${due}. ${whatToDo(p.total)}`,
       link: "/table",
+      directorateId: cycle.directorateId,
     });
   }
   for (const c of curators) {
@@ -267,6 +269,7 @@ export async function sendMissingReminders(cycle: Cycle, now: Date = new Date())
       type: "SUBMISSION_MISSING",
       message: `Оперативка №${cycle.number}, срок ${due}: не подали позиции — ${names}`,
       link: "/operativka",
+      directorateId: cycle.directorateId,
     });
   }
   return missing.length;
@@ -304,6 +307,7 @@ export async function remindMissing(actor: Actor, cycleId: string, userIds?: str
       type: "SUBMISSION_MISSING",
       message: `${prefix}: срок подачи ${due}. ${whatToDo(p.total)}`,
       link: "/table",
+      directorateId: cycle.directorateId,
     });
     sent++;
   }

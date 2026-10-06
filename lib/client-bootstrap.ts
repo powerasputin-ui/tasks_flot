@@ -28,7 +28,15 @@ let cached: { at: number; promise: Promise<Bootstrap | null> } | null = null;
 export function loadBootstrap(force = false): Promise<Bootstrap | null> {
   if (!force && cached && Date.now() - cached.at < TTL_MS) return cached.promise;
   const promise = fetchRetry("/api/bootstrap")
-    .then((r) => (r.ok ? (r.json() as Promise<Bootstrap>) : null))
+    .then(async (r) => {
+      if (r.ok) return r.json() as Promise<Bootstrap>;
+      // дирекцию отключили посреди работы: выходим и показываем причину на странице входа
+      if (r.status === 401 && (await r.json().catch(() => null))?.error === "DIRECTORATE_DISABLED" && typeof window !== "undefined") {
+        await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+        window.location.replace("/login?reason=directorate"); // полная перезагрузка: состояние приложения от старой сессии не нужно
+      }
+      return null;
+    })
     .catch(() => null);
   cached = { at: Date.now(), promise };
   // неудачный ответ не запоминаем

@@ -4,7 +4,7 @@ import { invalidateActor, requireFreshSession } from "@/lib/session";
 import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { canManageUser, canManageUsers, checkRoleChange } from "@/lib/permissions";
+import { canManageUser, canManageUsers, checkRoleChange, needsDirectorate } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
 import { ROLES } from "@/lib/validation";
 import { listDirectorates } from "@/lib/directorates";
@@ -68,6 +68,15 @@ async function PATCHHandler(request: NextRequest, { params }: { params: Promise<
   // Админ не может лишить себя доступа: иначе управлять системой станет некому.
   if (id === session.userId && (parsed.data.isActive === false || (parsed.data.role && parsed.data.role !== target.role))) {
     return NextResponse.json({ error: "CANNOT_DEMOTE_SELF" }, { status: 400 });
+  }
+
+  // роль и дирекция должны сойтись: ЗГД — без дирекции (снимаем сами), руководителю и директору она обязательна
+  const finalRole = newRole ?? target.role;
+  const finalDir = parsed.data.directorateId !== undefined ? parsed.data.directorateId : target.directorateId;
+  if (needsDirectorate(finalRole) && !finalDir) return NextResponse.json({ error: "NEEDS_DIRECTORATE" }, { status: 400 });
+  if (finalRole === "EXECUTIVE" && finalDir) {
+    if (await prisma.operationalItem.count({ where: { responsibleId: id, archivedAt: null } })) return NextResponse.json({ error: "HAS_ITEMS" }, { status: 409 });
+    parsed.data.directorateId = null;
   }
 
   const { password, ...rest } = parsed.data;

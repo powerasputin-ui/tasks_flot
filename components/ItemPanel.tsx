@@ -218,7 +218,7 @@ export function ItemPanel({
   const footer = confirmArchive && !isNew && !base!.archived && canDelete && !previewMode ? (
     <div className="space-y-2">
       <p className="text-[13px] text-on-surface">
-        <span className="font-semibold">Удалить позицию?</span> <span className="text-on-surface-variant">Она уйдёт в архив, вернуть можно оттуда.</span>
+        <span className="font-semibold">Удалить позицию?</span> <span className="text-on-surface-variant">Она уйдёт в «Удалённые», вернуть можно оттуда.</span>
       </p>
       <div className="flex justify-end gap-2">
         <button onClick={() => setConfirmArchive(false)} className="btn-ghost">Нет</button>

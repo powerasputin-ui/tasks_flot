@@ -67,6 +67,8 @@ export function MemoArchive({
   onView?: (v: VersionTab) => void;
 }) {
   const [rows, setRows] = useState<Row[] | null>(null);
+  // только у ЗГД: какие дирекции прислали справку на этой неделе
+  const [overview, setOverview] = useState<Array<{ id: string; name: string; lastSentAt: string | null; thisWeek: boolean }> | null>(null);
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -86,7 +88,9 @@ export function MemoArchive({
       return;
     }
     setError(null);
-    setRows((await r.json()).versions);
+    const d = await r.json();
+    setRows(d.versions);
+    setOverview(d.overview ?? null);
   }, [q, from, to]);
 
   // поиск с небольшой задержкой, чтобы не слать запрос на каждую букву
@@ -130,6 +134,19 @@ export function MemoArchive({
         )}
       </div>
 
+      {overview && overview.length > 1 && (
+        <div className="mb-4 flex flex-wrap gap-2" aria-label="Справки дирекций на этой неделе">
+          {overview.map((d) => (
+            <span
+              key={d.id}
+              className={`rounded-full border px-3 py-1 text-[12px] ${d.thisWeek ? "border-status-emerald/30 bg-status-emerald/10 text-on-surface" : "border-status-amber/40 bg-status-amber/10 text-on-surface"}`}
+              title={d.lastSentAt ? `Последняя справка: ${new Date(d.lastSentAt).toLocaleDateString("ru-RU")}` : "Справок ещё не присылала"}
+            >
+              {d.name}: {d.thisWeek ? "прислала на этой неделе" : d.lastSentAt ? `на этой неделе не присылала (последняя ${new Date(d.lastSentAt).toLocaleDateString("ru-RU")})` : "справок ещё не было"}
+            </span>
+          ))}
+        </div>
+      )}
       {error && <p className="mb-3 text-[13px] text-status-red">{error}</p>}
       {!rows ? (
         <div className="skeleton h-32 rounded-lg" />

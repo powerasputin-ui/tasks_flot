@@ -97,6 +97,8 @@ async function resolveDirectorate(base: Actor & { name: string }): Promise<Actor
   if (base.role === "ADMIN" || base.role === "SYSTEM_ADMIN") return { ...base, directorateId: await adminDirectorate(base.directorateId) };
   // руководитель и директор без дирекции работать не могут: данных у них нет
   if ((base.role === "HEAD" || base.role === "DIRECTOR") && !base.directorateId) throw new AuthError("NO_DIRECTORATE");
+  // отключённая дирекция не работает: её люди выходят из системы (итоги и справки остаются у ЗГД в архиве)
+  if ((base.role === "HEAD" || base.role === "DIRECTOR") && !(await listDirectorates()).some((d) => d.id === base.directorateId && d.isActive)) throw new AuthError("DIRECTORATE_DISABLED");
   return base;
 }
 

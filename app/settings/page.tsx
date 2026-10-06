@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -13,7 +13,19 @@ import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
 type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null; memoEditor?: boolean; submits?: boolean };
-type Directorate = { id: string; name: string; isActive: boolean };
+type Directorate = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  // карточка дирекции (приходит только админу)
+  shortName?: string | null;
+  directors?: Array<{ id: string; name: string }>;
+  people?: number;
+  openCycle?: { number: number; status: string } | null;
+  lastSentAt?: string | null;
+};
+/** Заготовка формы «новый пользователь» — из карточки дирекции «Добавить директора». */
+type UserPreset = { role: string; directorateId: string };
 type Result = { ok: boolean; status: number; data: { error?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
@@ -38,6 +50,7 @@ export default function SettingsPage() {
   const [currentDirectorate, setCurrentDirectorate] = useState<string | null>(null);
   const [memoCount, setMemoCount] = useState(0);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
+  const [userPreset, setUserPreset] = useState<UserPreset | null>(null);
 
   const reload = useCallback(async () => {
     const get = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
@@ -87,7 +100,8 @@ export default function SettingsPage() {
         tone: "error",
         text:
           e === "NAME_TAKEN" ? "Такое название уже есть."
-          : e === "HAS_ITEMS" ? "За человеком закреплены позиции: сначала передайте их другому."
+          : e === "HAS_ITEMS" ? "За человеком закреплены позиции: сначала передайте их другому ответственному в таблице (фильтр «Ответственный»), потом переносите."
+          : e === "NEEDS_DIRECTORATE" ? "Руководителю и директору нужна дирекция: выберите её."
           : e === "LAST_DIRECTORATE" ? "Нельзя отключить последнюю активную дирекцию."
           : e === "EMAIL_TAKEN" ? "Такой e-mail уже зарегистрирован."
           : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль: это может сделать другой админ."
@@ -156,8 +170,17 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} />}
-        {section === "directorates" && <DirectoratesSection directorates={directorates} act={act} />}
+        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} preset={userPreset} onPresetUsed={() => setUserPreset(null)} />}
+        {section === "directorates" && (
+          <DirectoratesSection
+            directorates={directorates}
+            act={act}
+            onAddDirector={(directorateId) => {
+              setUserPreset({ role: "DIRECTOR", directorateId });
+              setSection("users");
+            }}
+          />
+        )}
         {section === "memo" && <MemoStructureSection />}
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
@@ -201,10 +224,27 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }: { users: UserRow[]; act: Act; isAdmin: boolean; directorates: Directorate[]; currentDirectorate: string | null }) {
-  const dirName = (id: string | null) => directorates.find((d) => d.id === id)?.name;
+function UsersSection({
+  users,
+  act,
+  isAdmin,
+  directorates,
+  currentDirectorate,
+  preset,
+  onPresetUsed,
+}: {
+  users: UserRow[];
+  act: Act;
+  isAdmin: boolean;
+  directorates: Directorate[];
+  currentDirectorate: string | null;
+  preset: UserPreset | null;
+  onPresetUsed: () => void;
+}) {
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(!!preset);
+  // перенос между дирекциями — только админу и только когда дирекций больше одной
+  const canMove = isAdmin && directorates.length > 1;
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
@@ -236,7 +276,7 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
         <table className="w-full table-fixed border-collapse text-[13px]">
           <thead className="bg-surface-high">
             <tr>
-              {["Пользователь", "Роль", "Статус", ""].map((h, i) => (
+              {["Пользователь", "Роль", ...(canMove ? ["Дирекция"] : []), "Статус", ""].map((h, i) => (
                 <th key={i} className="label-caps border-b border-outline-variant px-4 py-3 text-left" style={{ color: "var(--on-surface-variant)" }}>{h}</th>
               ))}
             </tr>
@@ -249,7 +289,7 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                     <Avatar name={u.name} size={30} />
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-on-surface">{u.name}</p>
-                      <p className="truncate text-[12px] text-on-surface-variant">{u.email}{isAdmin && directorates.length > 1 && ` · ${dirName(u.directorateId) ?? "без дирекции"}`}</p>
+                      <p className="truncate text-[12px] text-on-surface-variant">{u.email}</p>
                     </div>
                   </div>
                 </td>
@@ -264,6 +304,29 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
                     <span className="text-on-surface-variant">{ROLE_LABEL[u.role] ?? u.role}</span>
                   )}
                 </td>
+                {canMove && (
+                  <td className="px-4 py-3">
+                    {u.role === "EXECUTIVE" ? (
+                      <span className="text-[12px] text-on-surface-variant">все дирекции</span>
+                    ) : (
+                      <select
+                        value={u.directorateId ?? ""}
+                        onChange={(e) => {
+                          const to = directorates.find((d) => d.id === e.target.value);
+                          if (window.confirm(to ? `Перевести ${u.name} в «${to.name}»? Он(а) будет видеть только её таблицу и оперативку.` : `Убрать ${u.name} из дирекции?`))
+                            patch(u.id, { directorateId: e.target.value || null }, "Переведён(а) в другую дирекцию.");
+                        }}
+                        className="select w-full"
+                        aria-label="Дирекция"
+                      >
+                        {(u.role === "ADMIN" || u.role === "SYSTEM_ADMIN") && <option value="">без дирекции</option>}
+                        {directorates.filter((d) => d.isActive || d.id === u.directorateId).map((d) => (
+                          <option key={d.id} value={d.id}>{d.shortName || d.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                )}
                 <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
                 <td className="px-4 py-3">
                   {isAdmin || u.role === "HEAD" ? (
@@ -330,23 +393,49 @@ function UsersSection({ users, act, isAdmin, directorates, currentDirectorate }:
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-10 text-center text-[13px] text-outline">Пользователи не найдены.</td></tr>
+              <tr><td colSpan={canMove ? 5 : 4} className="px-4 py-10 text-center text-[13px] text-outline">Пользователи не найдены.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      {creating && <CreateUserPanel act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} onClose={() => setCreating(false)} />}
+      {creating && (
+        <CreateUserPanel
+          act={act}
+          isAdmin={isAdmin}
+          directorates={directorates}
+          currentDirectorate={preset?.directorateId ?? currentDirectorate}
+          initialRole={preset?.role}
+          onClose={() => {
+            setCreating(false);
+            onPresetUsed();
+          }}
+        />
+      )}
     </>
   );
 }
 
-function CreateUserPanel({ act, isAdmin, directorates, currentDirectorate, onClose }: { act: Act; isAdmin: boolean; directorates: Directorate[]; currentDirectorate: string | null; onClose: () => void }) {
+function CreateUserPanel({
+  act,
+  isAdmin,
+  directorates,
+  currentDirectorate,
+  initialRole,
+  onClose,
+}: {
+  act: Act;
+  isAdmin: boolean;
+  directorates: Directorate[];
+  currentDirectorate: string | null;
+  initialRole?: string;
+  onClose: () => void;
+}) {
   const [directorateId, setDirectorateId] = useState(currentDirectorate ?? "");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("HEAD");
+  const [role, setRole] = useState(initialRole ?? "HEAD");
   const valid = name.trim() && /^\S+@\S+\.\S+$/.test(email) && password.length >= 8;
 
   return (
@@ -407,53 +496,164 @@ function MemoStructureSection() {
   );
 }
 
-function DirectoratesSection({ directorates, act }: { directorates: Directorate[]; act: Act }) {
+function DirectoratesSection({ directorates, act, onAddDirector }: { directorates: Directorate[]; act: Act; onAddDirector: (directorateId: string) => void }) {
+  const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [shortName, setShortName] = useState("");
+  const [copyFrom, setCopyFrom] = useState("");
+  const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : null);
+
   return (
     <>
-      <SectionHeader title="Дирекции" hint="У каждой дирекции свои люди, сегменты, треки, колонки и оперативки. Отключённая дирекция не удаляется: данные сохраняются." />
-      <div className="mb-4 flex max-w-xl gap-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название новой дирекции" className="input flex-1" maxLength={120} />
-        <button
-          disabled={name.trim().length < 2}
-          onClick={async () => {
-            await act(send("/api/directorates", "POST", { name: name.trim() }), "Дирекция добавлена.");
-            setName("");
-          }}
-          className="btn-primary"
-        >
-          <Plus size={16} />
-          Добавить
-        </button>
-      </div>
-      <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
-        <table className="w-full table-fixed border-collapse text-[13px]">
-          <tbody>
-            {directorates.map((d) => (
-              <tr key={d.id} className={`border-t border-outline-variant/50 first:border-t-0 ${d.isActive ? "" : "opacity-60"}`}>
-                <td className="px-4 py-3 font-semibold text-on-surface">{d.name}</td>
-                <td className="w-28 px-4 py-3"><ActiveBadge active={d.isActive} /></td>
-                <td className="w-56 px-4 py-3">
-                  <div className="flex justify-end gap-1.5">
-                    <button
-                      onClick={() => {
-                        const next = window.prompt("Название дирекции", d.name)?.trim();
-                        if (next && next !== d.name) act(send(`/api/directorates/${d.id}`, "PATCH", { name: next }), "Название изменено.");
-                      }}
-                      className="btn-icon h-8 w-8"
-                      title="Переименовать"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button onClick={() => act(send(`/api/directorates/${d.id}`, "PATCH", { isActive: !d.isActive }))} className="btn-ghost h-8">
-                      {d.isActive ? "Отключить" : "Включить"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <SectionHeader
+        title="Дирекции"
+        hint="У каждой дирекции свой директор, люди, «Общая таблица» (столбцы, сегменты, треки), вид справки и оперативки. Все отправляют справки ЗГД. Отключённая дирекция не удаляется: справки остаются в архиве ЗГД, а её люди не могут войти."
+        action={
+          <button onClick={() => setCreating((v) => !v)} className="btn-primary">
+            <Plus size={16} /> Новая дирекция
+          </button>
+        }
+      />
+
+      {creating && (
+        <div className="surface mb-4 max-w-2xl space-y-3 p-4">
+          <FormField label="Полное название *">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Дирекция по …" className="input w-full" maxLength={120} />
+          </FormField>
+          <FormField label="Короткое название — в заголовке справки («Статус текущих задач по дирекции …»)">
+            <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Например, РФ и КЭ" className="input w-full" maxLength={40} />
+          </FormField>
+          <FormField label="Общая таблица">
+            <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} className="select w-full">
+              <option value="">Стандартная (как у всех новых): столбцы по умолчанию, сегменты и треки заводит директор</option>
+              {directorates.map((d) => (
+                <option key={d.id} value={d.id}>
+                  Как у «{d.shortName || d.name}»: те же столбцы, сегменты, треки и вид справки (без позиций и людей)
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <p className="text-[12px] leading-snug text-on-surface-variant">
+            После создания добавьте директора (кнопка в карточке дирекции). Настроить таблицу этой дирекции можно, выбрав её в переключателе дирекций в шапке.
+          </p>
+          <div className="flex gap-2">
+            <button
+              disabled={name.trim().length < 2}
+              onClick={async () => {
+                await act(
+                  send("/api/directorates", "POST", { name: name.trim(), ...(shortName.trim() ? { shortName: shortName.trim() } : {}), ...(copyFrom ? { copyFrom } : {}) }),
+                  "Дирекция добавлена. Добавьте ей директора."
+                );
+                setName("");
+                setShortName("");
+                setCopyFrom("");
+                setCreating(false);
+              }}
+              className="btn-primary"
+            >
+              Создать
+            </button>
+            <button onClick={() => setCreating(false)} className="btn-ghost">
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {directorates.map((d, i) => {
+          const noDirector = d.isActive && (d.directors?.length ?? 0) === 0;
+          return (
+            <div key={d.id} className={`surface p-4 ${d.isActive ? "" : "opacity-60"}`}>
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-on-surface">{d.name}</p>
+                  <p className="mt-0.5 text-[12px] text-on-surface-variant">
+                    В справке: <span className="text-on-surface">{d.shortName || <i>короткое название не задано — в заголовке будет полное</i>}</span>
+                  </p>
+                  <p className="mt-1 text-[12px] text-on-surface-variant">
+                    Директор:{" "}
+                    {d.directors && d.directors.length > 0 ? (
+                      <span className="text-on-surface">{d.directors.map((x) => x.name).join(", ")}</span>
+                    ) : (
+                      <span className="font-semibold text-status-amber">не назначен</span>
+                    )}
+                    {" · "}людей: {d.people ?? 0}
+                    {" · "}
+                    {d.openCycle ? `идёт оперативка №${d.openCycle.number}` : "оперативки нет"}
+                    {d.lastSentAt && ` · последняя справка ЗГД ${date(d.lastSentAt)}`}
+                  </p>
+                  {noDirector && (
+                    <p className="mt-1.5 text-[12px] leading-snug text-on-surface-variant">
+                      Без директора справку собирает только админ; уведомления о правках справки этой дирекции получают админы.
+                    </p>
+                  )}
+                </div>
+                <ActiveBadge active={d.isActive} />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {noDirector && (
+                  <button onClick={() => onAddDirector(d.id)} className="btn-primary h-8">
+                    <Plus size={14} /> Добавить директора
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const next = window.prompt("Полное название дирекции", d.name)?.trim();
+                    if (next && next !== d.name) act(send(`/api/directorates/${d.id}`, "PATCH", { name: next }), "Название изменено.");
+                  }}
+                  className="btn-ghost h-8"
+                >
+                  <Pencil size={14} /> Название
+                </button>
+                <button
+                  onClick={() => {
+                    const next = window.prompt("Короткое название для заголовка справки (пусто — убрать)", d.shortName ?? "");
+                    if (next !== null && next.trim() !== (d.shortName ?? "")) act(send(`/api/directorates/${d.id}`, "PATCH", { shortName: next.trim() }), "Короткое название сохранено.");
+                  }}
+                  className="btn-ghost h-8"
+                >
+                  <Pencil size={14} /> Короткое название
+                </button>
+                <button
+                  disabled={i === 0}
+                  onClick={() => act(send(`/api/directorates/${d.id}`, "PATCH", { move: "up" }))}
+                  className="btn-icon h-8 w-8"
+                  title="Выше в списке (порядок у ЗГД и в переключателе)"
+                  aria-label="Выше"
+                >
+                  <ArrowUp size={15} />
+                </button>
+                <button
+                  disabled={i === directorates.length - 1}
+                  onClick={() => act(send(`/api/directorates/${d.id}`, "PATCH", { move: "down" }))}
+                  className="btn-icon h-8 w-8"
+                  title="Ниже в списке"
+                  aria-label="Ниже"
+                >
+                  <ArrowDown size={15} />
+                </button>
+                <span className="flex-1" />
+                <button
+                  onClick={() => {
+                    if (d.isActive) {
+                      const warn = [
+                        (d.people ?? 0) > 0 && `${d.people} чел. этой дирекции не смогут войти`,
+                        d.openCycle && `идёт оперативка №${d.openCycle.number} — она останется незавершённой`,
+                      ].filter(Boolean);
+                      const details = warn.length ? `\n\n${warn.join(";\n")}.` : "";
+                      if (!window.confirm(`Отключить «${d.name}»?${details}\n\nСправки останутся в архиве ЗГД; включить обратно можно в любой момент.`)) return;
+                    }
+                    act(send(`/api/directorates/${d.id}`, "PATCH", { isActive: !d.isActive }), d.isActive ? "Дирекция отключена." : "Дирекция включена.");
+                  }}
+                  className="btn-ghost h-8"
+                >
+                  {d.isActive ? "Отключить" : "Включить"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );

@@ -12,7 +12,9 @@ export function withApiErrors<A extends unknown[]>(handler: (...args: A) => Prom
       return await handler(...args);
     } catch (e) {
       if (e instanceof AuthError) {
-        return NextResponse.json({ error: e.message === "NO_DIRECTORATE" ? "NO_DIRECTORATE" : "UNAUTHENTICATED" }, { status: e.message === "NO_DIRECTORATE" ? 403 : 401 });
+        if (e.message === "NO_DIRECTORATE") return NextResponse.json({ error: "NO_DIRECTORATE" }, { status: 403 });
+        // дирекцию отключили — сессия больше не действует: человек попадает на вход и видит причину
+        return NextResponse.json({ error: e.message === "DIRECTORATE_DISABLED" ? "DIRECTORATE_DISABLED" : "UNAUTHENTICATED" }, { status: 401 });
       }
       if (e instanceof ScopeError) return NextResponse.json({ error: "NO_DIRECTORATE" }, { status: 403 });
       throw e;

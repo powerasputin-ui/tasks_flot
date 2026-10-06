@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { createNotification } from "@/lib/notifications";
+import { createNotification, withDirectorate } from "@/lib/notifications";
 
 /** Повторные правки одной позиции одним человеком в течение этого времени — одно уведомление (обновляется). */
 export const ITEM_NOTIFY_MS = 30 * 60 * 1000;
@@ -31,13 +31,13 @@ export function changedFields(before: Record<string, unknown>, after: Record<str
  */
 export async function notifyOwnerOfEdit(
   actor: { id: string; name?: string },
-  item: { id: string; title: string; responsibleId: string | null },
+  item: { id: string; title: string; responsibleId: string | null; directorateId?: string | null },
   what: string,
   now = new Date()
 ): Promise<void> {
   if (!item.responsibleId || item.responsibleId === actor.id) return;
   const who = actor.name ?? "Кто-то";
-  const link = `/table?item=${item.id}`;
+  const link = withDirectorate(`/table?item=${item.id}`, item.directorateId) ?? "";
   const message = `${who} ${what} вашу позицию «${item.title.slice(0, 120)}»`;
   const recent = await prisma.notification.findFirst({
     where: { userId: item.responsibleId, type: "CHANGE_ATTENTION", link, isRead: false, message: { startsWith: `${who} ` }, createdAt: { gte: new Date(now.getTime() - ITEM_NOTIFY_MS) } },

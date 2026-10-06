@@ -130,6 +130,14 @@ export function canManageDirectory(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN" || role === "ADMIN";
 }
 
+/**
+ * Роль и дирекция должны сходиться: руководитель и директор работают только внутри дирекции (без неё им некуда войти),
+ * у ЗГД дирекции нет (он видит итоги всех). Админу и тех. администратору дирекция необязательна — это «домашняя».
+ */
+export function needsDirectorate(role: UserRole): boolean {
+  return role === "HEAD" || role === "DIRECTOR";
+}
+
 /** Заводить и переименовывать дирекции, выбирать рабочую дирекцию: админ и технический администратор. */
 export function canCreateDirectorates(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN" || role === "ADMIN";

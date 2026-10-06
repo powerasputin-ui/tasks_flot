@@ -6,6 +6,7 @@ import { listDirectorates } from "@/lib/directorates";
 import { effectiveDate, matchBullets, versionMatches, type VersionSource } from "@/lib/memo-archive";
 import { parseMemoDoc, visibleSections } from "@/lib/memo";
 import { withApiErrors } from "@/lib/api-guard";
+import { mskIsoWeek } from "@/lib/deadline-week";
 
 /**
  * Архив отправленных справок: по одной строке на оперативку (последняя ревизия), с поиском по тексту и фильтром по датам.
@@ -62,7 +63,16 @@ async function GETHandler(request: NextRequest) {
         matches: q && doc ? matchBullets(doc, v.sources as unknown as VersionSource[], q) : [],
       };
     });
-  return NextResponse.json({ versions: rows });
+  // ЗГД: по каждой работающей дирекции — когда прислала последнюю справку и прислала ли на этой неделе
+  const overview = executive
+    ? (await listDirectorates())
+        .filter((d) => d.isActive)
+        .map((d) => {
+          const last = versions.find((v) => v.directorateId === d.id)?.sentAt ?? null; // versions уже по убыванию даты
+          return { id: d.id, name: d.name, lastSentAt: last, thisWeek: !!last && mskIsoWeek(last) === mskIsoWeek(new Date()) };
+        })
+    : undefined;
+  return NextResponse.json({ versions: rows, ...(overview ? { overview } : {}) });
 }
 
 export const GET = withApiErrors(GETHandler);

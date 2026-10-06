@@ -26,11 +26,18 @@ const parse = (s: string | null): MemoDiff => {
   }
 };
 
-/** Директорам дирекции (кроме самого автора) — о том, что справку трогал кто-то другой. */
+/**
+ * Директорам дирекции (кроме самого автора) — о том, что справку трогал кто-то другой.
+ * Директора в дирекции нет (только завели или он ушёл) — узнают админы: иначе о правках не узнает никто.
+ */
 export async function notifyDirectors(who: Who, cycle: CycleRef, message: string): Promise<void> {
   if (who.role === "DIRECTOR" || !cycle.directorateId) return; // директор правит свою справку — себя не уведомляем
-  const directors = await prisma.user.findMany({ where: { directorateId: cycle.directorateId, role: "DIRECTOR", isActive: true, id: { not: who.id } }, select: { id: true } });
-  for (const d of directors) await createNotification({ userId: d.id, type: "CHANGE_ATTENTION", message, link: "/operativka" });
+  const hasDirector = (await prisma.user.count({ where: { directorateId: cycle.directorateId, role: "DIRECTOR", isActive: true } })) > 0;
+  const to = await prisma.user.findMany({
+    where: hasDirector ? { directorateId: cycle.directorateId, role: "DIRECTOR", isActive: true, id: { not: who.id } } : { role: "ADMIN", isActive: true, id: { not: who.id } },
+    select: { id: true },
+  });
+  for (const d of to) await createNotification({ userId: d.id, type: "CHANGE_ATTENTION", message, link: "/operativka", directorateId: cycle.directorateId });
 }
 
 /**

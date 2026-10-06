@@ -197,6 +197,8 @@ export function OperativkaView() {
               >
                 {(close) => (
                   <div className="p-3">
+                    {/* админ работает во многих дирекциях — напоминаем, в какой начинается оперативка */}
+                    {role === "ADMIN" && directorateName && <p className="mb-2 text-[12px] leading-snug text-on-surface-variant">Дирекция: <b className="text-on-surface">{directorateName}</b></p>}
                     <p className="text-[13px] font-semibold text-on-surface">Срок подачи</p>
                     <p className="mt-1 text-[12px] text-on-surface-variant">За 2 дня до срока директору придёт напоминание, кто ничего не подал.</p>
                     <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input mt-2 w-full" />
