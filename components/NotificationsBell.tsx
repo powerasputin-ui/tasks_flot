@@ -76,7 +76,7 @@ export function NotificationsBell() {
         )}
       </button>
       {open && (
-        <div className="animate-fade-in absolute right-0 top-11 z-50 w-80 rounded-lg border border-outline-variant bg-surface shadow-xl">
+        <div className="animate-fade-in absolute right-0 top-11 z-50 w-80 rounded-lg border border-outline-variant bg-surface shadow-xl max-md:fixed max-md:inset-x-2 max-md:top-16 max-md:w-auto">
           <div className="flex items-center justify-between border-b border-outline-variant px-3.5 py-2.5">
             <span className="label-caps">Уведомления</span>
             {unreadCount > 0 && (
@@ -85,7 +85,7 @@ export function NotificationsBell() {
               </button>
             )}
           </div>
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto max-md:max-h-[70dvh]">
             {notifications.length === 0 ? (
               <p className="px-3 py-8 text-center text-[13px] text-outline">Уведомлений нет.</p>
             ) : (

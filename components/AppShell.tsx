@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, Eye, LogOut, Search, Settings, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, Eye, LogOut, Search, Settings, Table2, Trash2, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { setPreview } from "@/lib/preview-as";
@@ -54,8 +54,15 @@ export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>>
 
 const SEARCH_PATHS = ["/table", "/archive"];
 
+/** Значки разделов для нижней панели на телефоне. */
+const NAV_ICON: Record<string, ReactNode> = {
+  "/operativka": <ClipboardList size={20} />,
+  "/table": <Table2 size={20} />,
+  "/archive": <Trash2 size={20} />,
+};
+
 /** Поиск хранится в адресе (?q=…): таблица читает его оттуда, без связи между компонентами. */
-function TopSearch() {
+function TopSearch({ className = "relative hidden w-72 md:block lg:ml-4 xl:w-96" }: { className?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -84,7 +91,7 @@ function TopSearch() {
   }, [value]);
 
   return (
-    <div className="relative hidden w-72 md:block lg:ml-4 xl:w-96">
+    <div className={className}>
       <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
       <input
         value={value}
@@ -188,10 +195,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="z-30 flex h-16 shrink-0 items-center gap-2 overflow-x-clip sm:gap-4 border-b border-outline-variant bg-surface px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" title="ГШП Оперативка">
           <Image src="/logo.svg" alt="" width={36} height={36} className="shrink-0" priority />
-          <span className="hidden min-w-0 flex-col lg:flex">
+          <span className="flex min-w-0 flex-col max-md:max-w-[52vw] md:hidden lg:flex">
             <span className="text-[13px] font-bold leading-[15px] tracking-tight text-on-surface">ГШП ОПЕРАТИВКА</span>
             {directorate && directorates.length <= 1 && (
-              <span className="max-w-[26rem] text-[11px] leading-[14px] text-on-surface-variant">
+              <span className="max-w-[26rem] truncate text-[11px] leading-[14px] text-on-surface-variant max-md:max-w-full">
                 {directorate.name}
               </span>
             )}
@@ -236,7 +243,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
 
         {/* на узком экране пункты меню прокручиваются, а колокольчик и меню пользователя справа всегда видны */}
-        <nav className="flex h-full min-w-0 items-stretch gap-1 overflow-x-auto lg:ml-2 [scrollbar-width:none]">
+        <nav className="hidden h-full min-w-0 items-stretch gap-1 overflow-x-auto md:flex lg:ml-2 [scrollbar-width:none]">
           {nav.map((item) => {
             const active = pathname.startsWith(item.href);
             return (
@@ -258,13 +265,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div id="header-actions" className="hidden items-center sm:flex" />
           {me && <NotificationsBell />}
           {(effRole === "SYSTEM_ADMIN" || effRole === "ADMIN" || effRole === "DIRECTOR") && (
-            <Link
-              href="/settings"
-              title="Настройки"
-              className={`btn-icon ${pathname.startsWith("/settings") ? "bg-primary-soft text-primary" : ""}`}
-            >
-              <Settings size={18} />
-            </Link>
+            // обёртка: у .btn-icon свой display, и класс скрытия на самой ссылке не срабатывает; на телефоне настройки — в нижней панели
+            <span className="max-md:hidden">
+              <Link
+                href="/settings"
+                title="Настройки"
+                className={`btn-icon ${pathname.startsWith("/settings") ? "bg-primary-soft text-primary" : ""}`}
+              >
+                <Settings size={18} />
+              </Link>
+            </span>
           )}
           <span className="mx-2 hidden h-6 w-px bg-outline-variant sm:block" />
           {me && (
@@ -285,6 +295,20 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <p className="text-[13px] font-semibold text-on-surface">{me.name}</p>
                     <p className="text-[12px] text-on-surface-variant">{ROLE_LABEL[me.role]}</p>
                   </div>
+                  {directorate && directorates.length > 1 && !previewing && (
+                    <div className="border-b border-outline-variant py-1.5 xl:hidden">
+                      <p className="label-caps px-3.5 pb-1 pt-1">Дирекция</p>
+                      {directorates.map((d) => (
+                        <MenuItem
+                          key={d.id}
+                          onClick={() => d.id !== directorate.id && chooseDirectorate(d.id)}
+                          icon={d.id === directorate.id ? <Check size={15} className="text-primary" /> : <span className="w-[15px]" />}
+                        >
+                          {d.name}
+                        </MenuItem>
+                      ))}
+                    </div>
+                  )}
                   {previewing && (
                     <div className="border-b border-outline-variant py-1.5">
                       <MenuItem onClick={() => startViewAs(null)} icon={<Eye size={15} />}>
@@ -321,6 +345,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </div>
       </header>
+      {/* телефон: поиск по таблице — отдельной строкой под шапкой */}
+      {SEARCH_PATHS.some((p) => pathname.startsWith(p)) && (
+        <div className="shrink-0 border-b border-outline-variant bg-surface px-3 py-2 md:hidden">
+          <Suspense fallback={null}>
+            <TopSearch className="relative w-full" />
+          </Suspense>
+        </div>
+      )}
       {previewing && (
         <div className="flex flex-wrap items-center gap-3 border-b border-primary/20 bg-primary-soft px-4 py-2 text-[13px] text-primary">
           <Eye size={15} className="shrink-0" />
@@ -333,6 +365,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
       <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+      {/* телефон: разделы — внизу, под большим пальцем; на ПК они в шапке */}
+      {me && (
+        <nav className="flex shrink-0 items-stretch border-t border-outline-variant bg-surface pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Разделы">
+          {[...nav, ...(effRole === "SYSTEM_ADMIN" || effRole === "ADMIN" || effRole === "DIRECTOR" ? [{ href: "/settings", label: "Настройки" }] : [])].map((item) => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-semibold ${active ? "text-primary" : "text-on-surface-variant"}`}
+              >
+                {NAV_ICON[item.href] ?? <Settings size={20} />}
+                <span className="max-w-full truncate px-1">{item.label === "Общая таблица" ? "Таблица" : item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </>
   );
 }

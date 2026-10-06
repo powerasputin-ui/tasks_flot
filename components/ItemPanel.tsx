@@ -317,7 +317,7 @@ export function ItemPanel({
           </Section>
 
           <Section title="Классификация">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <Field label="Сегмент">
                 <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
               </Field>
@@ -333,7 +333,7 @@ export function ItemPanel({
           </Section>
 
           <Section title="Ответственность и срок">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <div className="col-span-2">
                 <Field label="Ответственный">
                   <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled || lockResponsible} allowEmpty={!lockResponsible} />
@@ -350,7 +350,7 @@ export function ItemPanel({
 
           {customColumns.length > 0 && (
             <Section title="Дополнительные поля">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
                 {customColumns.map((c) => {
                   const v = form.custom[c.id] ?? "";
                   const setV = (val: string) => setForm((f) => ({ ...f, custom: { ...f.custom, [c.id]: val } }));

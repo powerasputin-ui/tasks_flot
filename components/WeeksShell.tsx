@@ -8,7 +8,7 @@ import { WeekTable } from "@/components/WeekTable";
 export function WeeksShell() {
   const week = useSearchParams().get("week");
   return week ? (
-    <div className="h-full overflow-y-auto px-6 py-4">
+    <div className="h-full overflow-y-auto px-6 py-4 max-md:px-3">
       <WeekTable cycleId={week} />
     </div>
   ) : (

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useIsMobile } from "@/lib/use-mobile";
 
 /**
  * Выпадающий блок под элементом-триггером: закрывается по клику снаружи и Esc.
  * Используется для меню, чипов-фильтров, поповеров настроек.
+ * На телефоне — нижняя «шторка» на всю ширину с затемнением: выпадашка у края узкого экрана обрезается и в неё трудно попасть.
  */
 export function Popover({
   trigger,
@@ -26,6 +28,7 @@ export function Popover({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const mobile = useIsMobile();
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enter = () => {
     if (!hover) return;
@@ -54,7 +57,16 @@ export function Popover({
   return (
     <div ref={ref} className={`relative ${className}`} onMouseEnter={enter} onMouseLeave={leave}>
       {trigger({ open, toggle: () => setOpen((v) => !v) })}
-      {open && (
+      {open && mobile && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/30" onClick={() => setOpen(false)} aria-hidden />
+          <div className="animate-slide-up fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t border-outline-variant bg-surface pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 shadow-2xl">
+            <div className="mx-auto mb-1 mt-1 h-1 w-10 rounded-full bg-outline-variant" aria-hidden />
+            {children(() => setOpen(false))}
+          </div>
+        </>
+      )}
+      {open && !mobile && (
         <div
           className={`animate-fade-in absolute z-50 rounded-lg border border-outline-variant bg-surface py-1 shadow-xl ${
             align === "right" ? "right-0" : "left-0"
@@ -84,7 +96,7 @@ export function MenuItem({
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft ${
+      className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] transition-colors hover:bg-primary-soft max-md:py-3 max-md:text-[15px] ${
         danger ? "text-status-red" : active ? "font-semibold text-primary" : "text-on-surface"
       }`}
     >

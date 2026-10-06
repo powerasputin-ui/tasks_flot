@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 
@@ -7,10 +7,13 @@ export const metadata: Metadata = {
   description: "Подготовка оперативной информации: руководители, директора, ЗГД",
 };
 
+// телефон: ширина экрана, без автоприближения при вводе; viewport-fit=cover — чтобы учитывать вырезы экрана (safe-area)
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#ffffff" };
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ru" className="h-full antialiased">
-      <body className="flex h-full flex-col overflow-hidden">
+      <body className="flex h-dvh flex-col overflow-hidden">
         <AppShell>{children}</AppShell>
       </body>
     </html>

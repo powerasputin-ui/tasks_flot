@@ -151,6 +151,21 @@ body {
   animation: slide-in-right 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* шторка снизу на телефоне */
+@keyframes slide-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.animate-slide-up {
+  animation: slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -400px 0;
@@ -283,6 +298,14 @@ body {
 textarea.input {
   height: auto;
   padding: 0.5rem 0.75rem;
+}
+/* телефон: поля крупнее — iOS приближает страницу при вводе в поле со шрифтом меньше 16 px, и попадать пальцем легче */
+@media (max-width: 767px) {
+  .input,
+  .select {
+    height: 40px;
+    font-size: 16px;
+  }
 }
 .input::placeholder {
   color: var(--outline);

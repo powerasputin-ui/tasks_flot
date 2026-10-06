@@ -101,7 +101,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
   const placeholder = disabledReason ? disabledReason : configured === false ? "ИИ не подключён: попросите администратора или подключите в настройках (шестерёнка справа)" : `Спросите про: ${scopeLabel}`;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-3">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-3 max-md:bottom-[calc(3.6rem+env(safe-area-inset-bottom))] max-md:px-2 max-md:pb-2">
       <div className="pointer-events-auto w-full max-w-3xl rounded-2xl border border-outline-variant bg-surface shadow-xl">
         {open && (
           <div className="flex max-h-[45vh] flex-col border-b border-outline-variant">

@@ -24,6 +24,7 @@ import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { usePreviewAs } from "@/lib/preview-as";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
+import { useIsMobile } from "@/lib/use-mobile";
 import { applyWidthOverrides, DEFAULT_COLUMNS, loadLocalColumns, loadWidthOverrides, normalizeColumns, saveWidthOverrides, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
 import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
@@ -60,6 +61,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const q = searchParams.get("q") ?? "";
 
   const tableWrapRef = useRef<HTMLDivElement>(null);
+  // телефон: карточки вместо таблицы, долгое нажатие вместо правой кнопки
+  const mobile = useIsMobile();
+  const longPress = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -524,6 +528,67 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     }
   }
 
+  /** Карточка позиции на телефоне: касание — открыть, долгое нажатие — меню действий (как правая кнопка на ПК). */
+  function MobileCard({ row }: { row: Row }) {
+    const operCol = visibleColumns.find((c) => c.key === "operFlag");
+    const memoCol = visibleColumns.find((c) => c.key === "memo");
+    const startPress = (x: number, y: number) => {
+      longPress.current.fired = false;
+      longPress.current.timer = setTimeout(() => {
+        longPress.current.fired = true;
+        setCtx({ x, y, row, confirm: false });
+      }, 500);
+    };
+    const cancelPress = () => {
+      if (longPress.current.timer) clearTimeout(longPress.current.timer);
+      longPress.current.timer = null;
+    };
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        data-row-id={row.id}
+        onClick={() => {
+          if (longPress.current.fired) {
+            longPress.current.fired = false;
+            return;
+          }
+          setEditor({ row });
+        }}
+        onTouchStart={(e) => startPress(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchMove={cancelPress}
+        onTouchEnd={cancelPress}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          cancelPress();
+          setCtx({ x: e.clientX, y: e.clientY, row, confirm: false });
+        }}
+        className={`select-none rounded-lg border border-outline-variant bg-surface p-3 shadow-sm active:bg-surface-high ${editor?.row?.id === row.id ? "ring-2 ring-primary/40" : ""}`}
+      >
+        <div className="flex items-start gap-2">
+          <p className={`min-w-0 flex-1 text-[15px] font-semibold leading-snug [overflow-wrap:anywhere] ${row.archived ? "text-outline" : "text-on-surface"}`}>
+            <Highlight text={row.name} query={q} />
+          </p>
+          {row.statusName && <span className="shrink-0">{renderCell(row, { key: "status" } as ColumnConfig)}</span>}
+        </div>
+        {row.comment && <p className="mt-1 line-clamp-3 text-[13px] leading-snug text-on-surface-variant [overflow-wrap:anywhere]"><Highlight text={row.comment} query={q} /></p>}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-on-surface-variant">
+          {row.trackName && <span>{row.trackName}</span>}
+          {row.ownerName && <span>{row.ownerName}</span>}
+          {row.deadline && <span>{renderCell(row, { key: "deadline" } as ColumnConfig)}</span>}
+          {row.attractivenessName && renderCell(row, { key: "attractiveness" } as ColumnConfig)}
+          {row.cost && <span>{row.cost}</span>}
+          {(operCol || memoCol) && (
+            <span className="ml-auto flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+              {operCol && renderCell(row, operCol)}
+              {memoCol && renderCell(row, memoCol)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0">
       {headerSlot &&
@@ -540,22 +605,37 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
       <section className="flex min-w-0 flex-1 flex-col">
         {(me?.role === "HEAD" || me?.submits) && !preview && defaultArchive !== "archived" && <CycleStrip />}
-        <div className="border-b border-outline-variant bg-surface px-6 py-4">
+        <div className="border-b border-outline-variant bg-surface px-6 py-4 max-md:px-3 max-md:py-3">
           <div className="mb-3">
             <SegmentSelect segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
           </div>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
               <p className="label-caps">{defaultArchive === "archived" ? "Удалённые позиции" : "Рабочая таблица"}</p>
-              <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface">{selectedName}</h2>
+              <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface max-md:text-xl">{selectedName}</h2>
               <p className="mt-0.5 text-[12px] text-on-surface-variant">
                 {loading ? "Загрузка…" : `${visibleRows.length} позиций · ${operCount} отправлено директору`}
                 {lastUpdated && !loading && ` · обновлено ${new Date(lastUpdated).toLocaleDateString("ru-RU")}`}
               </p>
             </div>
+            {/* телефон: действия — рядом с заголовком (строка фильтров прокручивается и спрятала бы их) */}
+            <div className="flex items-center gap-1.5 md:hidden">
+              <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
+                <BarChart3 size={18} />
+              </button>
+              {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} />}
+              <button onClick={toggleHistory} className={`btn-icon ${history ? "bg-primary-soft text-primary" : ""}`} title="История изменений" aria-label="История изменений">
+                <History size={18} />
+              </button>
+              {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
+                <button onClick={() => setEditor({ row: null })} className="btn-primary h-10" aria-label="Добавить позицию">
+                  <Plus size={16} /> Добавить
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2 max-md:-mx-3 max-md:flex-nowrap max-md:overflow-x-auto max-md:px-3 max-md:pb-1 max-md:[scrollbar-width:none]">
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
             {defaultArchive !== "archived" && <WeekSelect selected={null} />}
             <FilterChip label="Трек" value={trackIds} options={refs.tracks} onChange={setTrackIds} />
@@ -591,7 +671,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               </button>
             )}
             {/* Правый край ряда: «+ Добавить» и иконка истории (без контура) на одной линии */}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2 max-md:hidden">
               {me && canCreateItem(me.role as UserRole) && defaultArchive !== "archived" && (
                 <button onClick={() => setEditor({ row: null })} className="btn-primary">
                   <Plus size={16} />
@@ -610,7 +690,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto p-6">
+        <div className="min-h-0 flex-1 overflow-auto p-6 max-md:p-3">
           {error && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
               <AlertCircle size={15} />
@@ -619,6 +699,28 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             </div>
           )}
 
+          {mobile ? (
+            <div className="space-y-2">
+              {loading && Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-24 rounded-lg" />)}
+              {!loading &&
+                (groups ?? [{ id: "", rows: shownRows }]).map((group) => (
+                  <Fragment key={group.id || "flat"}>
+                    {groups && (
+                      <p className="border-l-4 px-2 pt-2 text-[12px] font-bold text-on-surface" style={{ borderLeftColor: colors.get(group.id) ?? "#94a3b8" }}>
+                        {segmentName(group.id)} <span className="font-normal text-on-surface-variant">· {group.rows.length} поз.</span>
+                      </p>
+                    )}
+                    {group.rows.map((row) => (
+                      <MobileCard key={row.id} row={row} />
+                    ))}
+                  </Fragment>
+                ))}
+              {!loading && !error && <ShowMore chunk={chunk} total={visibleRows.length} />}
+              {!loading && !error && visibleRows.length === 0 && (
+                <EmptyState query={q} filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
+              )}
+            </div>
+          ) : (
           <div ref={tableWrapRef} className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
             {/* тянешь колонку — меняется только она, как в Excel; последняя (текстовая) сама сжимается/растягивается под оставшееся место — таблица всегда ровно по ширине контейнера, без скролла */}
             <table className="w-full table-fixed border-collapse text-[13px]">
@@ -712,14 +814,18 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               <EmptyState query={q} filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
             )}
           </div>
-
+          )}
         </div>
       </section>
 
       {ctx && (
         <div
-          className="fixed z-50 w-60 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
-          style={{ left: Math.max(8, Math.min(ctx.x, window.innerWidth - 250)), top: Math.max(8, Math.min(ctx.y, window.innerHeight - (ctx.confirm === "purge" ? 220 : 160))) }}
+          className={
+            mobile
+              ? "animate-slide-up fixed inset-x-0 bottom-0 z-50 overflow-hidden rounded-t-2xl border-t border-outline-variant bg-surface pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-2xl [&_button]:py-3 [&_button]:text-[15px]"
+              : "fixed z-50 w-60 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
+          }
+          style={mobile ? undefined : { left: Math.max(8, Math.min(ctx.x, window.innerWidth - 250)), top: Math.max(8, Math.min(ctx.y, window.innerHeight - (ctx.confirm === "purge" ? 220 : 160))) }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
