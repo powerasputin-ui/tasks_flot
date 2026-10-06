@@ -719,7 +719,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       {ctx && (
         <div
           className="fixed z-50 w-60 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
-          style={{ left: Math.min(ctx.x, window.innerWidth - 250), top: Math.min(ctx.y, window.innerHeight - 140) }}
+          style={{ left: Math.max(8, Math.min(ctx.x, window.innerWidth - 250)), top: Math.max(8, Math.min(ctx.y, window.innerHeight - (ctx.confirm === "purge" ? 220 : 160))) }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
