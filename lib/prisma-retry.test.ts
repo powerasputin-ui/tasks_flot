@@ -6,7 +6,7 @@ describe("подключение к базе на засыпающем серв�
   it("пул получает пределы ожидания, а параметры движка Prisma убираются из адреса (pg их не знает)", () => {
     const c = poolConfig("postgresql://u:p@h/db?sslmode=require&pgbouncer=true&connect_timeout=30&socket_timeout=20");
     const u = new URL(c.connectionString!);
-    expect(u.searchParams.get("sslmode")).toBe("require");
+    expect(u.searchParams.get("sslmode")).toBe("verify-full"); // то же, что pg делает с require, но без предупреждения в журнале
     for (const k of ["pgbouncer", "connect_timeout", "socket_timeout"]) expect(u.searchParams.has(k)).toBe(false);
     expect(c).toMatchObject({ connectionTimeoutMillis: 15000, query_timeout: 25000, idleTimeoutMillis: 10000, keepAlive: true });
   });

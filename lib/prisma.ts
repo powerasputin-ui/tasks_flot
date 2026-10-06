@@ -21,6 +21,8 @@ export function poolConfig(url: string | undefined): PoolConfig {
     try {
       const u = new URL(url);
       for (const k of ["pgbouncer", "connect_timeout", "pool_timeout", "socket_timeout", "connection_limit", "statement_cache_size", "schema"]) u.searchParams.delete(k);
+      // `pg` и так проверяет сертификат при sslmode=require и пишет об этом предупреждение в журнал на каждом запуске — называем режим прямо
+      if (u.searchParams.get("sslmode") === "require") u.searchParams.set("sslmode", "verify-full");
       connectionString = u.toString();
     } catch {
       /* адрес не разобрался — отдаём как есть, `pg` сам сообщит об ошибке */
