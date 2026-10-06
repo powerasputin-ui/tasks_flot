@@ -21,7 +21,8 @@ export function MemoReader({ title, doc, sources, query, onShowInTable }: { titl
   let no = 0;
   return (
     <div className="overflow-x-auto">
-      <article className="mx-auto rounded-sm border border-outline-variant bg-surface shadow-sm" style={{ width: 794, minHeight: 1123, padding: 76 }}>
+      {/* лист А4 на ПК; на телефоне — по ширине экрана, без полей листа */}
+      <article className="mx-auto min-h-[1123px] w-[794px] rounded-sm border border-outline-variant bg-surface p-[76px] shadow-sm max-md:min-h-0 max-md:w-full max-md:p-4">
         <h2 className="text-center font-medium text-on-surface" style={TEXT}>
           {head.main}
         </h2>

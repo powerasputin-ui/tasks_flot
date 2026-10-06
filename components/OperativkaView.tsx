@@ -156,7 +156,7 @@ export function OperativkaView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <header className="sticky top-0 z-20 border-b border-outline-variant bg-surface px-6 pt-4">
+      <header className="sticky top-0 z-20 border-b border-outline-variant bg-surface px-6 pt-4 max-md:px-3 max-md:pt-3">
         <p className="text-[12px] text-on-surface-variant">{isManagement ? "Итоги дирекций" : directorateName ?? DEFAULT_DIRECTORATE}</p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-semibold leading-8 text-on-surface">{cycle && !isManagement ? `Оперативка №${cycle.number}` : "Оперативка"}</h1>
@@ -276,7 +276,7 @@ export function OperativkaView() {
         </nav>
       </header>
 
-      <div className={`p-6 ${aiUser && tab === "finals" ? "pb-28" : ""}`}>
+      <div className={`p-6 max-md:px-3 ${aiUser && tab === "finals" ? "pb-28" : ""}`}>
         {error && (
           <div role="alert" className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
             <AlertTriangle size={15} /> {error}
