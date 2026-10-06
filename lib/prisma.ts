@@ -1,49 +1,62 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool, type PoolConfig } from "pg";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 /**
- * Параметры подключения к базе для серверов, которые «засыпают» (Vercel + бесплатный Neon):
- * - connect_timeout / pool_timeout 30 с: утром база просыпается дольше стандартных 10 с;
- * - socket_timeout 20 с: Neon при засыпании молча закрывает соединение, и запрос по «мёртвому» соединению висел бы
- *   минуту и больше (корпоративный прокси обрывает раньше — «сайт не работает»). С ограничением запрос падает быстро
- *   и повторяется на новом соединении (см. retryReads ниже).
- * Явно заданные в адресе значения не трогаем.
+ * Подключение к базе через драйвер `pg` со своим пулом, а не встроенным движком Prisma.
+ * Причина — зависания на проде (Vercel + Neon через пулер): Neon молча закрывает простаивающие соединения, а замороженный
+ * между запросами экземпляр Vercel потом брал «мёртвое» соединение и ждал минуту. Здесь у каждого этапа свой предел:
+ * - connectionTimeoutMillis 15 с — подключение (утром база просыпается за несколько секунд);
+ * - query_timeout 25 с — один запрос к базе, после чего он падает и чтение повторяется на новом соединении (см. ниже);
+ * - idleTimeoutMillis 10 с — простаивающие соединения закрываем сами раньше, чем это сделает Neon;
+ * - keepAlive — оборванное соединение замечается сетью, а не через минуту;
+ * - max 5 — экземпляров функций много, а у бесплатного Neon число соединений ограничено.
+ * Параметры, понятные только движку Prisma (pgbouncer, connect_timeout и т.п.), из адреса убираем — `pg` их не знает.
  */
-export function withWakeTimeouts(url: string | undefined): string | undefined {
-  if (!url) return url;
-  try {
-    const u = new URL(url);
-    if (!u.searchParams.has("connect_timeout")) u.searchParams.set("connect_timeout", "30");
-    if (!u.searchParams.has("pool_timeout")) u.searchParams.set("pool_timeout", "30");
-    if (!u.searchParams.has("socket_timeout")) u.searchParams.set("socket_timeout", "20");
-    return u.toString();
-  } catch {
-    return url;
+export function poolConfig(url: string | undefined): PoolConfig {
+  let connectionString = url;
+  if (url) {
+    try {
+      const u = new URL(url);
+      for (const k of ["pgbouncer", "connect_timeout", "pool_timeout", "socket_timeout", "connection_limit", "statement_cache_size", "schema"]) u.searchParams.delete(k);
+      connectionString = u.toString();
+    } catch {
+      /* адрес не разобрался — отдаём как есть, `pg` сам сообщит об ошибке */
+    }
   }
+  return { connectionString, max: 5, connectionTimeoutMillis: 15_000, idleTimeoutMillis: 10_000, query_timeout: 25_000, keepAlive: true };
 }
 
 /** Только чтение повторяем безопасно: повтор записи мог бы выполнить её дважды. */
 const READS = new Set(["findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]);
 
+/** Сообщения драйвера `pg` и Prisma о том, что соединение умерло или не дождались ответа. */
+const CONNECTION_MESSAGE = /closed|reset|terminat|timed? ?out|socket|connection|ECONNRESET|ETIMEDOUT|EPIPE/i;
+
 /** Ошибка «соединение умерло / не дождались», а не ошибка данных. */
 export function isConnectionError(e: unknown): boolean {
-  if (e instanceof Prisma.PrismaClientKnownRequestError) return ["P1001", "P1002", "P1008", "P1017", "P2024"].includes(e.code);
-  if (e instanceof Prisma.PrismaClientInitializationError || e instanceof Prisma.PrismaClientUnknownRequestError) {
-    return /closed|reset|terminat|timed? ?out|socket|connection/i.test(e.message);
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (["P1001", "P1002", "P1008", "P1017", "P2024"].includes(e.code)) return true;
+    // ошибки драйвера приходят под общими кодами — смотрим на текст, но ошибки данных (уникальность, связи, «не найдено») не трогаем
+    if (["P2002", "P2003", "P2025", "P2014", "P2034"].includes(e.code)) return false;
+    return CONNECTION_MESSAGE.test(e.message);
   }
+  if (e instanceof Prisma.PrismaClientInitializationError || e instanceof Prisma.PrismaClientUnknownRequestError) return CONNECTION_MESSAGE.test(e.message);
   return false;
 }
-
-const url = withWakeTimeouts(process.env.DATABASE_URL);
 
 /** Запросы к базе дольше этого пишутся в журнал Vercel (поиск причины зависаний). */
 const SLOW_DB_MS = 2000;
 let firstQuery = true;
 
 function create(): PrismaClient {
+  const pool = new Pool(poolConfig(process.env.DATABASE_URL));
+  // ошибка простаивающего соединения (Neon его закрыл) не должна ронять процесс: пул просто откроет новое
+  pool.on("error", (e) => console.warn(`[db-pool] ${e.message.slice(0, 160)}`));
   const base = new PrismaClient({
-    ...(url ? { datasources: { db: { url } } } : {}),
+    adapter: new PrismaPg(pool),
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
   // чтение, упавшее на «мёртвом» соединении, сразу повторяем: пул откроет новое соединение
