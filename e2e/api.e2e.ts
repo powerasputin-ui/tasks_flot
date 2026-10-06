@@ -32,6 +32,7 @@ vi.mock("@/lib/session", () => {
 import * as items from "@/app/api/items/route";
 import * as item from "@/app/api/items/[id]/route";
 import * as restore from "@/app/api/items/[id]/restore/route";
+import * as purgeRoute from "@/app/api/items/[id]/purge/route";
 import * as ret from "@/app/api/items/[id]/return/route";
 import * as history from "@/app/api/items/[id]/history/route";
 import * as recent from "@/app/api/items/recent-changes/route";
@@ -1900,5 +1901,29 @@ describe("дирекции: заведение, директор, роли, от
     expect(z.data.overview.find((d: { id: string }) => d.id === dirC)).toMatchObject({ lastSentAt: null, thisWeek: false });
     expect(z.data.overview.some((d: { thisWeek: boolean }) => d.thisWeek)).toBe(true); // дирекция Б отправляла в этих тестах
     expect((await call(directorB, archive.GET, "/api/memo-archive")).data.overview).toBeUndefined();
+  });
+});
+
+describe("удалить навсегда из «Удалённых»", () => {
+  it("только из «Удалённых»; директор и ответственный получают уведомление; позиция и её история стираются", async () => {
+    const mk = async (title: string) => (await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} ${title}` } })).data.row.id as string;
+    const purge = (who: Actor, id: string) => call(who, purgeRoute.POST, `/api/items/${id}/purge`, { method: "POST", id });
+
+    // директор удаляет навсегда позицию руководителя — руководитель узнаёт
+    const a = await mk("навсегда директором");
+    expect((await purge(directorB, a)).status).toBe(409); // сначала — в «Удалённые»
+    expect((await call(headB, item.DELETE, `/api/items/${a}`, { method: "DELETE", id: a })).status).toBe(200);
+    expect((await purge(director, a)).status).toBe(404); // чужая дирекция
+    expect((await purge(directorB, a)).status).toBe(200);
+    expect(await prisma.operationalItem.findUnique({ where: { id: a } })).toBeNull();
+    expect(await prisma.auditEvent.count({ where: { entityId: a } })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: headB.id, message: { contains: "навсегда" }, AND: { message: { contains: "навсегда директором" } } } })).toBe(1);
+
+    // руководитель удаляет навсегда свою — узнаёт директор; сам себе не уведомляет
+    const b = await mk("навсегда руководителем");
+    await call(headB, item.DELETE, `/api/items/${b}`, { method: "DELETE", id: b });
+    expect((await purge(headB, b)).status).toBe(200);
+    expect(await prisma.notification.count({ where: { userId: directorB.id, message: { contains: "навсегда руководителем" } } })).toBe(1);
+    expect(await prisma.notification.count({ where: { userId: headB.id, message: { contains: "навсегда руководителем" } } })).toBe(0);
   });
 });

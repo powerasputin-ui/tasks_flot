@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canRestoreItem, canViewItems, isSubmitter, type Actor } from "@/lib/permissions";
+import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canViewItems, isSubmitter, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
-import { changedFields, notifyOwnerOfEdit } from "@/lib/item-notify";
+import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
 import type { ItemRecord } from "@/lib/table-view";
@@ -168,6 +168,27 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
   });
   await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, archived ? "удалил" : "вернул из удалённых");
   return { ok: true, id, record };
+}
+
+/**
+ * Удалить навсегда: только позицию из «Удалённых». Стираются сама позиция, её комментарии, история правок
+ * и уведомления со ссылкой на неё. Отправленные справки не меняются — в них хранится свой снимок.
+ */
+export async function purgeItem(actor: Actor, id: string): Promise<{ ok: true } | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "ARCHIVED" }> {
+  if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
+  const existing = await prisma.operationalItem.findUnique({ where: { id } });
+  if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
+  if (!canPurgeItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
+  // навсегда — только из «Удалённых»: рабочую позицию сначала удаляют обычным способом
+  if (existing.archivedAt === null) return { ok: false, error: "ARCHIVED" };
+  await prisma.$transaction(async (tx) => {
+    await tx.itemNote.deleteMany({ where: { itemId: id } });
+    await tx.auditEvent.deleteMany({ where: { entityType: "OperationalItem", entityId: id } });
+    await tx.notification.deleteMany({ where: { link: { contains: `item=${id}` } } });
+    await tx.operationalItem.delete({ where: { id } });
+  });
+  await notifyPurge(actor as Actor & { name?: string }, existing);
+  return { ok: true };
 }
 
 export const ITEM_ERROR_STATUS: Record<Exclude<ItemResult, { ok: true }>["error"], number> = {

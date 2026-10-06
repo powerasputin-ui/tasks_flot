@@ -46,3 +46,17 @@ export async function notifyOwnerOfEdit(
   if (recent) await prisma.notification.update({ where: { id: recent.id }, data: { message, createdAt: now } });
   else await createNotification({ userId: item.responsibleId, type: "CHANGE_ATTENTION", message, link });
 }
+
+/**
+ * Позицию удалили навсегда — об этом должны узнать: директор дирекции (если директора нет — админы) и ответственный,
+ * если удалял не он. Иначе позиция исчезла бы бесследно.
+ */
+export async function notifyPurge(actor: { id: string; name?: string }, item: { title: string; responsibleId: string | null; directorateId: string | null }): Promise<void> {
+  if (!item.directorateId) return;
+  const directors = await prisma.user.findMany({ where: { directorateId: item.directorateId, role: "DIRECTOR", isActive: true }, select: { id: true } });
+  const leads = directors.length ? directors : await prisma.user.findMany({ where: { role: "ADMIN", isActive: true }, select: { id: true } });
+  const to = new Set([...leads.map((u) => u.id), ...(item.responsibleId ? [item.responsibleId] : [])]);
+  to.delete(actor.id);
+  const message = `${actor.name ?? "Кто-то"} удалил(а) навсегда позицию «${item.title.slice(0, 120)}» — восстановить её нельзя.`;
+  for (const userId of to) await createNotification({ userId, type: "CHANGE_ATTENTION", message, link: "/archive", directorateId: item.directorateId });
+}

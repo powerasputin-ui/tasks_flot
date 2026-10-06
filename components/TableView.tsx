@@ -13,7 +13,7 @@ import { CycleStrip } from "@/components/CycleStrip";
 import { WeekSelect } from "@/components/WeekSelect";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
-import { canCreateItem, canDeleteItem, isDirectorial, isSubmitter } from "@/lib/permissions";
+import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -128,7 +128,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   );
 
   // Контекстное меню строки (правая кнопка мыши).
-  const [ctx, setCtx] = useState<{ x: number; y: number; row: Row; confirm: boolean } | null>(null);
+  // confirm: какое подтверждение показано вместо меню — обычное удаление (в «Удалённые») или удаление навсегда
+  const [ctx, setCtx] = useState<{ x: number; y: number; row: Row; confirm: false | "delete" | "purge" } | null>(null);
   useEffect(() => {
     if (!ctx) return;
     const close = () => setCtx(null);
@@ -145,9 +146,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     };
   }, [ctx]);
 
-  async function ctxAction(row: Row, action: "delete" | "restore") {
+  async function ctxAction(row: Row, action: "delete" | "restore" | "purge") {
     setCtx(null);
     if (preview) return previewBlock();
+    if (action === "purge") {
+      const res = await fetch(`/api/items/${row.id}/purge`, { method: "POST" });
+      if (res.ok) {
+        setRefetchTick((t) => t + 1);
+        setFeedTick((t) => t + 1);
+      } else setError("Не удалось удалить позицию навсегда.");
+      return;
+    }
     const res = await fetch(action === "restore" ? `/api/items/${row.id}/restore` : `/api/items/${row.id}`, {
       method: action === "restore" ? "POST" : "DELETE",
     });
@@ -716,9 +725,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         >
           {ctx.confirm ? (
             <div className="px-3.5 py-2">
-              <p className="mb-2 text-[12px] text-on-surface-variant">Удалить позицию «{ctx.row.name.length > 40 ? `${ctx.row.name.slice(0, 40)}…` : ctx.row.name}»?</p>
+              <p className="mb-2 text-[12px] text-on-surface-variant">
+                {ctx.confirm === "purge" ? "Удалить навсегда" : "Удалить"} позицию «{ctx.row.name.length > 40 ? `${ctx.row.name.slice(0, 40)}…` : ctx.row.name}»?
+                {ctx.confirm === "purge" && " Восстановить будет нельзя; директор и ответственный получат уведомление."}
+              </p>
               <div className="flex gap-2">
-                <button onClick={() => ctxAction(ctx.row, "delete")} className="btn-danger h-8 flex-1">Удалить</button>
+                <button onClick={() => ctxAction(ctx.row, ctx.confirm === "purge" ? "purge" : "delete")} className="btn-danger h-8 flex-1">
+                  {ctx.confirm === "purge" ? "Удалить навсегда" : "Удалить"}
+                </button>
                 <button onClick={() => setCtx(null)} className="btn-ghost h-8">Нет</button>
               </div>
             </div>
@@ -738,8 +752,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 </button>
               )}
               {!ctx.row.archived && canDeleteRow(ctx.row) && (
-                <button onClick={() => setCtx({ ...ctx, confirm: true })} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
+                <button onClick={() => setCtx({ ...ctx, confirm: "delete" })} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
                   <Trash2 size={14} /> Удалить
+                </button>
+              )}
+              {ctx.row.archived && me && canPurgeItem({ id: me.id, role: me.role as UserRole }, { responsibleId: ctx.row.ownerId, createdById: ctx.row.createdById }) && (
+                <button onClick={() => setCtx({ ...ctx, confirm: "purge" })} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
+                  <Trash2 size={14} /> Удалить навсегда
                 </button>
               )}
               {!ctx.row.archived && !canDeleteRow(ctx.row) && (

@@ -78,6 +78,14 @@ export function canDeleteItem(actor: Actor, item: { responsibleId: string | null
   return item.responsibleId === actor.id || (item.responsibleId === null && item.createdById === actor.id);
 }
 
+/**
+ * Удалить навсегда (из «Удалённых», без возврата): тот, кто мог удалить позицию, а также директор и админ —
+ * они наводят порядок в дирекции. Об удалении узнают директор (или админы) и ответственный — см. purgeItem.
+ */
+export function canPurgeItem(actor: Actor, item: { responsibleId: string | null; createdById: string }): boolean {
+  return canDeleteItem(actor, item) || isDirectorial(actor.role);
+}
+
 /** Кто открывает раздел пользователей в настройках. */
 export function canManageUsers(role: UserRole): boolean {
   return role === "SYSTEM_ADMIN" || isDirectorial(role);
