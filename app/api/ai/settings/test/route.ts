@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { AI_DEFAULTS, AiError, complete, normalizeBaseUrl, providerLabel, type AiConfig } from "@/lib/ai";
-import { aiErrorResponse, baseUrlForKey, canUseAi, loadAiConfig, sharedAiConfig } from "@/lib/ai-server";
+import { NOT_A_KEY_MESSAGE, aiErrorResponse, baseUrlForKey, canUseAi, loadAiConfig, looksLikeApiKey, sharedAiConfig } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -31,6 +31,7 @@ async function POSTHandler(request: NextRequest) {
     // пустое поле формы = «как сохранено» (раньше пустая строка превращалась в адрес OpenAI по умолчанию)
     const apiKey = b?.apiKey?.trim() || own?.apiKey;
     if (!apiKey) return NextResponse.json({ error: "INVALID_INPUT", message: "Вставьте ключ API." }, { status: 400 });
+    if (!looksLikeApiKey(apiKey)) return NextResponse.json({ error: "INVALID_INPUT", message: NOT_A_KEY_MESSAGE }, { status: 400 });
     const base = normalizeBaseUrl(b?.baseUrl?.trim() || own?.baseUrl || "", provider);
     if (!base) return NextResponse.json({ error: "INVALID_INPUT", message: "Адрес API недопустим: нужен http:// или https:// и внешний адрес провайдера." }, { status: 400 });
     const cfg: AiConfig = { provider, baseUrl: baseUrlForKey(apiKey, base), model: b?.model?.trim() || own?.model || AI_DEFAULTS[provider].model, apiKey };

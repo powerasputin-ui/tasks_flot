@@ -84,3 +84,13 @@ describe("выбор модели в чате", () => {
     expect(chainForEngine(own, "fallback")).toMatchObject({ preroute: true, chain: { model: "g" } });
   });
 });
+
+describe("ключ в форме — не пароль, подставленный браузером", () => {
+  it("looksLikeApiKey: настоящие ключи проходят, короткое и с пробелами — нет", async () => {
+    const { looksLikeApiKey } = await import("@/lib/ai-server");
+    expect(looksLikeApiKey("gsk_" + "a".repeat(48))).toBe(true);
+    expect(looksLikeApiKey("nvapi-" + "B".repeat(60))).toBe(true);
+    expect(looksLikeApiKey("Maykov2026!")).toBe(false);
+    expect(looksLikeApiKey("gsk_abc def ghi jkl mno pqr")).toBe(false);
+  });
+});

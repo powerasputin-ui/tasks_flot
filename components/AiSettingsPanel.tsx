@@ -210,11 +210,20 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
       </label>
       <label className="block text-[12px] text-on-surface-variant">
         Ключ API {own && <span className="text-on-surface">· сохранён {state?.keyHint}</span>}
+        {/* не type="password": браузер подставляет туда сохранённый пароль от сайта (Chrome игнорирует autocomplete=off),
+            и «проверка» уходит с паролем вместо ключа. Обычное поле со скрытыми символами браузер не заполняет. */}
         <input
-          type="password"
+          type="text"
+          name="ai-api-key"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
           placeholder={own ? "Оставьте пустым, чтобы не менять" : chosen?.id.startsWith("nvidia") ? "nvapi-…" : chosen?.id.startsWith("groq") ? "gsk_…" : "Ключ API"}
           className="input mt-1 w-full"
         />

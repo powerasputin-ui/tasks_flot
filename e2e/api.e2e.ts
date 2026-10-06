@@ -1225,7 +1225,7 @@ describe("отправка справки ЗГД, архив, возврат", (
     expect((await put(management, { provider: "gemini", apiKey: "k" })).status).toBe(400);
     expect((await put(management, { provider: "openai", baseUrl: "ftp://x", apiKey: "k" })).status).toBe(400);
     expect((await put(management, { provider: "openai" })).status).toBe(400); // ключа нет
-    expect((await put(management, { provider: "openai", baseUrl: "https://ai.example/v1", model: "test-model", apiKey: "sk-SECRET-KEY-9999" })).status).toBe(200);
+    expect((await put(management, { provider: "openai", baseUrl: "https://ai.example/v1", model: "test-model", apiKey: "sk-SECRET-KEY-000000009999" })).status).toBe(200);
     const s = await call(management, aiSettings.GET, "/api/ai/settings");
     expect(s.data).toMatchObject({ configured: true, provider: "openai", baseUrl: "https://ai.example/v1", model: "test-model", keyHint: "…9999" });
     expect(JSON.stringify(s.data)).not.toContain("SECRET");
@@ -1245,12 +1245,18 @@ describe("отправка справки ЗГД, архив, возврат", (
       reply = () => Response.json({ choices: [{ message: { content: "ок" } }] });
       const test = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: { provider: "openai" } });
       expect(test.data).toMatchObject({ ok: true, model: "other" });
-      expect(seen[0]).toMatchObject({ url: "https://ai.example/v1/chat/completions", auth: "Bearer sk-SECRET-KEY-9999" }); // сохранённый ключ подставился на сервере
+      expect(seen[0]).toMatchObject({ url: "https://ai.example/v1/chat/completions", auth: "Bearer sk-SECRET-KEY-000000009999" }); // сохранённый ключ подставился на сервере
 
       reply = () => new Response("no", { status: 401 });
-      const bad = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: { provider: "openai", apiKey: "wrong" } });
+      const bad = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: { provider: "openai", apiKey: "sk-wrong-key-000000000000" } });
       expect(bad.status).toBe(401);
-      expect(JSON.stringify(bad.data)).not.toContain("wrong");
+      expect(JSON.stringify(bad.data)).not.toContain("wrong-key");
+      // браузер подставил в поле ключа сохранённый пароль — к провайдеру не уходит, человеку понятная подсказка
+      const calls = seen.length;
+      const pwd = await call(management, aiSettingsTest.POST, "/api/ai/settings/test", { method: "POST", body: { provider: "openai", apiKey: "Maykov2026!" } });
+      expect(pwd.status).toBe(400);
+      expect(pwd.data.message).toContain("пароль");
+      expect(seen.length).toBe(calls);
 
       // чат: контекст — справка, вопрос из истории; чужая (несуществующая) справка в контекст не попадает
       seen.length = 0;

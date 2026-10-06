@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { AI_DEFAULTS, AiError, decryptKey, encryptKey, keyHint, normalizeBaseUrl, type AiProvider } from "@/lib/ai";
-import { baseUrlForKey, canUseAi, sharedAiConfig } from "@/lib/ai-server";
+import { NOT_A_KEY_MESSAGE, baseUrlForKey, canUseAi, looksLikeApiKey, sharedAiConfig } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 
 const forbidden = () => NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -38,6 +38,7 @@ async function PUTHandler(request: NextRequest) {
   try {
     const existing = await prisma.aiSetting.findUnique({ where: { userId: actor.id } });
     if (!key && !existing) return NextResponse.json({ error: "INVALID_INPUT", message: "Вставьте ключ API." }, { status: 400 });
+    if (key && !looksLikeApiKey(key)) return NextResponse.json({ error: "INVALID_INPUT", message: NOT_A_KEY_MESSAGE }, { status: 400 });
     const apiKeyEnc = key ? encryptKey(key) : existing!.apiKeyEnc;
     // адрес оставили пустым (= OpenAI), а ключ Groq или NVIDIA — сохраняем адрес провайдера ключа
     const baseUrl = key ? baseUrlForKey(key, normalized) : normalized;
