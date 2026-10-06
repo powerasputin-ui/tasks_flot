@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, EyeOff, FileDown, Info, Merge, Minus, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
@@ -241,7 +242,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   const pending = useRef(false);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/cycles/${cycleId}/memo`);
+    const r = await fetchRetry(`/api/cycles/${cycleId}/memo`);
     if (!r.ok) {
       setError(r.status === 404 ? "Справка недоступна." : "Не удалось загрузить справку.");
       return;

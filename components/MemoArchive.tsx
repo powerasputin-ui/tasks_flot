@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, FileDown, FileText, Search, Table2, Undo2 } from "lucide-react";
 import { Highlight } from "@/components/ui/Highlight";
@@ -82,7 +83,7 @@ export function MemoArchive({
     if (q.trim()) p.set("q", q.trim());
     if (from) p.set("from", from);
     if (to) p.set("to", to);
-    const r = await fetch(`/api/memo-archive?${p.toString()}`);
+    const r = await fetchRetry(`/api/memo-archive?${p.toString()}`);
     if (!r.ok) {
       setError("Не удалось загрузить архив.");
       return;
@@ -214,7 +215,7 @@ function VersionView({
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/memo-archive/${id}`);
+    const r = await fetchRetry(`/api/memo-archive/${id}`);
     if (!r.ok) {
       setError("Справка недоступна.");
       return;

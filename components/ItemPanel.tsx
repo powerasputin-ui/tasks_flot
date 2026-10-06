@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
 import { AuditChange } from "@/components/AuditChange";
@@ -179,7 +180,7 @@ export function ItemPanel({
 
   async function reloadLatest() {
     if (!base) return;
-    const res = await fetch(`/api/items/${base.id}`);
+    const res = await fetchRetry(`/api/items/${base.id}`);
     if (!res.ok) return;
     const fresh = (await res.json()).row as ItemRow;
     setBase(fresh);

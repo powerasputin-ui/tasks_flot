@@ -22,7 +22,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    fetchRetry("/api/health", { cache: "no-store" }, 1000, 10000)
+    fetchRetry("/api/health", { cache: "no-store" })
       .then(() => setUnreachable(false))
       .catch(() => setUnreachable(true));
   }, []);
@@ -34,13 +34,13 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
-        // запуск экземпляра сервера на Vercel изредка зависает — не ждём дольше 20 с, а повторяем (см. lib/fetch-retry)
-        signal: AbortSignal.timeout(20000),
+        // часть запросов до Vercel теряется по дороге — не ждём дольше 10 с, а повторяем (см. lib/fetch-retry)
+        signal: AbortSignal.timeout(10000),
       });
     try {
       return await once();
     } catch {
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
       return once();
     }
   }

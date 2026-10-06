@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
@@ -20,7 +21,7 @@ export function NotificationsBell() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   async function load() {
-    const res = await fetch("/api/notifications");
+    const res = await fetchRetry("/api/notifications");
     if (!res.ok) return;
     const data = await res.json();
     setNotifications(data.notifications);

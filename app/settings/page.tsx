@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -56,7 +57,7 @@ export default function SettingsPage() {
   const [userPreset, setUserPreset] = useState<UserPreset | null>(null);
 
   const reload = useCallback(async () => {
-    const get = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
+    const get = (u: string) => fetchRetry(u).then((r) => (r.ok ? r.json() : null));
     const [m, s, st, a, t, u, cols, dirs, memo] = await Promise.all([
       get("/api/auth/me"),
       get("/api/segments"),

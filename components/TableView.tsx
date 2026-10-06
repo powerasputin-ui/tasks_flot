@@ -376,7 +376,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   async function openById(id: string) {
     const known = rows.find((r) => r.id === id);
     if (known) return setEditor({ row: known });
-    const res = await fetch(`/api/items/${id}`);
+    const res = await fetchRetry(`/api/items/${id}`);
     if (res.ok) setEditor({ row: (await res.json()).row as Row });
   }
 

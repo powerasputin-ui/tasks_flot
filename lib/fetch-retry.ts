@@ -1,22 +1,23 @@
 /**
- * GET с ограничением ожидания и одним повтором. На Vercel изредка зависает запуск нового экземпляра серверной функции
- * (запрос висит минуту и больше), а утром ещё и база просыпается. Корпоративный прокси такой запрос обрывает — «сайт не
- * работает». Поэтому: ждём не дольше timeoutMs, затем повторяем — повтор почти всегда попадает на рабочий экземпляр.
+ * GET с ограничением ожидания и одним повтором. Из России часть запросов до Vercel теряется по дороге и не доходит до сервера
+ * вовсе (замер 06.10.2026: примерно каждый шестой; в журнале Vercel от таких запросов нет ни строки), а сам сервер отвечает
+ * за доли секунды. Поэтому первую попытку ждём недолго (timeoutMs, 8 с) и повторяем — повтор почти всегда проходит.
+ * На повтор даём в 2,5 раза больше: если ответ просто медленный (утром просыпается база), второй раз его дождёмся.
  * Повторяем только чтение (GET) и только при обрыве, зависании или «шлюз не дождался» (502/503/504) — не при ошибках данных.
  */
-export async function fetchRetry(url: string, init: RequestInit = {}, delayMs = 1000, timeoutMs = 15000): Promise<Response> {
+export async function fetchRetry(url: string, init: RequestInit = {}, delayMs = 300, timeoutMs = 8000): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
-  const once = () => fetch(url, { ...init, signal: withTimeout(init.signal, timeoutMs) });
+  const attempt = (ms: number) => fetch(url, { ...init, signal: withTimeout(init.signal, ms) });
   if (method !== "GET") return fetch(url, init);
   try {
-    const res = await once();
+    const res = await attempt(timeoutMs);
     if (res.status !== 502 && res.status !== 503 && res.status !== 504) return res;
   } catch (e) {
     // отмену самим человеком (уход со страницы) не повторяем; зависание по нашему таймеру — повторяем
     if (init.signal?.aborted) throw e;
   }
   await new Promise((r) => setTimeout(r, delayMs));
-  return once();
+  return attempt(Math.round(timeoutMs * 2.5));
 }
 
 /** Сигнал, который срабатывает по таймеру или по внешней отмене — что раньше. */

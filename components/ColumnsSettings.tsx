@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchRetry } from "@/lib/fetch-retry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Lock, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clearBootstrap } from "@/lib/client-bootstrap";
@@ -47,13 +48,13 @@ export function ColumnsSettings() {
   };
 
   const reloadCustom = useCallback(async () => {
-    const d = await fetch("/api/columns").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const d = await fetchRetry("/api/columns").then((r) => (r.ok ? r.json() : null)).catch(() => null);
     setCustomCols(d?.columns ?? []);
   }, []);
 
   useEffect(() => {
     (async () => {
-      const [mine] = await Promise.all([fetch("/api/table-columns").then((r) => (r.ok ? r.json() : null)).catch(() => null), reloadCustom()]);
+      const [mine] = await Promise.all([fetchRetry("/api/table-columns").then((r) => (r.ok ? r.json() : null)).catch(() => null), reloadCustom()]);
       if (mine?.columns) setSaved(normalizeColumns(mine.columns));
       else {
         const local = loadLocalColumns();
