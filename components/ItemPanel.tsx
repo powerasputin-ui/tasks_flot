@@ -167,7 +167,7 @@ export function ItemPanel({
       }
       if (res.status === 409) {
         const body = await res.json().catch(() => null);
-        if (body?.error === "ARCHIVED") setError("Позиция в архиве: сначала верните её в работу.");
+        if (body?.error === "ARCHIVED") setError("Позиция удалена: сначала верните её из «Удалённых».");
         else setConflict(true);
       } else if (res.status === 403) setError("Нет прав на это действие.");
       else if (res.status === 400) setError((await res.json().catch(() => null))?.message ?? "Проверьте заполненные поля.");
@@ -264,7 +264,7 @@ export function ItemPanel({
         ) : (
           <span>
             Создал: {base!.createdByName}
-            {base!.archived && <span className="ml-2 rounded-full bg-surface-highest px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">в архиве</span>}
+            {base!.archived && <span className="ml-2 rounded-full bg-surface-highest px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">удалена</span>}
           </span>
         )
       }
@@ -435,9 +435,9 @@ export function ItemPanel({
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"
                     ) : e.action === "ARCHIVE" ? (
-                      "отправил(а) в архив"
+                      "удалил(а)"
                     ) : e.action === "RESTORE" ? (
-                      "вернул(а) из архива"
+                      "вернул(а) из удалённых"
                     ) : (
                       e.action
                     )

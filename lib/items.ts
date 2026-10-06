@@ -165,7 +165,7 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
     await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: archived ? "ARCHIVE" : "RESTORE" }, tx);
     return row;
   });
-  await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, archived ? "удалил (в архив)" : "вернул из архива");
+  await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, archived ? "удалил" : "вернул из удалённых");
   return { ok: true, id, record };
 }
 

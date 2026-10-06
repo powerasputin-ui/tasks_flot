@@ -51,7 +51,7 @@ const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "dead
 /** Колонки с плашками, датой и галкой: при нехватке места обрезаются без «…» (многоточие рядом с плашкой выглядело как лишние точки). */
 const CLIPPED_COLUMNS: ColumnKey[] = ["attractiveness", "status", "deadline", "deadlineWeek", "operFlag"];
 
-const ARCHIVE_LABEL = { active: "Активные", archived: "Архив", all: "Все" } as const;
+const ARCHIVE_LABEL = { active: "Активные", archived: "Удалённые", all: "Все" } as const;
 
 export function TableView({ defaultArchive = "active" }: { defaultArchive?: "active" | "archived" }) {
   const searchParams = useSearchParams();
@@ -797,7 +797,7 @@ function EmptyState({ filtered, onReset, archive, canCreate, onCreate, query }: 
       <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-high text-outline">
         <ClipboardList size={22} />
       </span>
-      <p className="text-[14px] font-semibold text-on-surface">{filtered ? (query.trim() ? `Ничего не найдено по запросу «${query.trim()}»` : "Ничего не найдено") : archive ? "В архиве пока пусто" : "Пока нет позиций"}</p>
+      <p className="text-[14px] font-semibold text-on-surface">{filtered ? (query.trim() ? `Ничего не найдено по запросу «${query.trim()}»` : "Ничего не найдено") : archive ? "Удалённых позиций нет" : "Пока нет позиций"}</p>
       <p className="mt-1 max-w-sm text-[13px] text-on-surface-variant">
         {filtered ? "Проверьте написание, попробуйте меньше слов (ищутся все слова сразу) или сбросьте фильтры." : archive ? "Сюда попадают закрытые и старые позиции." : "Позиции появятся здесь, когда будут добавлены."}
       </p>
