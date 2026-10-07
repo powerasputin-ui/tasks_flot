@@ -51,6 +51,8 @@ type Row = ItemRow & {
 type Me = { id: string; role: string; memoEditor?: boolean; submits?: boolean } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
+/** Узкий столбец у правого края: скрепка с числом документов (пусто, если документов нет). */
+const FILES_COL_WIDTH = 48;
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag", "memo"];
 /** Колонки с плашками, датой и галкой: при нехватке места обрезаются без «…» (многоточие рядом с плашкой выглядело как лишние точки). */
 const CLIPPED_COLUMNS: ColumnKey[] = ["attractiveness", "status", "deadline", "deadlineWeek", "operFlag"];
@@ -456,17 +458,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return (
-          <span className="flex items-start gap-1.5">
-            <HoverText text={row.name} lines={2} query={q} className={`min-w-0 flex-1 text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />
-            {!!row.files?.length && (
-              <span className="mt-0.5 inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-on-surface-variant" title={`Файлов: ${row.files.length}`}>
-                <Paperclip size={12} />
-                {row.files.length}
-              </span>
-            )}
-          </span>
-        );
+        return <HoverText text={row.name} lines={2} query={q} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
@@ -763,6 +755,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 {visibleColumns.map((c) => (
                   <col key={c.key} style={c.key === fillerKey ? undefined : { width: c.width }} />
                 ))}
+                <col style={{ width: FILES_COL_WIDTH }} />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-surface-high">
                 <tr>
@@ -777,7 +770,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                           if (!next) return;
                           if (next.key === fillerKey) {
                             // справа — «резиновая» колонка без своей ширины: меряем, сколько у неё реально есть места, и не даём отжать больше минимума
-                            const container = tableWrapRef.current?.clientWidth ?? Infinity;
+                            const container = (tableWrapRef.current?.clientWidth ?? Infinity) - FILES_COL_WIDTH;
                             const othersPx = visibleColumns.filter((c) => c.key !== col.key && c.key !== fillerKey).reduce((s, c) => s + c.width, 0);
                             const pairTotal = Math.max(COLUMN_MIN_WIDTH + FILLER_MIN_WIDTH, container - othersPx);
                             const selfWidth = Math.min(Math.max(COLUMN_MIN_WIDTH, desiredWidth), pairTotal - FILLER_MIN_WIDTH);
@@ -793,6 +786,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                       />
                     );
                   })}
+                  <th className="border-b border-outline-variant" aria-label="Документы" title="Прикреплённые документы" />
                 </tr>
               </thead>
               <tbody>
@@ -802,6 +796,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                       {visibleColumns.map((c) => (
                         <td key={c.key} className="px-4 py-4"><div className="skeleton h-3.5 w-full rounded" /></td>
                       ))}
+                      <td />
                     </tr>
                   ))}
                 {!loading &&
@@ -809,7 +804,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                     <Fragment key={group.id || "flat"}>
                       {groups && (
                         <tr className="bg-surface-low">
-                          <td colSpan={visibleColumns.length} className="border-y border-outline-variant border-l-4 px-4 py-2" style={{ borderLeftColor: colors.get(group.id) ?? "#94a3b8" }}>
+                          <td colSpan={visibleColumns.length + 1} className="border-y border-outline-variant border-l-4 px-4 py-2" style={{ borderLeftColor: colors.get(group.id) ?? "#94a3b8" }}>
                             <span className="text-[12px] font-bold text-on-surface">{segmentName(group.id)}</span>
                             <span className="ml-2 text-[11px] text-on-surface-variant">{group.rows.length} поз.</span>
                           </td>
@@ -836,6 +831,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                               {renderCell(row, col)}
                             </td>
                           ))}
+                          <td className="py-3.5 pr-3 text-right align-middle">
+                            {!!row.files?.length && (
+                              <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-on-surface-variant" title={`Прикреплено документов: ${row.files.length}`}>
+                                <Paperclip size={13} />
+                                {row.files.length}
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </Fragment>
