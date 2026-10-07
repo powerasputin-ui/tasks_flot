@@ -6,7 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Highlight } from "@/components/ui/Highlight";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Copy, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
 import { CycleStrip } from "@/components/CycleStrip";
@@ -14,7 +14,7 @@ import { WeekSelect } from "@/components/WeekSelect";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
-import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
+import { ItemPanel, type ItemPrefill, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { AddTrackInline } from "@/components/TrackPicker";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -81,7 +81,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [savedColumns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [customCols, setCustomCols] = useState<CustomCol[]>([]);
   const columns = useMemo(() => withCustomColumns(savedColumns, customCols), [savedColumns, customCols]);
-  const [editor, setEditorState] = useState<{ row: Row | null } | null>(null);
+  const [editor, setEditorState] = useState<{ row: Row | null; prefill?: ItemPrefill } | null>(null);
   const [analytics, setAnalytics] = useState(false);
   const [history, setHistory] = useState(false);
   // Экспорт живёт в шапке рядом с колокольчиком: рендерим его туда через портал.
@@ -93,7 +93,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [segments, setSegments] = useState<string[]>([]);
 
   // Справа открыта одна панель за раз: карточка позиции или аналитика.
-  const setEditor = (v: { row: Row | null } | null) => {
+  const setEditor = (v: { row: Row | null; prefill?: ItemPrefill } | null) => {
     setEditorState(v);
     if (v) {
       setAnalytics(false);
@@ -865,6 +865,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               <button onClick={() => { setEditor({ row: ctx.row }); setCtx(null); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
                 <Pencil size={14} className="text-outline" /> Открыть
               </button>
+              {me && canCreateItem(me.role as UserRole) && !ctx.row.archived && ctx.row.trackId && (
+                <button
+                  onClick={() => {
+                    setEditor({ row: null, prefill: { segmentId: ctx.row.segmentId, trackId: ctx.row.trackId } });
+                    setCtx(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft"
+                >
+                  <Copy size={14} className="text-outline" /> Дублировать трек
+                </button>
+              )}
               {me && isDirectorial(me.role) && ctx.row.operFlag && !ctx.row.archived && (
                 <button onClick={() => returnRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
                   <Undo2 size={14} className="text-outline" /> Вернуть на доработку
@@ -903,8 +914,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
       {editor && (
         <ItemPanel
-          key={editor.row?.id ?? "new"}
+          key={editor.row?.id ?? `new:${editor.prefill?.segmentId ?? ""}:${editor.prefill?.trackId ?? ""}`}
           row={editor.row}
+          prefill={editor.prefill ?? null}
           refs={refs}
           defaultResponsibleId={me?.id ?? ""}
           lockResponsible={isHead}

@@ -73,9 +73,12 @@ type Event = {
   actor: { name: string } | null;
 };
 
-const fromRow = (r: ItemRow | null, defaultResponsibleId: string): FormState => ({
-  segmentId: r?.segmentId ?? "",
-  trackId: r?.trackId ?? "",
+/** Для новой позиции можно заранее подставить сегмент и трек («Дублировать трек»). */
+export type ItemPrefill = { segmentId: string | null; trackId: string | null };
+
+const fromRow = (r: ItemRow | null, defaultResponsibleId: string, prefill?: ItemPrefill | null): FormState => ({
+  segmentId: r?.segmentId ?? prefill?.segmentId ?? "",
+  trackId: r?.trackId ?? prefill?.trackId ?? "",
   title: r?.name ?? "",
   cost: r?.cost ?? "",
   attractivenessId: r?.attractivenessId ?? "",
@@ -96,6 +99,7 @@ export function ItemPanel({
   canDelete,
   customColumns = [],
   labels = {},
+  prefill = null,
   onTrackCreated,
   previewMode = false,
   onClose,
@@ -110,6 +114,8 @@ export function ItemPanel({
   customColumns?: CustomColumnRef[];
   /** Подписи колонок из «Настроек → Колонки таблицы» (ключ колонки → подпись): в карточке поля называются так же, как в таблице. */
   labels?: Partial<Record<string, string>>;
+  /** Новая позиция с уже выбранными сегментом и треком. */
+  prefill?: ItemPrefill | null;
   /** Трек, добавленный прямо из карточки: родитель кладёт его в справочник. */
   onTrackCreated?: (t: TrackRef) => void;
   /** Куратор смотрит глазами руководителя: сохранять и удалять нельзя. */
@@ -119,7 +125,7 @@ export function ItemPanel({
   onSaved: (row?: ItemRow) => void;
 }) {
   const [base, setBase] = useState<ItemRow | null>(row);
-  const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId));
+  const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId, prefill));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -135,7 +141,7 @@ export function ItemPanel({
     () => refs.tracks.filter((t) => !form.segmentId || t.segmentId === form.segmentId || t.segmentId === null),
     [refs.tracks, form.segmentId]
   );
-  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(fromRow(base, defaultResponsibleId)), [form, base, defaultResponsibleId]);
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(fromRow(base, defaultResponsibleId, prefill)), [form, base, defaultResponsibleId, prefill]);
 
   useEffect(() => {
     if (tab !== "history" || !base) return;
