@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getDicts, type Dicts } from "@/lib/dictionaries";
 import { deadlineWeek } from "@/lib/deadline-week";
 import { idsChangedAfterSubmission } from "@/lib/submission";
-import { ATTRACTIVENESS_LABEL } from "@/lib/attractiveness";
+import { ATTRACTIVENESS_LABEL, ATTRACTIVENESS_LABEL_F } from "@/lib/attractiveness";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import type { Prisma } from "@prisma/client";
 
@@ -164,6 +164,7 @@ export function searchHaystack(r: TableRow): string {
       r.statusName,
       r.attractivenessName,
       r.attractivenessName ? ATTRACTIVENESS_LABEL[r.attractivenessName] : null,
+      r.attractivenessName ? ATTRACTIVENESS_LABEL_F[r.attractivenessName] : null,
       r.deadline ? `${ruDate(r.deadline)} ${isoDate(r.deadline)}` : null,
       ...Object.values(r.customValues ?? {}),
     ]

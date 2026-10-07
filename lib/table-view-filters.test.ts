@@ -118,7 +118,7 @@ describe("applyTableSort", () => {
 describe("attractivenessText", () => {
   it("код шкалы → слово, чужое значение — как есть, пусто — «Отсутствует»", async () => {
     const { attractivenessText } = await import("@/lib/attractiveness");
-    expect(["P100", "P70", "P50", "P10", "P0"].map(attractivenessText)).toEqual(["Высокая", "Выше среднего", "Средняя", "Низкая", "Отсутствует"]);
+    expect(["P100", "P70", "P50", "P10", "P0"].map(attractivenessText)).toEqual(["Высокое", "Выше среднего", "Среднее", "Низкое", "Отсутствует"]);
     expect(attractivenessText("Срочно")).toBe("Срочно");
     expect(attractivenessText(null)).toBe("Отсутствует");
   });

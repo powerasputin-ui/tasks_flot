@@ -202,7 +202,7 @@ export default function SettingsPage() {
           </div>
         )}
         {section === "attractiveness" && (
-          <RefSection title="Привлекательность" hint="Шкала: Высокая / Выше среднего / Средняя / Низкая / Отсутствует." items={attractiveness} display={attractivenessText} onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")} />
+          <RefSection title="Привлекательность" hint="Шкала: Высокое / Выше среднего / Среднее / Низкое / Отсутствует." items={attractiveness} display={attractivenessText} onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")} />
         )}
       </section>
     </div>

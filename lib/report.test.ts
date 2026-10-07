@@ -61,7 +61,7 @@ describe("buildReport: сводка", () => {
     const rows = [row({ id: "1", attractivenessName: "P10" }), row({ id: "2", attractivenessName: "P100" }), row({ id: "3" })];
     const m = buildReport(rows, base, ctx);
     expect(m.summary.byAttractiveness.map((a) => a.name)).toEqual(["P100", "P10", "P0"]);
-    expect(m.summary.byAttractiveness[0].label).toBe("Высокая");
+    expect(m.summary.byAttractiveness[0].label).toBe("Высокое");
   });
 
   it("isOverdue: без дедлайна, в архиве и завершённые не просрочены", () => {

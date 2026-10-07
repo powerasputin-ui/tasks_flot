@@ -4,7 +4,7 @@
  * пометки «источник изменился». Хранится как JSON в `Cycle.memoDraft`.
  */
 
-import { attractivenessText } from "@/lib/attractiveness";
+import { ATTRACTIVENESS_LABEL_F, attractivenessText } from "@/lib/attractiveness";
 
 export type MemoBullet = {
   id: string;
@@ -139,7 +139,7 @@ export function composeText(item: ComposeInput, fields: MemoField[], labels: Rec
     has("deadline") && item.deadline ? `срок ${ruDay(item.deadline)}` : null,
     has("status") ? item.statusName : null,
     has("cost") && item.cost ? `оценка ${item.cost}` : null,
-    has("attractiveness") && item.attractivenessName ? `привлекательность ${attractivenessText(item.attractivenessName).toLowerCase()}` : null,
+    has("attractiveness") && item.attractivenessName ? `привлекательность ${ATTRACTIVENESS_LABEL_F[item.attractivenessName] ?? attractivenessText(item.attractivenessName).toLowerCase()}` : null,
     ...custom,
   ]
     .filter(Boolean)

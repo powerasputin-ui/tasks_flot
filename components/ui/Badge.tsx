@@ -1,6 +1,6 @@
 import { ATTRACTIVENESS_LABEL, attractivenessText } from "@/lib/attractiveness";
 
-/** Бейдж шкалы привлекательности: слово («Высокая», «Средняя»…), цвет берётся из справочника; код шкалы — в подсказке. */
+/** Бейдж шкалы привлекательности: слово («Высокое», «Среднее»…), цвет берётся из справочника; код шкалы — в подсказке. */
 export function AttractivenessBadge({ name, color }: { name: string | null; color: string | null }) {
   const code = name ?? "P0";
   const c = color ?? "#94a3b8";
