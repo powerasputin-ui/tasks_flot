@@ -123,3 +123,11 @@ describe("attractivenessText", () => {
     expect(attractivenessText(null)).toBe("Отсутствует");
   });
 });
+
+describe("normalizeColumns", () => {
+  it("свои подписи колонок не подменяются (в т.ч. «Срок» вместо «Дедлайн»)", async () => {
+    const { normalizeColumns } = await import("@/lib/table-columns");
+    const out = normalizeColumns([{ key: "deadline", label: "Срок", visible: true, width: 110 }]);
+    expect(out.find((c) => c.key === "deadline")?.label).toBe("Срок");
+  });
+});

@@ -52,9 +52,6 @@ export const STORAGE_KEY = "operativka.tableColumns.v2";
 /** Приводит сохранённые настройки к актуальному набору колонок (переименования, новые колонки). */
 export function normalizeColumns(saved: ColumnConfig[]): ColumnConfig[] {
   const parsed = saved.filter((c) => ALL_KEYS.includes(c.key as StdKey) || c.key.startsWith("custom:"));
-  // Старые стандартные подписи (до переименования) заменяем новыми; свои названия не трогаем.
-  const RENAMED: Record<string, string> = { "Название": "Задача", "Срок": "Дедлайн", "Опер": "Оперативка" };
-  for (const c of parsed) if (RENAMED[c.label]) c.label = RENAMED[c.label];
   const known = new Set<string>(parsed.map((c) => c.key));
   return [...parsed, ...DEFAULT_COLUMNS.filter((c) => !known.has(c.key))];
 }
