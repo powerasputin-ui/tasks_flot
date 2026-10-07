@@ -52,8 +52,11 @@ type Row = ItemRow & {
 type Me = { id: string; role: string; memoEditor?: boolean; submits?: boolean } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
-/** Узкий столбец перед «Задачей»: скрепка с числом прикреплённых документов (пусто, если документов нет). */
-const FILES_COL_WIDTH = 40;
+/** Узкий столбец перед «Задачей»: скрепка с числом прикреплённых документов (пусто, если документов нет). Ширину можно тянуть, как у остальных. */
+const FILES_COL_DEFAULT = 40;
+const FILES_COL_MIN = 32;
+const FILES_COL_MAX = 160;
+const FILES_COL_KEY = "operativka.filesColWidth.v1";
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag", "memo"];
 /** Колонки с плашками, датой и галкой: при нехватке места обрезаются без «…» (многоточие рядом с плашкой выглядело как лишние точки). */
 const CLIPPED_COLUMNS: ColumnKey[] = ["attractiveness", "status", "deadline", "deadlineWeek", "operFlag"];
@@ -451,8 +454,33 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   // «Отправить директору» нужно тем, кто подаёт свои позиции: руководителям (и составителям справки из них) и админам с флагом «подаёт как руководитель»
   const submitsOwn = !!me && isSubmitter(me);
   const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "operFlag" || !canCompile || submitsOwn) && (c.key !== "memo" || !!memo));
-  // столбец документов (скрепка) стоит прямо перед «Задачей»
+  // столбец документов (скрепка) стоит прямо перед «Задачей»; его ширина — личная, в этом браузере
   const hasNameCol = visibleColumns.some((c) => c.key === "name");
+  const [filesColWidth, setFilesColWidth] = useState(FILES_COL_DEFAULT);
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem(FILES_COL_KEY));
+      if (v >= FILES_COL_MIN && v <= FILES_COL_MAX) setFilesColWidth(v);
+    } catch {
+      // приватный режим — ширина по умолчанию
+    }
+  }, []);
+  /** Тянут правую границу столбца документов: как в Excel, меняются только он и «Задача» справа (сумма ширин та же). */
+  const resizeFilesCol = (desired: number) => {
+    const name = visibleColumns.find((c) => c.key === "name");
+    let w = Math.min(FILES_COL_MAX, Math.max(FILES_COL_MIN, desired));
+    if (name && name.key !== fillerKey) {
+      const pair = filesColWidth + name.width;
+      w = Math.min(w, pair - COLUMN_MIN_WIDTH);
+      saveColumns(columns.map((c) => (c.key === "name" ? { ...c, width: pair - w } : c)));
+    }
+    setFilesColWidth(w);
+    try {
+      localStorage.setItem(FILES_COL_KEY, String(w));
+    } catch {
+      // не сохранилось — не страшно
+    }
+  };
   // ширина колонки — как в Excel: у каждой своя, независимая, в пикселях; растягивание одной колонки не трогает остальные.
   // Последняя колонка ширины не задаёт — сама сжимается/растягивается под оставшееся место, так таблица всегда ровно по ширине контейнера.
   const fillerKey = visibleColumns.length ? visibleColumns[visibleColumns.length - 1].key : null;
@@ -765,7 +793,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               <colgroup>
                 {visibleColumns.map((c) => (
                   <Fragment key={c.key}>
-                    {c.key === "name" && <col style={{ width: FILES_COL_WIDTH }} />}
+                    {c.key === "name" && <col style={{ width: filesColWidth }} />}
                     <col style={c.key === fillerKey ? undefined : { width: c.width }} />
                   </Fragment>
                 ))}
@@ -776,7 +804,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                     const next = visibleColumns[i + 1];
                     return (
                       <Fragment key={col.key}>
-                      {col.key === "name" && <th className="border-b border-r border-outline-variant border-r-outline-variant/60" aria-label="Документы" title="Прикреплённые документы" />}
+                      {col.key === "name" && <DragTh width={filesColWidth} onResize={resizeFilesCol} label="Прикреплённые документы" />}
                       <ResizableTh
                         column={col}
                         resizable={!!next}
@@ -784,7 +812,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                           if (!next) return;
                           if (next.key === fillerKey) {
                             // справа — «резиновая» колонка без своей ширины: меряем, сколько у неё реально есть места, и не даём отжать больше минимума
-                            const container = (tableWrapRef.current?.clientWidth ?? Infinity) - (hasNameCol ? FILES_COL_WIDTH : 0);
+                            const container = (tableWrapRef.current?.clientWidth ?? Infinity) - (hasNameCol ? filesColWidth : 0);
                             const othersPx = visibleColumns.filter((c) => c.key !== col.key && c.key !== fillerKey).reduce((s, c) => s + c.width, 0);
                             const pairTotal = Math.max(COLUMN_MIN_WIDTH + FILLER_MIN_WIDTH, container - othersPx);
                             const selfWidth = Math.min(Math.max(COLUMN_MIN_WIDTH, desiredWidth), pairTotal - FILLER_MIN_WIDTH);
@@ -1077,6 +1105,32 @@ function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc
         </div>
       )}
     </Popover>
+  );
+}
+
+/** Шапка столбца без подписи (документы) с той же «ручкой» на правой границе, что и у остальных колонок. */
+function DragTh({ width, onResize, label }: { width: number; onResize: (width: number) => void; label: string }) {
+  const startX = useRef(0);
+  const startWidth = useRef(width);
+  function onMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    startX.current = e.clientX;
+    startWidth.current = width;
+    function onMove(ev: MouseEvent) {
+      onResize(Math.round(startWidth.current + (ev.clientX - startX.current)));
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+  return (
+    <th className="relative border-b border-r border-outline-variant border-r-outline-variant/60" style={{ width }} aria-label={label} title={label}>
+      <span onMouseDown={onMouseDown} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize select-none transition-colors hover:bg-sky" />
+    </th>
   );
 }
 
