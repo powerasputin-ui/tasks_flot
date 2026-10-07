@@ -9,6 +9,7 @@ import { attractivenessText } from "@/lib/attractiveness";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
+import { TrackPicker } from "@/components/TrackPicker";
 import { FIELD_LABEL } from "@/lib/audit-format";
 import { DEFAULT_LABEL } from "@/lib/table-columns";
 
@@ -95,6 +96,7 @@ export function ItemPanel({
   canDelete,
   customColumns = [],
   labels = {},
+  onTrackCreated,
   previewMode = false,
   onClose,
   onSaved,
@@ -108,6 +110,8 @@ export function ItemPanel({
   customColumns?: CustomColumnRef[];
   /** Подписи колонок из «Настроек → Колонки таблицы» (ключ колонки → подпись): в карточке поля называются так же, как в таблице. */
   labels?: Partial<Record<string, string>>;
+  /** Трек, добавленный прямо из карточки: родитель кладёт его в справочник. */
+  onTrackCreated?: (t: TrackRef) => void;
   /** Куратор смотрит глазами руководителя: сохранять и удалять нельзя. */
   previewMode?: boolean;
   onClose: () => void;
@@ -312,7 +316,7 @@ export function ItemPanel({
                 <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
               </Field>
               <Field label={L("track")}>
-                <Sel value={form.trackId} onChange={(v) => set("trackId", v)} options={tracksForSegment} disabled={disabled} />
+                <TrackPicker value={form.trackId} onChange={(v) => set("trackId", v)} tracks={tracksForSegment} segmentId={form.segmentId || null} segmentName={refs.segments.find((x) => x.id === form.segmentId)?.name ?? null} disabled={disabled} onCreated={(t) => onTrackCreated?.(t)} />
               </Field>
             </div>
           </Section>

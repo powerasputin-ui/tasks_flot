@@ -895,6 +895,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           canDelete={editor.row ? canDeleteRow(editor.row) : false}
           customColumns={customCols}
           labels={Object.fromEntries(columns.map((c) => [c.key, c.label]))}
+          onTrackCreated={(t) => setRefs((r) => (r.tracks.some((x) => x.id === t.id) ? r : { ...r, tracks: [...r.tracks, t] }))}
           previewMode={!!preview}
           onClose={() => setEditor(null)}
           onSaved={(saved) => {

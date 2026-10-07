@@ -437,8 +437,21 @@ describe("экспорт", () => {
 });
 
 describe("треки", () => {
-  it("руководитель не управляет треками; неиспользуемый трек удаляется, используемый скрывается", async () => {
-    expect((await call(head, tracks.POST, "/api/tracks", { method: "POST", body: { name: `${TAG}-x` } })).status).toBe(403);
+  it("руководитель добавляет трек из карточки (с проверкой названия и повторов), но не правит чужие; ЗГД не добавляет", async () => {
+    expect((await call(management, tracks.POST, "/api/tracks", { method: "POST", body: { name: `${TAG}-згд` } })).status).toBe(403);
+    const fast = await call(head, tracks.POST, "/api/tracks", { method: "POST", body: { name: `  ${TAG}-быстрый  трек ` } });
+    expect(fast.status).toBe(201);
+    expect(fast.data.track.name).toBe(`${TAG}-быстрый трек`);
+    // тот же трек другим написанием (регистр, пробелы/дефис) — повтор
+    expect((await call(head, tracks.POST, "/api/tracks", { method: "POST", body: { name: `${TAG}-БЫСТРЫЙ-ТРЕК` } })).status).toBe(409);
+    // мусор и пустое — отказ
+    for (const bad of ["", " ", "я", "12345", "!!!!", "ааааааа"]) expect((await call(head, tracks.POST, "/api/tracks", { method: "POST", body: { name: bad } })).status, bad).toBe(400);
+    // править и удалять справочник руководитель по-прежнему не может
+    expect((await call(head, track.PATCH, `/api/tracks/${fast.data.track.id}`, { method: "PATCH", id: fast.data.track.id, body: { name: `${TAG}-иначе` } })).status).toBe(403);
+    expect((await call(curator, track.DELETE, `/api/tracks/${fast.data.track.id}`, { method: "DELETE", id: fast.data.track.id })).status).toBe(200);
+  });
+
+  it("неиспользуемый трек удаляется, используемый скрывается", async () => {
 
     const renamed = await call(curator, track.PATCH, `/api/tracks/${trackId}`, { method: "PATCH", id: trackId, body: { name: `${TAG}-трек-1-новый` } });
     expect(renamed.status).toBe(200);
