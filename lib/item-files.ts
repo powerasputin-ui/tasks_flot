@@ -69,6 +69,8 @@ export function parseFilePath(raw: string): ParsedPath {
   const name = parts[parts.length - 1] ?? "";
   if (!name || (drive && parts.length === 1)) return { ok: false, error: "Укажите путь до файла или папки, а не только диск." };
   const ext = isFolderEnd ? "" : extOf(name);
+  // прикрепляем конкретный документ, а не папку: по папке человеку пришлось бы искать файл по названию
+  if (!ext) return { ok: false, error: "Это путь к папке. Нужен путь именно к документу — у него есть тип: .xlsx, .docx, .pptx, .pdf…" };
   if (BLOCKED_EXT.has(ext)) return { ok: false, error: blockedMessage(ext) };
   const folder = normalized.slice(0, normalized.length - name.length - (isFolderEnd ? 1 : 0)).replace(/\\+$/, "");
   return { ok: true, path: isFolderEnd ? normalized.slice(0, -1) : normalized, name, ext, folder, kind: ext === "" && isFolderEnd ? "folder" : unc ? "unc" : "drive" };

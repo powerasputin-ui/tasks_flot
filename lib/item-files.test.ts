@@ -11,7 +11,6 @@ describe("parseFilePath", () => {
   });
   it("диск, папка и веб-ссылка", () => {
     expect(parseFilePath("D:\\Отчёты\\март.xlsx")).toMatchObject({ ok: true, kind: "drive", ext: "xlsx", name: "март.xlsx" });
-    expect(parseFilePath("\\\\srv\\share\\Папка\\")).toMatchObject({ ok: true, kind: "folder", name: "Папка", ext: "" });
     expect(parseFilePath("https://company.sharepoint.com/sites/a/Документ%20один.docx?web=1")).toMatchObject({ ok: true, kind: "web", name: "Документ один.docx" });
   });
   it("file:// превращается в обычный путь", () => {
@@ -19,7 +18,7 @@ describe("parseFilePath", () => {
     expect(parseFilePath("file:///C:/Temp/x.pdf")).toMatchObject({ ok: true, path: "C:\\Temp\\x.pdf" });
   });
   it("не путь, исполняемые, недопустимые символы, слишком длинное — отказ", () => {
-    for (const bad of ["", "   ", "привет", "флот/файл.xlsx", "C:", "\\\\srv", "\\\\srv\\share\\a.exe", "D:\\x\\run.BAT ", "D:\\x\\a?b.txt", "https://u:p@host/a.pdf", "javascript:alert(1)", "D:\\" + "а".repeat(600)])
+    for (const bad of ["", "   ", "привет", "флот/файл.xlsx", "C:", "\\\\srv", "\\\\srv\\share\\a.exe", "\\\\srv\\share\\Папка\\", "D:\\Отчёты\\Папка без типа", "D:\\x\\run.BAT ", "D:\\x\\a?b.txt", "https://u:p@host/a.pdf", "javascript:alert(1)", "D:\\" + "а".repeat(600)])
       expect(parseFilePath(bad).ok, bad).toBe(false);
   });
 });
