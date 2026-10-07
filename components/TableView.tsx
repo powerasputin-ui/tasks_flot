@@ -52,6 +52,8 @@ type Row = ItemRow & {
 type Me = { id: string; role: string; memoEditor?: boolean; submits?: boolean } | null;
 
 /** По запросу заказчика данные в этих колонках центрируются. */
+/** Узкий столбец перед «Задачей»: скрепка с числом прикреплённых документов (пусто, если документов нет). */
+const FILES_COL_WIDTH = 40;
 const CENTERED_COLUMNS: ColumnKey[] = ["cost", "attractiveness", "status", "deadline", "operFlag", "memo"];
 /** Колонки с плашками, датой и галкой: при нехватке места обрезаются без «…» (многоточие рядом с плашкой выглядело как лишние точки). */
 const CLIPPED_COLUMNS: ColumnKey[] = ["attractiveness", "status", "deadline", "deadlineWeek", "operFlag"];
@@ -449,6 +451,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   // «Отправить директору» нужно тем, кто подаёт свои позиции: руководителям (и составителям справки из них) и админам с флагом «подаёт как руководитель»
   const submitsOwn = !!me && isSubmitter(me);
   const visibleColumns = columns.filter((c) => c.visible && !c.removed && (c.key !== "operFlag" || !canCompile || submitsOwn) && (c.key !== "memo" || !!memo));
+  // столбец документов (скрепка) стоит прямо перед «Задачей»
+  const hasNameCol = visibleColumns.some((c) => c.key === "name");
   // ширина колонки — как в Excel: у каждой своя, независимая, в пикселях; растягивание одной колонки не трогает остальные.
   // Последняя колонка ширины не задаёт — сама сжимается/растягивается под оставшееся место, так таблица всегда ровно по ширине контейнера.
   const fillerKey = visibleColumns.length ? visibleColumns[visibleColumns.length - 1].key : null;
@@ -465,18 +469,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        // скрепка с числом документов — в начале ячейки «Задача», на стыке с треком; без документов ячейка как была
-        return row.files?.length ? (
-          <span className="flex items-start gap-1.5">
-            <span className="mt-0.5 inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-on-surface-variant" title={`Прикреплено документов: ${row.files.length}`}>
-              <Paperclip size={12} />
-              {row.files.length}
-            </span>
-            <HoverText text={row.name} lines={2} query={q} className={`min-w-0 flex-1 text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />
-          </span>
-        ) : (
-          <HoverText text={row.name} lines={2} query={q} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />
-        );
+        return <HoverText text={row.name} lines={2} query={q} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
@@ -771,7 +764,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <table className="w-full table-fixed border-collapse text-[13px]">
               <colgroup>
                 {visibleColumns.map((c) => (
-                  <col key={c.key} style={c.key === fillerKey ? undefined : { width: c.width }} />
+                  <Fragment key={c.key}>
+                    {c.key === "name" && <col style={{ width: FILES_COL_WIDTH }} />}
+                    <col style={c.key === fillerKey ? undefined : { width: c.width }} />
+                  </Fragment>
                 ))}
               </colgroup>
               <thead className="sticky top-0 z-10 bg-surface-high">
@@ -779,15 +775,16 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                   {visibleColumns.map((col, i) => {
                     const next = visibleColumns[i + 1];
                     return (
+                      <Fragment key={col.key}>
+                      {col.key === "name" && <th className="border-b border-r border-outline-variant border-r-outline-variant/60" aria-label="Документы" title="Прикреплённые документы" />}
                       <ResizableTh
-                        key={col.key}
                         column={col}
                         resizable={!!next}
                         onResize={(desiredWidth) => {
                           if (!next) return;
                           if (next.key === fillerKey) {
                             // справа — «резиновая» колонка без своей ширины: меряем, сколько у неё реально есть места, и не даём отжать больше минимума
-                            const container = tableWrapRef.current?.clientWidth ?? Infinity;
+                            const container = (tableWrapRef.current?.clientWidth ?? Infinity) - (hasNameCol ? FILES_COL_WIDTH : 0);
                             const othersPx = visibleColumns.filter((c) => c.key !== col.key && c.key !== fillerKey).reduce((s, c) => s + c.width, 0);
                             const pairTotal = Math.max(COLUMN_MIN_WIDTH + FILLER_MIN_WIDTH, container - othersPx);
                             const selfWidth = Math.min(Math.max(COLUMN_MIN_WIDTH, desiredWidth), pairTotal - FILLER_MIN_WIDTH);
@@ -801,6 +798,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                           }
                         }}
                       />
+                      </Fragment>
                     );
                   })}
                 </tr>
@@ -809,6 +807,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 {loading &&
                   Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-t border-outline-variant/50">
+                      {hasNameCol && <td />}
                       {visibleColumns.map((c) => (
                         <td key={c.key} className="px-4 py-4"><div className="skeleton h-3.5 w-full rounded" /></td>
                       ))}
@@ -819,7 +818,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                     <Fragment key={group.id || "flat"}>
                       {groups && (
                         <tr className="bg-surface-low">
-                          <td colSpan={visibleColumns.length} className="border-y border-outline-variant border-l-4 px-4 py-2" style={{ borderLeftColor: colors.get(group.id) ?? "#94a3b8" }}>
+                          <td colSpan={visibleColumns.length + (hasNameCol ? 1 : 0)} className="border-y border-outline-variant border-l-4 px-4 py-2" style={{ borderLeftColor: colors.get(group.id) ?? "#94a3b8" }}>
                             <span className="text-[12px] font-bold text-on-surface">{segmentName(group.id)}</span>
                             <span className="ml-2 text-[11px] text-on-surface-variant">{group.rows.length} поз.</span>
                           </td>
@@ -837,14 +836,25 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                           className={`row-hover cursor-pointer border-t border-outline-variant/50 ${editor?.row?.id === row.id ? "bg-primary-soft" : ""}`}
                         >
                           {visibleColumns.map((col) => (
+                            <Fragment key={col.key}>
+                            {col.key === "name" && (
+                              <td className="px-0 py-3.5 text-center align-middle">
+                                {!!row.files?.length && (
+                                  <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-on-surface-variant" title={`Прикреплено документов: ${row.files.length}`}>
+                                    <Paperclip size={13} />
+                                    {row.files.length}
+                                  </span>
+                                )}
+                              </td>
+                            )}
                             <td
-                              key={col.key}
                               className={`${CLIPPED_COLUMNS.includes(col.key) ? "px-2" : "px-4"} py-3.5 align-middle text-on-surface ${CENTERED_COLUMNS.includes(col.key) ? "text-center" : ""} ${
                                 col.key === "name" || col.key === "comment" ? "" : CLIPPED_COLUMNS.includes(col.key) ? "overflow-hidden text-clip" : "truncate"
                               }`}
                             >
                               {renderCell(row, col)}
                             </td>
+                            </Fragment>
                           ))}
                         </tr>
                       ))}
