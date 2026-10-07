@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Check, Copy, Download, ExternalLink, Info, Paperclip, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, Download, ExternalLink, FolderCog, Info, Paperclip, Plus, Trash2 } from "lucide-react";
 import { fileBadge, MAX_FILES, parseFilePath, type ItemFile } from "@/lib/item-files";
+import { clearRoot, fsSupported, guessRootPath, loadRoot, pickDocuments, pickRootFolder, saveRoot, type RootInfo } from "@/lib/fs-access";
 
 /** Значок формата вместо превью: сайт не видит ваш диск, поэтому показываем тип файла цветом и подписью. */
 function Badge({ ext, kind }: { ext: string; kind?: string }) {
@@ -22,8 +23,9 @@ function describe(path: string) {
 
 /**
  * Блок «Файлы» в карточке позиции. Файлы НЕ загружаются: хранится только путь на общем диске.
- * Открывается скачиванием ярлыка .url (двойной щелчок по нему открывает файл у того, у кого есть доступ к диску);
- * запасной вариант — «Копировать путь».
+ * «Добавить документ» открывает окно выбора файла Windows (после разовой настройки папки общего диска);
+ * путь можно и вставить вручную. Открывается файл скачиванием ярлыка .url (двойной щелчок по нему открывает файл
+ * у того, у кого есть доступ к диску); запасной вариант — «Копировать путь».
  */
 export function ItemFiles({
   files,
@@ -37,21 +39,87 @@ export function ItemFiles({
   itemId: string | null;
   disabled?: boolean;
 }) {
-  const [text, setText] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  // выбор из окна Windows
+  const [supported, setSupported] = useState(false);
+  const [root, setRoot] = useState<RootInfo | null>(null);
+  const [setup, setSetup] = useState<{ handle: RootInfo["handle"]; name: string; path: string } | null>(null);
+  // ручной ввод
+  const [manual, setManual] = useState(false);
+  const [text, setText] = useState("");
   const [touched, setTouched] = useState(false);
 
+  useEffect(() => {
+    const ok = fsSupported();
+    setSupported(ok);
+    if (!ok) setManual(true);
+    else void loadRoot().then(setRoot);
+  }, []);
+
+  const full = files.length >= MAX_FILES;
   const parsed = useMemo(() => (text.trim() ? parseFilePath(text) : null), [text]);
   const duplicate = parsed?.ok && files.some((f) => f.path.toLowerCase() === parsed.path.toLowerCase());
-  const full = files.length >= MAX_FILES;
 
-  function add() {
-    if (!parsed) return;
-    setTouched(true);
-    if (!parsed.ok || duplicate || full) return;
-    onChange([...files, { id: `new-${Math.random().toString(36).slice(2, 10)}`, path: parsed.path, name: parsed.name }]);
-    setText("");
-    setTouched(false);
+  /** Добавляет пути (из окна Windows или вставленный): повторы пропускаются, лимит и ошибки — простыми словами. */
+  function addPaths(paths: string[]): boolean {
+    let next = [...files];
+    const problems: string[] = [];
+    for (const raw of paths) {
+      const p = parseFilePath(raw);
+      if (!p.ok) {
+        problems.push(p.error);
+        continue;
+      }
+      if (next.some((f) => f.path.toLowerCase() === p.path.toLowerCase())) {
+        problems.push(`«${p.name}» уже добавлен.`);
+        continue;
+      }
+      if (next.length >= MAX_FILES) {
+        problems.push(`Можно прикрепить не больше ${MAX_FILES} файлов.`);
+        break;
+      }
+      next = [...next, { id: `new-${Math.random().toString(36).slice(2, 10)}`, path: p.path, name: p.name }];
+    }
+    if (next.length !== files.length) onChange(next);
+    setMessage(problems.length ? problems[0] : null);
+    return problems.length === 0;
+  }
+
+  async function choose(from: RootInfo) {
+    setMessage(null);
+    const r = await pickDocuments(from);
+    if (r.ok) addPaths(r.paths);
+    else if (!r.cancelled) setMessage(r.error ?? "Не получилось выбрать файл.");
+  }
+
+  async function onAddDocument() {
+    setMessage(null);
+    if (full) return setMessage(`Можно прикрепить не больше ${MAX_FILES} файлов.`);
+    if (root) return void choose(root);
+    await startSetup();
+  }
+
+  async function startSetup() {
+    try {
+      const handle = await pickRootFolder();
+      if (handle) setSetup({ handle, name: handle.name, path: guessRootPath(handle.name) });
+    } catch {
+      setMessage("Не удалось открыть выбор папки. Можно вставить путь вручную.");
+      setManual(true);
+    }
+  }
+
+  async function finishSetup() {
+    if (!setup) return;
+    const probe = parseFilePath(`${setup.path.trim().replace(/[\\/]+$/, "")}\\проверка.txt`);
+    if (!probe.ok) return setMessage("Впишите путь этой папки в Windows, например \\\\сервер\\папка или Z:\\Отдел.");
+    const info: RootInfo = { handle: setup.handle, path: setup.path.trim().replace(/^"|"$/g, "").replace(/[\\/]+$/, "") };
+    await saveRoot(info);
+    setRoot(info);
+    setSetup(null);
+    setMessage(null);
+    await choose(info);
   }
 
   async function copy(f: ItemFile) {
@@ -64,7 +132,15 @@ export function ItemFiles({
     }
   }
 
-  const error = touched && parsed && !parsed.ok ? parsed.error : duplicate ? "Этот файл уже добавлен." : full ? `Можно прикрепить не больше ${MAX_FILES} файлов.` : null;
+  function addManual() {
+    setTouched(true);
+    if (!parsed || !parsed.ok || duplicate || full) return;
+    if (addPaths([text])) {
+      setText("");
+      setTouched(false);
+    }
+  }
+  const manualError = touched && parsed && !parsed.ok ? parsed.error : duplicate ? "Этот файл уже добавлен." : null;
 
   return (
     <div className="space-y-2.5">
@@ -118,45 +194,115 @@ export function ItemFiles({
 
       {!disabled && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <input
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                setTouched(false);
-              }}
-              onBlur={() => text.trim() && setTouched(true)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add();
-                }
-              }}
-              placeholder="Вставьте путь, например \\сервер\папка\отчёт.xlsx"
-              className="input h-9 min-w-0 flex-1"
-              aria-label="Путь к файлу"
-            />
-            <button type="button" onClick={add} disabled={!parsed || !parsed.ok || !!duplicate || full} className="btn-primary h-9 shrink-0">
-              <Plus size={14} /> Добавить
-            </button>
-          </div>
+          {supported && !setup && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void onAddDocument()} disabled={full} className="btn-primary h-9">
+                <Plus size={14} /> Добавить документ
+              </button>
+              {root && (
+                <button
+                  type="button"
+                  onClick={() => void startSetup()}
+                  className="flex h-9 items-center gap-1 text-[12px] font-semibold text-on-surface-variant hover:text-primary"
+                  title={`Сейчас: ${root.path}`}
+                >
+                  <FolderCog size={14} /> Сменить папку диска
+                </button>
+              )}
+              {root && (
+                <button
+                  type="button"
+                  onClick={() => void clearRoot().then(() => setRoot(null))}
+                  className="h-9 text-[12px] text-outline hover:text-status-red"
+                  title="Забыть сохранённую папку диска на этом компьютере"
+                >
+                  Забыть
+                </button>
+              )}
+            </div>
+          )}
 
-          {parsed?.ok && !duplicate && (
-            <div className="flex items-center gap-3 rounded-lg border border-dashed border-primary/50 bg-primary-soft/40 p-2.5">
-              <Badge ext={parsed.ext} kind={parsed.kind} />
-              <div className="min-w-0">
-                <p className="truncate text-[13px] font-semibold text-on-surface">{parsed.name}</p>
-                <p className="truncate text-[11px] text-on-surface-variant">{parsed.folder}</p>
+          {setup && (
+            <div className="space-y-2.5 rounded-lg border border-outline-variant bg-surface-low p-3">
+              <p className="text-[13px] font-semibold text-on-surface">Один раз настроим общий диск</p>
+              <p className="text-[12px] leading-snug text-on-surface-variant">
+                Вы выбрали папку «{setup.name}». Браузер не показывает сайту, где она лежит в Windows, поэтому впишите её путь:
+                откройте эту папку в проводнике, нажмите на адресную строку и скопируйте (Ctrl+C).
+              </p>
+              <input
+                autoFocus
+                value={setup.path}
+                onChange={(e) => setSetup({ ...setup, path: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void finishSetup();
+                  }
+                }}
+                placeholder="\\сервер\папка\отдел"
+                className="input h-9 w-full"
+                aria-label="Путь папки диска в Windows"
+              />
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => void finishSetup()} disabled={!setup.path.trim()} className="btn-primary h-9 flex-1">
+                  Сохранить и выбрать документ
+                </button>
+                <button type="button" onClick={() => setSetup(null)} className="btn-ghost h-9">Отмена</button>
               </div>
             </div>
           )}
-          {error && <p className="text-[12px] text-status-red">{error}</p>}
+
+          {message && <p className="text-[12px] text-status-red">{message}</p>}
+
+          {supported && !manual && (
+            <button type="button" onClick={() => setManual(true)} className="text-[12px] font-semibold text-primary">
+              Вставить путь вручную
+            </button>
+          )}
+
+          {manual && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  value={text}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    setTouched(false);
+                  }}
+                  onBlur={() => text.trim() && setTouched(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addManual();
+                    }
+                  }}
+                  placeholder="Вставьте путь, например \\сервер\папка\отчёт.xlsx"
+                  className="input h-9 min-w-0 flex-1"
+                  aria-label="Путь к файлу"
+                />
+                <button type="button" onClick={addManual} disabled={!parsed || !parsed.ok || !!duplicate || full} className="btn-primary h-9 shrink-0">
+                  <Plus size={14} /> Добавить
+                </button>
+              </div>
+              {parsed?.ok && !duplicate && (
+                <div className="flex items-center gap-3 rounded-lg border border-dashed border-primary/50 bg-primary-soft/40 p-2.5">
+                  <Badge ext={parsed.ext} kind={parsed.kind} />
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-semibold text-on-surface">{parsed.name}</p>
+                    <p className="truncate text-[11px] text-on-surface-variant">{parsed.folder}</p>
+                  </div>
+                </div>
+              )}
+              {manualError && <p className="text-[12px] text-status-red">{manualError}</p>}
+              <p className="text-[11px] leading-snug text-on-surface-variant">В проводнике: Shift + правая кнопка по файлу → «Копировать как путь», затем вставьте сюда.</p>
+            </div>
+          )}
 
           <p className="flex gap-1.5 text-[11px] leading-snug text-on-surface-variant">
             <Info size={13} className="mt-px shrink-0" />
             <span>
-              Файл на сайт не загружается — хранится только путь. В проводнике: Shift + правая кнопка по файлу → «Копировать как путь», затем вставьте сюда.
-              Открыть файл смогут те, у кого есть доступ к этому диску; без доступа Windows сама сообщит об этом.
+              Файл на сайт не загружается — хранится только путь. Открыть файл смогут те, у кого есть доступ к этому диску; без доступа Windows сама сообщит об этом.
+              {!supported && " Окно выбора файла работает в Chrome, Edge и Яндекс Браузере (по адресу https)."}
             </span>
           </p>
         </div>
