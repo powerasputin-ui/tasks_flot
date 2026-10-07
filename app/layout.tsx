@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { DialogHost } from "@/components/ui/Dialog";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="ru" className="h-full antialiased">
       <body className="flex h-dvh flex-col overflow-hidden">
         <AppShell>{children}</AppShell>
+        <DialogHost />
       </body>
     </html>
   );

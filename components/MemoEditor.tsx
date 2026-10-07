@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { askConfirm } from "@/components/ui/Dialog";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
 import { MenuItem, Popover } from "@/components/ui/Popover";
@@ -428,12 +429,21 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
       [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
-  const removeSection = (sid: string) => {
+  const removeSection = async (sid: string) => {
     const s = doc.sections.find((x) => x.id === sid);
     if (!s) return;
     const n = s.bullets.length;
     // непустой раздел удаляем только после подтверждения; строки-источники вернутся в «Не вошло в справку»
-    if (n > 0 && !window.confirm(`Удалить раздел «${s.title}» и его пункты (${n})? Строки данных вернутся в «Не вошло в справку», написанный вручную текст пропадёт.`)) return;
+    if (
+      n > 0 &&
+      !(await askConfirm({
+        title: `Удалить раздел «${s.title}»?`,
+        message: `В нём пунктов: ${n}. Строки данных вернутся в «Не вошло в справку», написанный вручную текст пропадёт.`,
+        okLabel: "Удалить",
+        danger: true,
+      }))
+    )
+      return;
     change({ ...doc, sections: doc.sections.filter((x) => x.id !== sid) });
   };
   const removeBullet = (sid: string, bid: string) => patchSection(sid, (bs) => bs.filter((b) => b.id !== bid));

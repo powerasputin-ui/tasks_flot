@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { askText } from "@/components/ui/Dialog";
 import { ShowMore, useChunk } from "@/components/ui/ShowMore";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -180,7 +181,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   async function returnRow(row: Row) {
     setCtx(null);
     if (preview) return previewBlock();
-    const comment = window.prompt(`Что нужно исправить в «${row.name}»? Комментарий увидит ответственный.`);
+    const comment = await askText({
+      title: "Вернуть на доработку",
+      message: `Что нужно исправить в «${row.name}»? Комментарий увидит ответственный.`,
+      placeholder: "Например: уточните срок и добавьте оценку",
+      okLabel: "Вернуть",
+      multiline: true,
+      required: true,
+      maxLength: 2000,
+    });
     if (!comment?.trim()) return;
     const res = await fetch(`/api/items/${row.id}/return`, {
       method: "POST",

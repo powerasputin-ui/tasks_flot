@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { askConfirm, askText } from "@/components/ui/Dialog";
 import { attractivenessText } from "@/lib/attractiveness";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
@@ -371,12 +372,13 @@ function UsersSection({
                       ) : (
                         <select
                           value={u.directorateId ?? ""}
-                          onChange={(e) => {
-                            const to = directorates.find((d) => d.id === e.target.value);
+                          onChange={async (e) => {
+                            const value = e.target.value;
+                            const to = directorates.find((d) => d.id === value);
                             const admin = u.role === "ADMIN" || u.role === "SYSTEM_ADMIN";
                           const text = !to ? `Убрать ${u.name} из дирекции?` : admin ? `Сделать «${to.name}» домашней дирекцией ${u.name}? Работать он(а) по-прежнему может во всех дирекциях.` : `Перевести ${u.name} в «${to.name}»? Он(а) будет видеть только её таблицу и оперативку.`;
-                          if (window.confirm(text))
-                              patch(u.id, { directorateId: e.target.value || null }, "Переведён(а) в другую дирекцию.");
+                          if (await askConfirm({ title: "Дирекция пользователя", message: text, okLabel: to ? "Перевести" : "Убрать" }))
+                              patch(u.id, { directorateId: value || null }, "Переведён(а) в другую дирекцию.");
                           }}
                           className="select w-full"
                           aria-label="Дирекция"
@@ -432,8 +434,8 @@ function UsersSection({
                             </>
                           ) : null)}
                           <button
-                            onClick={() => {
-                              const name = window.prompt("Имя (Фамилия И.О.)", u.name)?.trim();
+                            onClick={async () => {
+                              const name = (await askText({ title: "Изменить имя", message: "Фамилия И.О.", defaultValue: u.name, okLabel: "Сохранить", required: true, maxLength: 120 }))?.trim();
                               if (name && name !== u.name) patch(u.id, { name }, "Имя изменено.");
                             }}
                             className="btn-icon h-8 w-8"
@@ -663,8 +665,8 @@ function DirectoratesSection({ directorates, act, onAddDirector }: { directorate
                   </button>
                 )}
                 <button
-                  onClick={() => {
-                    const next = window.prompt("Полное название дирекции", d.name)?.trim();
+                  onClick={async () => {
+                    const next = (await askText({ title: "Название дирекции", message: "Полное название — как в шапке и у ЗГД.", defaultValue: d.name, okLabel: "Сохранить", required: true, maxLength: 200 }))?.trim();
                     if (next && next !== d.name) act(send(`/api/directorates/${d.id}`, "PATCH", { name: next }), "Название изменено.");
                   }}
                   className="btn-ghost h-8"
@@ -672,8 +674,8 @@ function DirectoratesSection({ directorates, act, onAddDirector }: { directorate
                   <Pencil size={14} /> Название
                 </button>
                 <button
-                  onClick={() => {
-                    const next = window.prompt("Короткое название для заголовка справки (пусто — убрать)", d.shortName ?? "");
+                  onClick={async () => {
+                    const next = await askText({ title: "Короткое название", message: "Для заголовка справки. Оставьте пустым, чтобы убрать.", defaultValue: d.shortName ?? "", okLabel: "Сохранить", maxLength: 80 });
                     if (next !== null && next.trim() !== (d.shortName ?? "")) act(send(`/api/directorates/${d.id}`, "PATCH", { shortName: next.trim() }), "Короткое название сохранено.");
                   }}
                   className="btn-ghost h-8"
@@ -700,14 +702,14 @@ function DirectoratesSection({ directorates, act, onAddDirector }: { directorate
                 </button>
                 <span className="flex-1" />
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (d.isActive) {
                       const warn = [
                         (d.people ?? 0) > 0 && `${d.people} чел. этой дирекции не смогут войти`,
                         d.openCycle && `идёт оперативка №${d.openCycle.number} — она останется незавершённой`,
                       ].filter(Boolean);
-                      const details = warn.length ? `\n\n${warn.join(";\n")}.` : "";
-                      if (!window.confirm(`Отключить «${d.name}»?${details}\n\nСправки останутся в архиве ЗГД; включить обратно можно в любой момент.`)) return;
+                      const details = warn.length ? `${warn.join(";\n")}.\n\n` : "";
+                      if (!(await askConfirm({ title: `Отключить «${d.name}»?`, message: `${details}Справки останутся в архиве ЗГД; включить обратно можно в любой момент.`, okLabel: "Отключить", danger: true }))) return;
                     }
                     act(send(`/api/directorates/${d.id}`, "PATCH", { isActive: !d.isActive }), d.isActive ? "Дирекция отключена." : "Дирекция включена.");
                   }}

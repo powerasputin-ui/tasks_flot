@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Check, Copy, Download, ExternalLink, Paperclip, Plus, Trash2 } from "lucide-react";
+import { askText } from "@/components/ui/Dialog";
 import { fileBadge, MAX_FILES, parseFilePath, type ItemFile } from "@/lib/item-files";
 
 /** Значок формата вместо превью: сайт не видит ваш диск, поэтому показываем тип файла цветом и подписью. */
@@ -74,7 +75,8 @@ export function ItemFiles({
       setCopied(f.id);
       setTimeout(() => setCopied((c) => (c === f.id ? null : c)), 1800);
     } catch {
-      window.prompt("Скопируйте путь (Ctrl+C):", f.path);
+      // буфер обмена недоступен (старый браузер, нет HTTPS) — показываем путь выделенным, чтобы скопировать Ctrl+C
+      await askText({ title: "Скопируйте путь", message: "Путь уже выделен — нажмите Ctrl+C.", defaultValue: f.path, okLabel: "Готово" });
     }
   }
 
