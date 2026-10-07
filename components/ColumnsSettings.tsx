@@ -34,14 +34,50 @@ export function ColumnsSettings() {
   const canAdd = newName.trim() && (newType !== "SELECT" || opts.length > 0);
 
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const persist = useCallback((next: ColumnConfig[]) => {
-    if (persistTimer.current) clearTimeout(persistTimer.current);
-    persistTimer.current = setTimeout(() => {
-      fetch("/api/table-columns", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) })
-        .then(() => clearBootstrap())
-        .catch(() => setError("Не удалось сохранить настройки."));
-    }, 400);
+  const pending = useRef<ColumnConfig[] | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const send = useCallback(async (next: ColumnConfig[], keepalive = false) => {
+    try {
+      const res = await fetch("/api/table-columns", { method: "PUT", keepalive, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: next }) });
+      if (res.ok) {
+        clearBootstrap();
+        setError(null);
+        setSavedAt(Date.now());
+        return;
+      }
+      const code = (await res.json().catch(() => null))?.error as string | undefined;
+      setError(
+        res.status === 401
+          ? "Сессия закончилась — войдите заново, настройки не сохранены."
+          : code === "NO_DIRECTORATE"
+            ? "Не выбрана дирекция: выберите её в шапке и повторите — настройки не сохранены."
+            : res.status === 403
+              ? "Нет прав менять колонки таблицы — настройки не сохранены."
+              : "Не удалось сохранить настройки. Попробуйте ещё раз."
+      );
+    } catch {
+      setError("Нет связи с сервером — настройки не сохранены. Попробуйте ещё раз.");
+    }
   }, []);
+  const persist = useCallback(
+    (next: ColumnConfig[]) => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      pending.current = next;
+      persistTimer.current = setTimeout(() => {
+        pending.current = null;
+        void send(next);
+      }, 400);
+    },
+    [send]
+  );
+  // ушли со страницы раньше, чем сработала задержка, — досохраняем сразу
+  useEffect(
+    () => () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      if (pending.current) void send(pending.current, true);
+    },
+    [send]
+  );
   const change = (next: ColumnConfig[]) => {
     setSaved(next);
     persist(next);
@@ -109,6 +145,7 @@ export function ColumnsSettings() {
         </p>
       </div>
 
+      {savedAt && !error && <p className="mb-3 text-[12px] text-status-emerald">Сохранено — у всех пользователей уже так.</p>}
       {error && <p className="mb-3 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{error}</p>}
 
       <div className="mb-2 flex justify-end">
