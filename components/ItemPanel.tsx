@@ -10,6 +10,10 @@ import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
 import { FIELD_LABEL } from "@/lib/audit-format";
+import { DEFAULT_LABEL } from "@/lib/table-columns";
+
+/** Поле истории → колонка таблицы, по чьей подписи его называем. */
+const HIST_KEY: Record<string, string> = { title: "name", cost: "cost", trackId: "track", attractivenessId: "attractiveness", responsibleId: "owner", deadline: "deadline", statusId: "status", comment: "comment" };
 
 export type Ref = { id: string; name: string };
 export type TrackRef = Ref & { segmentId: string | null };
@@ -90,6 +94,7 @@ export function ItemPanel({
   canEdit,
   canDelete,
   customColumns = [],
+  labels = {},
   previewMode = false,
   onClose,
   onSaved,
@@ -101,6 +106,8 @@ export function ItemPanel({
   canEdit: boolean;
   canDelete: boolean;
   customColumns?: CustomColumnRef[];
+  /** Подписи колонок из «Настроек → Колонки таблицы» (ключ колонки → подпись): в карточке поля называются так же, как в таблице. */
+  labels?: Partial<Record<string, string>>;
   /** Куратор смотрит глазами руководителя: сохранять и удалять нельзя. */
   previewMode?: boolean;
   onClose: () => void;
@@ -112,6 +119,7 @@ export function ItemPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  const L = (key: string) => labels[key] || DEFAULT_LABEL[key as keyof typeof DEFAULT_LABEL] || key;
   const [tab, setTab] = useState<"details" | "history">("details");
   const [history, setHistory] = useState<Event[] | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -298,8 +306,19 @@ export function ItemPanel({
             </Banner>
           )}
 
+          <Section title="Классификация">
+            <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+              <Field label="Сегмент">
+                <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
+              </Field>
+              <Field label={L("track")}>
+                <Sel value={form.trackId} onChange={(v) => set("trackId", v)} options={tracksForSegment} disabled={disabled} />
+              </Field>
+            </div>
+          </Section>
+
           <Section title="Основное">
-            <Field label="Задача *">
+            <Field label={`${L("name")} *`}>
               {disabled ? (
                 <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
                   <ExpandableText text={form.title || "—"} lines={4} />
@@ -311,38 +330,25 @@ export function ItemPanel({
                 </>
               )}
             </Field>
-            <Field label="Оценка $">
+            <Field label={L("cost")}>
               <input value={form.cost} onChange={(e) => set("cost", e.target.value)} disabled={disabled} className="input w-full" placeholder="например, 2 млн.$" />
             </Field>
-          </Section>
-
-          <Section title="Классификация">
-            <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-              <Field label="Сегмент">
-                <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
-              </Field>
-              <Field label="Трек">
-                <Sel value={form.trackId} onChange={(v) => set("trackId", v)} options={tracksForSegment} disabled={disabled} />
-              </Field>
-              <div className="col-span-2">
-                <Field label="Привлекательность">
-                  <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} disabled={disabled} emptyLabel="Отсутствует (не указана)" />
-                </Field>
-              </div>
-            </div>
+            <Field label={L("attractiveness")}>
+              <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} disabled={disabled} emptyLabel="Отсутствует (не указана)" />
+            </Field>
           </Section>
 
           <Section title="Ответственность и срок">
             <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <div className="col-span-2">
-                <Field label="Ответственный">
+                <Field label={L("owner")}>
                   <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled || lockResponsible} allowEmpty={!lockResponsible} />
                 </Field>
               </div>
-              <Field label="Дедлайн">
+              <Field label={L("deadline")}>
                 <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled} className="input w-full" />
               </Field>
-              <Field label="Статус">
+              <Field label={L("status")}>
                 <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={refs.statuses} disabled={disabled} />
               </Field>
             </div>
@@ -380,7 +386,7 @@ export function ItemPanel({
             </Section>
           )}
 
-          <Section title="Комментарий">
+          <Section title={L("comment")}>
             {disabled ? (
               <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
                 <ExpandableText text={form.comment || "—"} lines={6} />
@@ -432,7 +438,7 @@ export function ItemPanel({
                   badge={e.afterSubmission ? "после отправки" : undefined}
                   headline={
                     e.fieldName ? (
-                      <>изменил(а) поле «{FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»</>
+                      <>изменил(а) поле «{(HIST_KEY[e.fieldName] ? labels[HIST_KEY[e.fieldName]] : undefined) ?? FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»</>
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"
                     ) : e.action === "ARCHIVE" ? (

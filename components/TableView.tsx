@@ -894,6 +894,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           canEdit={editor.row ? canEditRow(editor.row) : true}
           canDelete={editor.row ? canDeleteRow(editor.row) : false}
           customColumns={customCols}
+          labels={Object.fromEntries(columns.map((c) => [c.key, c.label]))}
           previewMode={!!preview}
           onClose={() => setEditor(null)}
           onSaved={(saved) => {
