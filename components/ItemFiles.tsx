@@ -47,12 +47,19 @@ export function ItemFiles({
   const full = files.length >= MAX_FILES;
   const canAdd = !!parsed && parsed.ok && !duplicate && !full;
 
-  function add() {
-    setTouched(true);
-    if (!parsed || !parsed.ok || duplicate || full) return;
-    onChange([...files, { id: `new-${Math.random().toString(36).slice(2, 10)}`, path: parsed.path, name: parsed.name }]);
+  /** Добавляет путь из строки: пустое/некорректное/повтор — ничего не делает (ошибку покажет подсказка под полем). */
+  function addFrom(raw: string): boolean {
+    const p = raw.trim() ? parseFilePath(raw) : null;
+    if (!p || !p.ok || full || files.some((f) => f.path.toLowerCase() === p.path.toLowerCase())) return false;
+    onChange([...files, { id: `new-${Math.random().toString(36).slice(2, 10)}`, path: p.path, name: p.name }]);
     setText("");
     setTouched(false);
+    return true;
+  }
+
+  function add() {
+    setTouched(true);
+    addFrom(text);
   }
 
   async function copy(f: ItemFile) {
@@ -122,7 +129,7 @@ export function ItemFiles({
           <ol className="list-decimal space-y-0.5 rounded-lg bg-surface-low py-2.5 pl-8 pr-3 text-[12px] leading-snug text-on-surface-variant">
             <li>В проводнике найдите сам документ (не папку).</li>
             <li>Удерживая <b>Shift</b>, нажмите на нём правой кнопкой → <b>«Копировать как путь»</b>.</li>
-            <li>Вставьте путь сюда (Ctrl+V): название и тип определятся сами.</li>
+            <li>Вставьте путь в поле ниже (Ctrl+V): документ добавится сразу, название и тип определятся сами.</li>
           </ol>
 
           <div className="flex items-center gap-2">
@@ -132,7 +139,17 @@ export function ItemFiles({
                 setText(e.target.value);
                 setTouched(false);
               }}
-              onBlur={() => text.trim() && setTouched(true)}
+              // вставили путь — документ добавляется сразу; ушли из поля с готовым путём — тоже (иначе его легко потерять при «Сохранить»)
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (parseFilePath(pasted).ok) {
+                  e.preventDefault();
+                  addFrom(pasted);
+                }
+              }}
+              onBlur={() => {
+                if (text.trim() && !addFrom(text)) setTouched(true);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -158,6 +175,7 @@ export function ItemFiles({
             </div>
           )}
           {error && <p className="text-[12px] text-status-red">{error}</p>}
+          {files.some((f) => f.id.startsWith("new-")) && <p className="text-[12px] font-semibold text-status-amber">Документ добавлен в список — нажмите «Сохранить» внизу карточки, чтобы увидели все.</p>}
 
           <p className="text-[11px] leading-snug text-on-surface-variant">
             Документ на сайт не загружается — хранится только путь к нему. Открыть его смогут те, у кого есть доступ к этому диску; без доступа Windows сама сообщит об этом.

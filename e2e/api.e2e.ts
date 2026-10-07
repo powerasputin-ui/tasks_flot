@@ -464,6 +464,13 @@ describe("файлы позиции (ссылки на общий диск)", ()
     expect(upd.data.row.files.map((f: { name: string }) => f.name)).toEqual(["итог март.pptx", "схема.pdf"]);
     expect(upd.data.row.files[0].id).toBe(fileId);
 
+    // куратор и директор видят те же файлы
+    for (const who of [curator, director]) {
+      const seen = await call(who, item.GET, `/api/items/${id}`, { id });
+      expect(seen.status).toBe(200);
+      expect(seen.data.row.files.map((f: { name: string }) => f.name)).toEqual(["итог март.pptx", "схема.pdf"]);
+    }
+
     const hist = await call(head, history.GET, `/api/items/${id}/history`, { id });
     expect(hist.data.events.some((e: { fieldName: string; after: string }) => e.fieldName === "files" && e.after.includes("схема.pdf"))).toBe(true);
 
