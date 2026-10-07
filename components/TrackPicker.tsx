@@ -128,25 +128,22 @@ export function AddTrackForm({
   );
 }
 
-/** Выбор трека в карточке позиции + «Добавить трек» под списком. */
+/** Выбор трека в карточке позиции; кнопка «Добавить трек» раскрывает форму (её рисует карточка — во всю ширину, см. AddTrackForm). */
 export function TrackPicker({
   value,
   onChange,
   tracks,
-  segmentId,
-  segmentName,
   disabled,
-  onCreated,
+  adding,
+  onAdd,
 }: {
   value: string;
   onChange: (id: string) => void;
   tracks: TrackOption[];
-  segmentId: string | null;
-  segmentName: string | null;
   disabled?: boolean;
-  onCreated: (t: TrackOption) => void;
+  adding: boolean;
+  onAdd: () => void;
 }) {
-  const [adding, setAdding] = useState(false);
   return (
     <div>
       <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="select w-full">
@@ -156,14 +153,9 @@ export function TrackPicker({
         ))}
       </select>
       {!disabled && !adding && (
-        <button type="button" onClick={() => setAdding(true)} className="mt-1.5 flex h-8 items-center gap-1 text-[12px] font-semibold text-primary">
+        <button type="button" onClick={onAdd} className="mt-1.5 flex h-8 items-center gap-1 text-[12px] font-semibold text-primary">
           <Plus size={14} /> Добавить трек
         </button>
-      )}
-      {!disabled && adding && (
-        <div className="mt-2">
-          <AddTrackForm tracks={tracks} segmentId={segmentId} segmentName={segmentName} onCreated={onCreated} onPick={(id) => { onChange(id); setAdding(false); }} onClose={() => setAdding(false)} />
-        </div>
       )}
     </div>
   );

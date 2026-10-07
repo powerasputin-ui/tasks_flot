@@ -9,7 +9,7 @@ import { attractivenessText } from "@/lib/attractiveness";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
-import { TrackPicker } from "@/components/TrackPicker";
+import { AddTrackForm, TrackPicker } from "@/components/TrackPicker";
 import { FIELD_LABEL } from "@/lib/audit-format";
 import { DEFAULT_LABEL } from "@/lib/table-columns";
 
@@ -124,6 +124,7 @@ export function ItemPanel({
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const L = (key: string) => labels[key] || DEFAULT_LABEL[key as keyof typeof DEFAULT_LABEL] || key;
+  const [addingTrack, setAddingTrack] = useState(false);
   const [tab, setTab] = useState<"details" | "history">("details");
   const [history, setHistory] = useState<Event[] | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -316,8 +317,23 @@ export function ItemPanel({
                 <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
               </Field>
               <Field label={L("track")}>
-                <TrackPicker value={form.trackId} onChange={(v) => set("trackId", v)} tracks={tracksForSegment} segmentId={form.segmentId || null} segmentName={refs.segments.find((x) => x.id === form.segmentId)?.name ?? null} disabled={disabled} onCreated={(t) => onTrackCreated?.(t)} />
+                <TrackPicker value={form.trackId} onChange={(v) => set("trackId", v)} tracks={tracksForSegment} disabled={disabled} adding={addingTrack} onAdd={() => setAddingTrack(true)} />
               </Field>
+              {addingTrack && !disabled && (
+                <div className="col-span-2 max-sm:col-span-1">
+                  <AddTrackForm
+                    tracks={tracksForSegment}
+                    segmentId={form.segmentId || null}
+                    segmentName={refs.segments.find((x) => x.id === form.segmentId)?.name ?? null}
+                    onCreated={(t) => onTrackCreated?.(t)}
+                    onPick={(id) => {
+                      set("trackId", id);
+                      setAddingTrack(false);
+                    }}
+                    onClose={() => setAddingTrack(false)}
+                  />
+                </div>
+              )}
             </div>
           </Section>
 
