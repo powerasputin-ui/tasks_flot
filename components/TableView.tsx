@@ -934,6 +934,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           key={editor.row?.id ?? `new:${editor.prefill?.segmentId ?? ""}:${editor.prefill?.trackId ?? ""}`}
           row={editor.row}
           prefill={editor.prefill ?? null}
+          onRowUpdated={(r) => applyRow(r as Row)}
           refs={refs}
           defaultResponsibleId={me?.id ?? ""}
           lockResponsible={isHead}

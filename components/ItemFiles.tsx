@@ -31,12 +31,18 @@ export function ItemFiles({
   onChange,
   itemId,
   disabled,
+  busy = false,
+  status = null,
 }: {
   files: ItemFile[];
   onChange: (next: ItemFile[]) => void;
   /** Нет у ещё не созданной позиции — ярлык скачать нельзя, только скопировать путь. */
   itemId: string | null;
   disabled?: boolean;
+  /** Идёт сохранение (у существующей позиции документы сохраняются сразу). */
+  busy?: boolean;
+  /** Итог сохранения для существующей позиции; null — новая позиция (документы сохранятся вместе с «Создать»). */
+  status?: { state: "idle" | "saving" | "saved" | "error"; text?: string } | null;
 }) {
   const [text, setText] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -50,7 +56,7 @@ export function ItemFiles({
   /** Добавляет путь из строки: пустое/некорректное/повтор — ничего не делает (ошибку покажет подсказка под полем). */
   function addFrom(raw: string): boolean {
     const p = raw.trim() ? parseFilePath(raw) : null;
-    if (!p || !p.ok || full || files.some((f) => f.path.toLowerCase() === p.path.toLowerCase())) return false;
+    if (busy || !p || !p.ok || full || files.some((f) => f.path.toLowerCase() === p.path.toLowerCase())) return false;
     onChange([...files, { id: `new-${Math.random().toString(36).slice(2, 10)}`, path: p.path, name: p.name }]);
     setText("");
     setTouched(false);
@@ -111,7 +117,7 @@ export function ItemFiles({
                     {copied === f.id ? <Check size={16} className="text-status-emerald" /> : <Copy size={16} />}
                   </button>
                   {!disabled && (
-                    <button type="button" onClick={() => onChange(files.filter((x) => x.id !== f.id))} className="btn-icon h-9 w-9 text-status-red" title="Убрать из позиции (сам файл не удаляется)" aria-label="Убрать файл">
+                    <button type="button" disabled={busy} onClick={() => onChange(files.filter((x) => x.id !== f.id))} className="btn-icon h-9 w-9 text-status-red" title="Убрать из позиции (сам файл не удаляется)" aria-label="Убрать файл">
                       <Trash2 size={16} />
                     </button>
                   )}
@@ -160,7 +166,7 @@ export function ItemFiles({
               className="input h-9 min-w-0 flex-1"
               aria-label="Путь к документу"
             />
-            <button type="button" onClick={add} disabled={!canAdd} className="btn-primary h-9 shrink-0">
+            <button type="button" onClick={add} disabled={!canAdd || busy} className="btn-primary h-9 shrink-0">
               <Plus size={14} /> Добавить
             </button>
           </div>
@@ -175,7 +181,10 @@ export function ItemFiles({
             </div>
           )}
           {error && <p className="text-[12px] text-status-red">{error}</p>}
-          {files.some((f) => f.id.startsWith("new-")) && <p className="text-[12px] font-semibold text-status-amber">Документ добавлен в список — нажмите «Сохранить» внизу карточки, чтобы увидели все.</p>}
+          {status === null && files.length > 0 && <p className="text-[12px] font-semibold text-status-amber">Документы сохранятся вместе с позицией — нажмите «Создать» внизу.</p>}
+          {status?.state === "saving" && <p className="text-[12px] text-on-surface-variant">Сохраняю…</p>}
+          {status?.state === "saved" && <p className="flex items-center gap-1 text-[12px] font-semibold text-status-emerald"><Check size={14} /> {status.text}</p>}
+          {status?.state === "error" && <p className="text-[12px] font-semibold text-status-red">{status.text}</p>}
 
           <p className="text-[11px] leading-snug text-on-surface-variant">
             Документ на сайт не загружается — хранится только путь к нему. Открыть его смогут те, у кого есть доступ к этому диску; без доступа Windows сама сообщит об этом.

@@ -110,6 +110,7 @@ export function ItemPanel({
   previewMode = false,
   onClose,
   onSaved,
+  onRowUpdated,
 }: {
   row: ItemRow | null;
   refs: Refs;
@@ -129,6 +130,8 @@ export function ItemPanel({
   onClose: () => void;
   /** Вызывается после сохранения/удаления/возврата; row — актуальная строка с сервера. */
   onSaved: (row?: ItemRow) => void;
+  /** Позицию сохранили, не закрывая карточку (например, прикрепили документ) — обновить строку в таблице. */
+  onRowUpdated?: (row: ItemRow) => void;
 }) {
   const [base, setBase] = useState<ItemRow | null>(row);
   const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId, prefill));
@@ -201,6 +204,39 @@ export function ItemPanel({
       else setError("Не удалось сохранить. Данные не потеряны, попробуйте ещё раз.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Документы у существующей позиции сохраняются сразу при добавлении/удалении — как вложение, без «Сохранить»:
+  // иначе путь легко потерять, закрыв карточку. Другие несохранённые правки формы при этом остаются несохранёнными.
+  const [filesStatus, setFilesStatus] = useState<{ state: "idle" | "saving" | "saved" | "error"; text?: string }>({ state: "idle" });
+  async function changeFiles(next: ItemFile[]) {
+    set("files", next);
+    if (isNew || !base || previewMode) return; // новая позиция: документы уйдут вместе с «Создать»
+    setFilesStatus({ state: "saving" });
+    try {
+      const res = await fetch(`/api/items/${base.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: base.version, files: next.map((f) => ({ id: f.id.startsWith("new-") ? undefined : f.id, path: f.path })) }),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.row) {
+        const row = body.row as ItemRow;
+        setBase(row);
+        setForm((f) => ({ ...f, files: [...(row.files ?? [])] }));
+        setFilesStatus({ state: "saved", text: "Сохранено — документ видят все, у кого есть доступ к позиции." });
+        onRowUpdated?.(row);
+        return;
+      }
+      set("files", base.files ?? []);
+      if (res.status === 409 && body?.error !== "ARCHIVED") {
+        setConflict(true);
+        setFilesStatus({ state: "error", text: "Позицию только что изменил кто-то другой — нажмите «Обновить» вверху и добавьте документ ещё раз." });
+      } else setFilesStatus({ state: "error", text: body?.message ?? (res.status === 403 ? "Нет прав менять эту позицию." : "Не удалось сохранить документ. Попробуйте ещё раз.") });
+    } catch {
+      set("files", base.files ?? []);
+      setFilesStatus({ state: "error", text: "Нет связи с сервером — документ не сохранён. Попробуйте ещё раз." });
     }
   }
 
@@ -433,7 +469,7 @@ export function ItemPanel({
           </Section>
 
           <Section title="Файлы">
-            <ItemFiles files={form.files} onChange={(files) => set("files", files)} itemId={base?.id ?? null} disabled={disabled} />
+            <ItemFiles files={form.files} onChange={(files) => void changeFiles(files)} itemId={base?.id ?? null} disabled={disabled || previewMode} busy={filesStatus.state === "saving"} status={isNew ? null : filesStatus} />
           </Section>
 
           <div className={`rounded-lg border p-3.5 ${form.operFlag ? "border-status-emerald/40 bg-status-emerald/10" : "border-outline-variant bg-surface-low"}`}>
