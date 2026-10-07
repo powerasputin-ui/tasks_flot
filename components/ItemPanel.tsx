@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
 import { AuditChange } from "@/components/AuditChange";
 import { HistoryEntry } from "@/components/HistoryEntry";
-import { ATTRACTIVENESS_LABEL } from "@/components/ui/Badge";
+import { attractivenessText } from "@/lib/attractiveness";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
@@ -203,7 +203,7 @@ export function ItemPanel({
     switch (field) {
       case "segmentId": return name(refs.segments, v);
       case "trackId": return name(refs.tracks, v);
-      case "attractivenessId": return name(refs.attractiveness, v);
+      case "attractivenessId": return attractivenessText(name(refs.attractiveness, v));
       case "statusId": return name(refs.statuses, v);
       case "responsibleId": return name(refs.users, v);
       case "deadline": return new Date(v).toLocaleDateString("ru-RU");
@@ -326,7 +326,7 @@ export function ItemPanel({
               </Field>
               <div className="col-span-2">
                 <Field label="Привлекательность">
-                  <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: ATTRACTIVENESS_LABEL[a.name] ? `${a.name} — ${ATTRACTIVENESS_LABEL[a.name]}` : a.name }))} disabled={disabled} emptyLabel="P0 — Отсутствует (не указана)" />
+                  <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} disabled={disabled} emptyLabel="Отсутствует (не указана)" />
                 </Field>
               </div>
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { attractivenessText } from "@/lib/attractiveness";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -201,7 +202,7 @@ export default function SettingsPage() {
           </div>
         )}
         {section === "attractiveness" && (
-          <RefSection title="Привлекательность" hint="Шкала P100 / P70 / P50 / P10 / P0." items={attractiveness} onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")} />
+          <RefSection title="Привлекательность" hint="Шкала: Высокая / Выше среднего / Средняя / Низкая / Отсутствует." items={attractiveness} display={attractivenessText} onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")} />
         )}
       </section>
     </div>
@@ -855,7 +856,7 @@ function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[];
   );
 }
 
-function RefSection({ title, hint, items, onAdd }: { title: string; hint: string; items: Ref[]; onAdd: (name: string) => void }) {
+function RefSection({ title, hint, items, onAdd, display }: { title: string; hint: string; items: Ref[]; onAdd: (name: string) => void; display?: (name: string) => string }) {
   return (
     <>
       <SectionHeader title={title} hint={hint} />
@@ -864,7 +865,7 @@ function RefSection({ title, hint, items, onAdd }: { title: string; hint: string
         {items.map((i) => (
           <li key={i.id} className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-semibold text-on-surface">
             {i.color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: i.color }} />}
-            {i.name}
+            {display ? display(i.name) : i.name}
           </li>
         ))}
       </ListCard>

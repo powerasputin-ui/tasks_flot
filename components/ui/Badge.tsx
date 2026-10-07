@@ -1,16 +1,16 @@
-import { ATTRACTIVENESS_LABEL } from "@/lib/attractiveness";
+import { ATTRACTIVENESS_LABEL, attractivenessText } from "@/lib/attractiveness";
 
-/** Бейдж шкалы привлекательности (как P90/P50/P10 в образце): цвет берётся из справочника. */
+/** Бейдж шкалы привлекательности: слово («Высокая», «Средняя»…), цвет берётся из справочника; код шкалы — в подсказке. */
 export function AttractivenessBadge({ name, color }: { name: string | null; color: string | null }) {
   const code = name ?? "P0";
   const c = color ?? "#94a3b8";
   return (
     <span
-      className="inline-flex min-w-10 items-center justify-center rounded-sm border px-2 py-0.5 text-[11px] font-bold"
+      className="inline-flex items-center justify-center whitespace-nowrap rounded-sm border px-2 py-0.5 text-[11px] font-bold"
       style={{ background: `${c}1f`, color: c, borderColor: `${c}4d` }}
-      title={ATTRACTIVENESS_LABEL[code] ?? code}
+      title={code}
     >
-      {code}
+      {attractivenessText(code)}
     </span>
   );
 }

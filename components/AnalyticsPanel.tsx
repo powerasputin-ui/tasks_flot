@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { attractivenessText } from "@/lib/attractiveness";
 import { Panel } from "@/components/ui/Panel";
 
 export type AnalyticsRow = {
@@ -67,7 +68,7 @@ export function AnalyticsPanel({ rows, title, onClose }: { rows: AnalyticsRow[];
                   <li key={s.name} className="flex items-center justify-between text-[12px]">
                     <span className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
-                      {s.name}
+                      {attractivenessText(s.name)}
                     </span>
                     <span className="font-bold">{Math.round((s.count / stats.total) * 100)}%</span>
                   </li>

@@ -3,6 +3,7 @@
  * Чистые функции: снимок собирается на сервере при отправке, фильтры и поиск работают и в интерфейсе.
  */
 import { DEFAULT_LABEL, type ColumnConfig, type CustomCol, type StdKey } from "@/lib/table-columns";
+import { attractivenessText } from "@/lib/attractiveness";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import type { Cell, ExportSection } from "@/lib/export";
 
@@ -143,7 +144,7 @@ const ruDate = (v: string) => new Date(v).toLocaleDateString("ru-RU");
 
 export function archiveHaystack(r: ArchiveRow): string {
   return normalizeText(
-    [r.name, r.comment, r.cost, r.trackName, r.segmentName, r.ownerName, r.statusName, r.attractivenessName, r.deadline ? `${ruDate(r.deadline)} ${r.deadline.slice(0, 10)}` : null, ...Object.values(r.customValues)]
+    [r.name, r.comment, r.cost, r.trackName, r.segmentName, r.ownerName, r.statusName, r.attractivenessName, r.attractivenessName ? attractivenessText(r.attractivenessName) : null, r.deadline ? `${ruDate(r.deadline)} ${r.deadline.slice(0, 10)}` : null, ...Object.values(r.customValues)]
       .filter(Boolean)
       .join(" ")
   );

@@ -6,3 +6,9 @@ export const ATTRACTIVENESS_LABEL: Record<string, string> = {
   P10: "Низкая",
   P0: "Отсутствует",
 };
+
+/** Слово для значения шкалы (P70 → «Выше среднего»); своё значение, которого нет в шкале, показываем как есть. */
+export function attractivenessText(name: string | null | undefined): string {
+  const code = name ?? "P0";
+  return ATTRACTIVENESS_LABEL[code] ?? code;
+}

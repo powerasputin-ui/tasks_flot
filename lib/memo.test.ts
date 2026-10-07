@@ -365,7 +365,7 @@ describe("вид справки: любые столбцы таблицы, вк�
     const { composeText, parseMemoConfig } = await import("@/lib/memo");
     const src = { title: "Задача", comment: "Комментарий.", cost: "2 млн.$", attractivenessName: "P70", custom: { abc: "Срочно", zzz: "" } };
     const labels = { "custom:abc": "Приоритет", "custom:zzz": "Пусто" };
-    expect(composeText(src, ["comment", "cost", "attractiveness", "custom:abc", "custom:zzz"], labels)).toBe("Комментарий. (оценка 2 млн.$; привлекательность P70; Приоритет: Срочно)");
+    expect(composeText(src, ["comment", "cost", "attractiveness", "custom:abc", "custom:zzz"], labels)).toBe("Комментарий. (оценка 2 млн.$; привлекательность выше среднего; Приоритет: Срочно)");
     expect(parseMemoConfig({ fields: ["comment", "custom:abc", "custom:", "что-то"] }).fields).toEqual(["comment", "custom:abc"]);
   });
 });

@@ -1,4 +1,5 @@
 import { exportLimited } from "@/lib/rate-limit";
+import { attractivenessText } from "@/lib/attractiveness";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -76,7 +77,7 @@ async function GETHandler(request: NextRequest, { params }: { params: Promise<{ 
           r.trackName,
           r.name,
           r.cost,
-          r.attractivenessName ?? "P0",
+          attractivenessText(r.attractivenessName),
           r.ownerName,
           date(r.deadline),
           r.statusName,

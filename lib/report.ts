@@ -1,5 +1,5 @@
 import type { TableRow } from "@/lib/table-view";
-import { ATTRACTIVENESS_LABEL } from "@/lib/attractiveness";
+import { ATTRACTIVENESS_LABEL, attractivenessText } from "@/lib/attractiveness";
 import { COLUMN_LABEL, GROUP_LABEL, resolveConfig, type GroupKey, type ReportConfig, type StdColumn } from "@/lib/report-config";
 
 /**
@@ -164,7 +164,7 @@ function cellValue(r: TableRow, key: string, custom: Map<string, CustomColumnInf
     case "cost":
       return r.cost ?? "—";
     case "attractiveness":
-      return r.attractivenessName ?? "P0";
+      return attractivenessText(r.attractivenessName);
     case "owner":
       return r.ownerName ?? "—";
     case "deadline":

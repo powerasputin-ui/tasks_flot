@@ -1,4 +1,5 @@
 import { exportLimited } from "@/lib/rate-limit";
+import { attractivenessText } from "@/lib/attractiveness";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
@@ -47,7 +48,7 @@ async function GETHandler(request: NextRequest) {
     r.trackName,
     r.name,
     r.cost,
-    r.attractivenessName ?? "P0",
+    attractivenessText(r.attractivenessName),
     r.ownerName,
     r.deadline ? r.deadline.toLocaleDateString("ru-RU") : null,
     r.deadlineWeek,

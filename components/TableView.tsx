@@ -17,7 +17,8 @@ import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter 
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
-import { ATTRACTIVENESS_LABEL, AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
+import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
+import { attractivenessText } from "@/lib/attractiveness";
 import { RecentChanges } from "@/components/RecentChanges";
 import { Panel } from "@/components/ui/Panel";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
@@ -640,7 +641,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             {defaultArchive !== "archived" && <WeekSelect selected={null} />}
             <FilterChip label="Трек" value={trackIds} options={refs.tracks} onChange={setTrackIds} />
             <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
-            <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, hint: ATTRACTIVENESS_LABEL[a.name] }))} onChange={setAttractivenessIds} />
+            <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
             <FilterChip label="Ответственный" value={ownerIds} options={refs.users} onChange={setOwnerIds} />
             <FilterChip
               label="Оперативка"
