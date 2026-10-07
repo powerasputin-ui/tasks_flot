@@ -65,7 +65,12 @@ export function findTrackMatches<T extends { name: string }>(input: string, trac
     if (key === q) kind = "exact";
     else if (key.startsWith(q) || norm.split(" ").some((w) => w.startsWith(q))) kind = "prefix";
     else if (q.length >= 2 && (key.includes(q) || words.every((w) => key.includes(trackKey(w))))) kind = "contains";
-    else if (q.length >= 4 && distance(q, key, q.length >= 8 ? 2 : 1) <= (q.length >= 8 ? 2 : 1)) kind = "similar";
+    else if (q.length >= 4) {
+      // опечатка: сравниваем с названием целиком, с его началом такой же длины и с каждым словом по отдельности
+      const limit = q.length >= 8 ? 2 : 1;
+      const candidates = [key, key.slice(0, q.length), ...norm.split(" ").map(trackKey).filter((w) => w.length >= 4)];
+      if (candidates.some((c) => distance(q, c, limit) <= limit)) kind = "similar";
+    }
     if (kind) out.push({ track, kind, rank: { exact: 0, prefix: 1, contains: 2, similar: 3 }[kind] });
   }
   return out.sort((a, b) => a.rank - b.rank || a.track.name.localeCompare(b.track.name, "ru")).slice(0, max).map(({ track, kind }) => ({ track, kind }));

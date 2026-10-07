@@ -15,6 +15,7 @@ import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
+import { AddTrackInline } from "@/components/TrackPicker";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
 import { AttractivenessBadge, StatusPill } from "@/components/ui/Badge";
@@ -639,7 +640,23 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           <div className="mt-3 flex flex-wrap items-center gap-2 max-md:-mx-3 max-md:flex-nowrap max-md:overflow-x-auto max-md:px-3 max-md:pb-1 max-md:[scrollbar-width:none]">
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
             {defaultArchive !== "archived" && <WeekSelect selected={null} />}
-            <FilterChip label="Трек" value={trackIds} options={refs.tracks} onChange={setTrackIds} />
+            <FilterChip
+              label="Трек"
+              value={trackIds}
+              options={refs.tracks}
+              onChange={setTrackIds}
+              width={340}
+              footer={(close) => (
+                <AddTrackInline
+                  tracks={segments.length === 1 ? refs.tracks.filter((t) => t.segmentId === segments[0] || t.segmentId === null) : refs.tracks}
+                  segmentId={segments.length === 1 ? segments[0] : null}
+                  segmentName={segments.length === 1 ? segmentName(segments[0]) : null}
+                  onCreated={(t) => setRefs((r) => (r.tracks.some((x) => x.id === t.id) ? r : { ...r, tracks: [...r.tracks, t] }))}
+                  onPick={(id) => setTrackIds((ids) => (ids.includes(id) ? ids : [...ids, id]))}
+                  onClose={close}
+                />
+              )}
+            />
             <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
             <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
             <FilterChip label="Ответственный" value={ownerIds} options={refs.users} onChange={setOwnerIds} />

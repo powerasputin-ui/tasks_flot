@@ -34,3 +34,10 @@ describe("findTrackMatches", () => {
     expect(findTrackMatches("Рыбалка", tracks)).toEqual([]);
   });
 });
+
+describe("findTrackMatches: опечатка в длинном названии", () => {
+  it("«газавозы» находит «Газовозы (приобретение для РХА)»", () => {
+    const m = findTrackMatches("газавозы", [{ name: "Газовозы (приобретение для РХА)" }, { name: "Буксиры СЭ" }]);
+    expect(m.map((x) => x.track.name)).toEqual(["Газовозы (приобретение для РХА)"]);
+  });
+});

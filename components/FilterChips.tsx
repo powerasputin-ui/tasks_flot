@@ -16,12 +16,17 @@ export function FilterChip({
   options,
   onChange,
   allLabel = "Все",
+  width = 280,
+  footer,
 }: {
   label: string;
   value: string[];
   options: Option[];
   onChange: (ids: string[]) => void;
   allLabel?: string;
+  width?: number;
+  /** Блок под списком (например, «+ Добавить трек»); close закрывает выпадашку. */
+  footer?: (close: () => void) => ReactNode;
 }) {
   const [search, setSearch] = useState("");
   const selected = options.filter((o) => value.includes(o.id));
@@ -31,7 +36,7 @@ export function FilterChip({
 
   return (
     <Popover
-      width={280}
+      width={width}
       trigger={({ toggle: open }) => (
         <button
           onClick={open}
@@ -45,7 +50,7 @@ export function FilterChip({
         </button>
       )}
     >
-      {() => (
+      {(close) => (
         <div>
           {options.length > 8 && (
             <div className="relative px-2 pb-1 pt-1">
@@ -60,6 +65,7 @@ export function FilterChip({
             ))}
             {filtered.length === 0 && <p className="px-3.5 py-3 text-[12px] text-outline">Ничего не найдено</p>}
           </div>
+          {footer && <div className="border-t border-outline-variant p-2">{footer(close)}</div>}
           {value.length > 0 && (
             <button onClick={() => onChange([])} className="w-full border-t border-outline-variant px-3.5 py-2 text-left text-[12px] font-semibold text-primary hover:bg-primary-soft">
               Сбросить ({value.length})
