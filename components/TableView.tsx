@@ -6,7 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Highlight } from "@/components/ui/Highlight";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Copy, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Copy, History, Paperclip, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
 import { CycleStrip } from "@/components/CycleStrip";
@@ -34,6 +34,7 @@ type Row = ItemRow & {
   createdById: string;
   changedAfterSubmission: boolean;
   customValues: Record<string, string>;
+  files?: { id: string; path: string; name: string }[];
   segmentName: string | null;
   trackName: string | null;
   attractivenessName: string | null;
@@ -455,7 +456,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "attractiveness":
         return <AttractivenessBadge name={row.attractivenessName} color={row.attractivenessColor} />;
       case "name":
-        return <HoverText text={row.name} lines={2} query={q} className={`text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />;
+        return (
+          <span className="flex items-start gap-1.5">
+            <HoverText text={row.name} lines={2} query={q} className={`min-w-0 flex-1 text-[13px] leading-snug ${row.archived ? "text-outline" : "text-on-surface"}`} />
+            {!!row.files?.length && (
+              <span className="mt-0.5 inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-on-surface-variant" title={`Файлов: ${row.files.length}`}>
+                <Paperclip size={12} />
+                {row.files.length}
+              </span>
+            )}
+          </span>
+        );
       case "deadline":
         return row.deadline ? (
           <span className={`inline-flex items-center gap-1 ${isOverdue(row) ? "font-semibold text-status-red" : ""}`}>
@@ -570,6 +581,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         <div className="flex items-start gap-2">
           <p className={`min-w-0 flex-1 text-[15px] font-semibold leading-snug [overflow-wrap:anywhere] ${row.archived ? "text-outline" : "text-on-surface"}`}>
             <Highlight text={row.name} query={q} />
+            {!!row.files?.length && (
+              <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[11px] font-semibold text-on-surface-variant">
+                <Paperclip size={12} />
+                {row.files.length}
+              </span>
+            )}
           </p>
           {row.statusName && <span className="shrink-0">{renderCell(row, { key: "status" } as ColumnConfig)}</span>}
         </div>

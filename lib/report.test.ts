@@ -32,7 +32,7 @@ function row(o: Partial<TableRow>): TableRow {
     version: 1,
     createdById: "u",
     changedAfterSubmission: false,
-    customValues: {},
+    customValues: {}, files: [],
     createdByName: "Иванов",
     updatedAt: new Date("2026-09-01"),
     staleWeeks: 0,

@@ -3,6 +3,7 @@ import { getDicts, type Dicts } from "@/lib/dictionaries";
 import { deadlineWeek } from "@/lib/deadline-week";
 import { idsChangedAfterSubmission } from "@/lib/submission";
 import { ATTRACTIVENESS_LABEL, ATTRACTIVENESS_LABEL_F } from "@/lib/attractiveness";
+import { readFiles, type ItemFile } from "@/lib/item-files";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import type { Prisma } from "@prisma/client";
 
@@ -39,6 +40,8 @@ export type TableRow = {
   changedAfterSubmission: boolean;
   /** Значения своих колонок: { <id колонки>: значение }. */
   customValues: Record<string, string>;
+  /** Ссылки на файлы общего диска. */
+  files: ItemFile[];
   createdByName: string;
   updatedAt: Date;
   /** Недель с последнего обновления — подсветка «давно не трогали». */
@@ -106,6 +109,7 @@ export function toTableRow(i: ItemRecord, dicts: Dicts, changedAfterSubmission =
     createdById: i.createdById,
     changedAfterSubmission,
     customValues: (i.customValues ?? {}) as Record<string, string>,
+    files: readFiles(i.files),
     createdByName: dicts.users.get(i.createdById)?.name ?? "—",
     updatedAt: i.updatedAt,
     staleWeeks: weeksSince(i.updatedAt),

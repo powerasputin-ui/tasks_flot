@@ -141,6 +141,7 @@ model OperationalItem {
   archivedAt       DateTime?
   version          Int             @default(1)
   customValues     Json            @default("{}") // значения своих колонок: { <id колонки>: "значение" }
+  files            Json            @default("[]") // ссылки на файлы на общем диске: [{ id, path, name }] (сами файлы не грузим)
   directorateId    String?
   directorate      Directorate?    @relation(fields: [directorateId], references: [id])
 

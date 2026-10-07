@@ -5,6 +5,8 @@ import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audi
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
+import { filesText, normalizeFiles, readFiles } from "@/lib/item-files";
+import { randomUUID } from "node:crypto";
 import type { ItemRecord } from "@/lib/table-view";
 
 /**
@@ -23,12 +25,14 @@ export type ItemFields = {
   comment?: string | null;
   operFlag?: boolean;
   customValues?: Record<string, string>;
+  /** Ссылки на файлы общего диска: id у новых не нужен. */
+  files?: Array<{ id?: string; path: string }>;
 };
 
 /** ok-результат несёт сохранённую позицию, чтобы вызывающий вернул строку без повторного чтения из базы. */
 export type ItemResult =
   | { ok: true; id: string; record: ItemRecord }
-  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM" | "LOCKED"; currentVersion?: number; message?: string };
+  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM" | "INVALID_FILES" | "LOCKED"; currentVersion?: number; message?: string };
 
 function isForeignKeyError(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003";
@@ -68,7 +72,13 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
 
   if (!(await refsInDirectorate(directorateId, { ...input, responsibleId }))) return { ok: false, error: "INVALID_REFERENCE" };
 
-  const { customValues, ...rest } = input;
+  const { customValues, files, ...rest } = input;
+  let nextFiles: ReturnType<typeof readFiles> = [];
+  if (files) {
+    const f = normalizeFiles(files, [], randomUUID);
+    if (!f.ok) return { ok: false, error: "INVALID_FILES", message: f.error };
+    nextFiles = f.files;
+  }
   let custom: Record<string, string> = {};
   if (customValues) {
     const merged = mergeCustomValues(await activeColumnDefs(directorateId), {}, customValues);
@@ -78,7 +88,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
 
   try {
     const item = await prisma.operationalItem.create({
-      data: { ...rest, customValues: custom, responsibleId, directorateId, createdById: actor.id, updatedById: actor.id },
+      data: { ...rest, customValues: custom, files: nextFiles, responsibleId, directorateId, createdById: actor.id, updatedById: actor.id },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
     return { ok: true, id: item.id, record: item };
@@ -89,7 +99,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
 }
 
 export async function updateItem(actor: Actor, id: string, input: ItemFields & { version: number }): Promise<ItemResult> {
-  const { version, customValues, ...fields } = input;
+  const { version, customValues, files, ...fields } = input;
   if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
   if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
@@ -112,13 +122,20 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
     nextCustom = merged.values;
   }
 
+  let nextFiles: ReturnType<typeof readFiles> | undefined;
+  if (files) {
+    const f = normalizeFiles(files, readFiles(existing.files), randomUUID);
+    if (!f.ok) return { ok: false, error: "INVALID_FILES", message: f.error };
+    nextFiles = f.files;
+  }
+
   try {
     // Изменение и журнал — в одной транзакции (журнал не должен расходиться с данными).
     // update с условием по версии: если версия ушла вперёд, Prisma бросает P2025 → конфликт.
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.operationalItem.update({
         where: { id, version },
-        data: { ...fields, ...(nextCustom ? { customValues: nextCustom } : {}), updatedById: actor.id, version: { increment: 1 } },
+        data: { ...fields, ...(nextCustom ? { customValues: nextCustom } : {}), ...(nextFiles ? { files: nextFiles } : {}), updatedById: actor.id, version: { increment: 1 } },
       });
       await recordFieldChanges(
         {
@@ -126,9 +143,9 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
           entityId: id,
           actorId: actor.id,
           // значения своих колонок идут в журнал отдельными полями custom:<id>
-          before: { ...existing, ...flattenCustom(existing.customValues) },
-          after: { ...row, ...flattenCustom(row.customValues) },
-          trackedFields: [...TRACKED_ITEM_FIELDS, ...Object.keys({ ...flattenCustom(existing.customValues), ...flattenCustom(row.customValues) })],
+          before: { ...existing, files: filesText(existing.files), ...flattenCustom(existing.customValues) },
+          after: { ...row, files: filesText(row.files), ...flattenCustom(row.customValues) },
+          trackedFields: [...TRACKED_ITEM_FIELDS, "files", ...Object.keys({ ...flattenCustom(existing.customValues), ...flattenCustom(row.customValues) })],
           // позиция уже отправлена куратору и остаётся отправленной — правка идёт как «после отправки»
           afterSubmission: existing.operFlag && row.operFlag,
         },
@@ -198,5 +215,6 @@ export const ITEM_ERROR_STATUS: Record<Exclude<ItemResult, { ok: true }>["error"
   ARCHIVED: 409,
   INVALID_REFERENCE: 400,
   INVALID_CUSTOM: 400,
+  INVALID_FILES: 400,
   LOCKED: 409,
 };

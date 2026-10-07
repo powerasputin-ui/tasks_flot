@@ -35,6 +35,7 @@ import * as restore from "@/app/api/items/[id]/restore/route";
 import * as purgeRoute from "@/app/api/items/[id]/purge/route";
 import * as ret from "@/app/api/items/[id]/return/route";
 import * as history from "@/app/api/items/[id]/history/route";
+import * as fileShortcut from "@/app/api/items/[id]/files/[fileId]/shortcut/route";
 import * as recent from "@/app/api/items/recent-changes/route";
 import * as columns from "@/app/api/columns/route";
 import * as column from "@/app/api/columns/[id]/route";
@@ -433,6 +434,54 @@ describe("экспорт", () => {
   it("несуществующая финальная оперативка → 404", async () => {
     const r = await call(management, cycleExport.GET, "/api/cycles/none/export?format=csv", { id: "none" });
     expect(r.status).toBe(404);
+  });
+});
+
+describe("файлы позиции (ссылки на общий диск)", () => {
+  const UNC = "\\\\10.10.51.51\\флот\\Отчёты\\итог март.pptx";
+
+  it("сохраняются со статусом позиции, проверяются, попадают в историю; ярлык .url отдаётся только своей дирекции", async () => {
+    const made = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG}-с файлом`, files: [{ path: `"${UNC}"` }] } });
+    expect(made.status).toBe(201);
+    const id = made.data.row.id as string;
+    created.items.push(id);
+    expect(made.data.row.files).toHaveLength(1);
+    expect(made.data.row.files[0]).toMatchObject({ name: "итог март.pptx", path: UNC });
+    const fileId = made.data.row.files[0].id as string;
+
+    // исполняемые и «не пути» — отказ, ничего не меняется
+    for (const bad of ["\\\\srv\\share\\run.exe", "просто текст"]) {
+      const r = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: 1, files: [{ path: bad }] } });
+      expect(r.status, bad).toBe(400);
+    }
+    // дубль и лимит
+    expect((await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: 1, files: [{ path: UNC }, { path: UNC.toUpperCase() }] } })).status).toBe(400);
+    expect((await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: 1, files: Array.from({ length: 11 }, (_, i) => ({ path: `D:\\f${i}.txt` })) } })).status).toBe(400);
+
+    // добавить второй файл, первый сохраняет свой id
+    const upd = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: 1, files: [{ id: fileId, path: UNC }, { path: "D:\\Отчёты\\схема.pdf" }] } });
+    expect(upd.status).toBe(200);
+    expect(upd.data.row.files.map((f: { name: string }) => f.name)).toEqual(["итог март.pptx", "схема.pdf"]);
+    expect(upd.data.row.files[0].id).toBe(fileId);
+
+    const hist = await call(head, history.GET, `/api/items/${id}/history`, { id });
+    expect(hist.data.events.some((e: { fieldName: string; after: string }) => e.fieldName === "files" && e.after.includes("схема.pdf"))).toBe(true);
+
+    // ярлык: тело — ASCII, имя вложения в UTF-8
+    state.actor = head;
+    const ok = await fileShortcut.GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ id, fileId }) });
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("content-disposition")).toContain("attachment");
+    const raw = Buffer.from(await ok.arrayBuffer());
+    expect([raw[0], raw[1]]).toEqual([0xff, 0xfe]);
+    const body = raw.subarray(2).toString("utf16le");
+    expect(body.startsWith("[InternetShortcut]")).toBe(true);
+    expect(body).toContain("URL=file://10.10.51.51/флот/Отчёты/итог март.pptx");
+    // чужая дирекция и несуществующий файл — 404
+    state.actor = directorB;
+    expect((await fileShortcut.GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ id, fileId }) })).status).toBe(404);
+    state.actor = head;
+    expect((await fileShortcut.GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ id, fileId: "нет" }) })).status).toBe(404);
   });
 });
 

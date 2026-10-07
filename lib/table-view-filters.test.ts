@@ -25,7 +25,7 @@ function row(overrides: Partial<TableRow>): TableRow {
     comment: null,
     version: 1,
     createdById: "u-creator",
-    customValues: {},
+    customValues: {}, files: [],
     changedAfterSubmission: false,
     createdByName: "Иванов",
     updatedAt: new Date("2026-01-01"),

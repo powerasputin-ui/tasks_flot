@@ -10,6 +10,7 @@ export const FIELD_LABEL: Record<string, string> = {
   deadline: "Дедлайн",
   statusId: "Статус",
   operFlag: "Оперативка",
+  files: "Файлы",
 };
 
 /** Справочники «id → имя» для подстановки в значения журнала (в журнале хранятся id). */

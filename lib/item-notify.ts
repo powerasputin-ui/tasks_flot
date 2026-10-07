@@ -16,6 +16,7 @@ const LABEL: Record<string, string> = {
   statusId: "статус",
   operFlag: "отправка директору",
   customValues: "свои столбцы",
+  files: "файлы",
 };
 
 const same = (a: unknown, b: unknown) => (a instanceof Date || b instanceof Date ? String(a && new Date(a as Date).getTime()) === String(b && new Date(b as Date).getTime()) : JSON.stringify(a ?? null) === JSON.stringify(b ?? null));

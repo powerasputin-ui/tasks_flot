@@ -12,7 +12,7 @@ function row(o: Partial<TableRow>): TableRow {
     id: "1", segmentId: "s1", segmentName: "Балкеры", trackId: "t1", trackName: "Ледокол", name: "Задача", cost: null,
     attractivenessId: null, attractivenessName: null, attractivenessColor: null, ownerId: "u1", ownerName: "Сухов В.А.", ownerRole: null,
     deadline: new Date("2026-10-01"), deadlineWeek: null, statusId: "st1", statusName: "В работе", statusColor: "#2563EB", operFlag: false,
-    comment: null, version: 1, createdById: "u", changedAfterSubmission: false, customValues: {}, createdByName: "И",
+    comment: null, version: 1, createdById: "u", changedAfterSubmission: false, customValues: {}, files: [], createdByName: "И",
     updatedAt: new Date("2026-09-01"), staleWeeks: 0, archived: false, ...o,
   };
 }

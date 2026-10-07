@@ -30,6 +30,8 @@ export const createItemSchema = z.object({
   operFlag: z.boolean().optional(),
   // значения своих колонок: { <id колонки>: значение } (проверка типа — на сервере, lib/custom-columns)
   customValues: z.record(z.string(), z.string()).optional(),
+  // ссылки на файлы общего диска: [{ id?, path }] (разбор и проверка пути — lib/item-files)
+  files: z.array(z.object({ id: z.string().max(80).optional(), path: z.string().max(700) })).max(10, "Можно прикрепить не больше 10 файлов").optional(),
 });
 
 // version обязателен: оптимистическая блокировка (409 при конфликте).

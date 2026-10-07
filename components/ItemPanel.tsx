@@ -10,6 +10,8 @@ import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Panel } from "@/components/ui/Panel";
 import { AddTrackForm, TrackPicker } from "@/components/TrackPicker";
+import { ItemFiles } from "@/components/ItemFiles";
+import type { ItemFile } from "@/lib/item-files";
 import { FIELD_LABEL } from "@/lib/audit-format";
 import { DEFAULT_LABEL } from "@/lib/table-columns";
 
@@ -43,6 +45,7 @@ export type ItemRow = {
   createdById: string;
   createdByName: string;
   customValues?: Record<string, string>;
+  files?: ItemFile[];
 };
 
 type FormState = {
@@ -58,6 +61,8 @@ type FormState = {
   operFlag: boolean;
   /** значения своих колонок: { <id колонки>: значение } */
   custom: Record<string, string>;
+  /** ссылки на файлы общего диска */
+  files: ItemFile[];
 };
 
 export type CustomColumnRef = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
@@ -88,6 +93,7 @@ const fromRow = (r: ItemRow | null, defaultResponsibleId: string, prefill?: Item
   comment: r?.comment ?? "",
   operFlag: r?.operFlag ?? false,
   custom: { ...(r?.customValues ?? {}) },
+  files: [...(r?.files ?? [])],
 });
 
 export function ItemPanel({
@@ -164,6 +170,7 @@ export function ItemPanel({
     comment: nul(form.comment),
     operFlag: form.operFlag,
     customValues: form.custom,
+    files: form.files.map((f) => ({ id: f.id.startsWith("new-") ? undefined : f.id, path: f.path })),
   });
 
   async function save() {
@@ -423,6 +430,10 @@ export function ItemPanel({
                 <p className="mt-1 text-right text-[11px] text-outline">{form.comment.length} / 2000</p>
               </>
             )}
+          </Section>
+
+          <Section title="Файлы">
+            <ItemFiles files={form.files} onChange={(files) => set("files", files)} itemId={base?.id ?? null} disabled={disabled} />
           </Section>
 
           <div className={`rounded-lg border p-3.5 ${form.operFlag ? "border-status-emerald/40 bg-status-emerald/10" : "border-outline-variant bg-surface-low"}`}>
