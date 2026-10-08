@@ -30,7 +30,7 @@ import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
 import { useIsMobile } from "@/lib/use-mobile";
 import { applyWidthOverrides, DEFAULT_COLUMNS, loadLocalColumns, loadWidthOverrides, normalizeColumns, saveWidthOverrides, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
-import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
+import { countBySegment, countByTrack, filterBySegmentsAndTracks, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
   createdById: string;
@@ -99,6 +99,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   }, []);
   // Выбранные сегменты (можно несколько); пусто = все.
   const [segments, setSegments] = useState<string[]>([]);
+  // Треки, отмеченные в раскрытых сегментах слева (ключ «сегмент:трек»); работают поверх выбора сегментов.
+  const [trackPicks, setTrackPicks] = useState<string[]>([]);
+  const clearSide = () => {
+    setSegments([]);
+    setTrackPicks([]);
+  };
 
   // Справа открыта одна панель за раз: карточка позиции или аналитика.
   const setEditor = (v: { row: Row | null; prefill?: ItemPrefill } | null) => {
@@ -412,13 +418,20 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   }
 
   const counts = useMemo(() => countBySegment(rows), [rows]);
-  const visibleRows = useMemo(() => filterBySegments(rows, segments), [rows, segments]);
+  const trackCounts = useMemo(() => countByTrack(rows), [rows]);
+  const visibleRows = useMemo(() => filterBySegmentsAndTracks(rows, segments, trackPicks), [rows, segments, trackPicks]);
   const colors = useMemo(() => segmentColors(segmentRefs), [segmentRefs]);
   const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : segmentRefs.find((s) => s.id === id)?.name ?? "Сегмент");
-  const selectedName = segments.length === 0 ? "Все сегменты" : segments.length <= 2 ? segments.map(segmentName).join(" · ") : `Сегментов выбрано: ${segments.length}`;
+  const pickName = (key: string) => {
+    const seg = key.slice(0, key.indexOf(":"));
+    const t = trackCounts.get(seg)?.find((x) => x.key === key);
+    return `${segmentName(seg)} · ${t?.name ?? "трек"}`;
+  };
+  const sideNames = [...segments.filter((s) => !trackPicks.some((k) => k.startsWith(`${s}:`))).map(segmentName), ...trackPicks.map(pickName)];
+  const selectedName = sideNames.length === 0 ? "Все сегменты" : sideNames.length <= 2 ? sideNames.join(" · ") : `Выбрано: ${sideNames.length}`;
   // При нескольких сегментах (или «все») строки группируются по сегментам — так их удобно сравнивать.
   // Большая таблица показывается порциями; правка строки порцию не сбрасывает, смена фильтра/поиска/сортировки — сбрасывает.
-  const chunk = useChunk(visibleRows.length, [trackIds, statusIds, attractivenessIds, ownerIds, operFlags, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir, segments]);
+  const chunk = useChunk(visibleRows.length, [trackIds, statusIds, attractivenessIds, ownerIds, operFlags, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir, segments, trackPicks]);
   const shownRows = useMemo(() => visibleRows.slice(0, chunk.limit), [visibleRows, chunk.limit]);
   // открыли позицию по ссылке или из списка — строка должна быть в показанной порции и на экране
   const openRowId = editor?.row?.id ?? null;
@@ -647,13 +660,31 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           </>,
           headerSlot
         )}
-      <SegmentList segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
+      <SegmentList
+        segments={segmentRefs}
+        counts={counts}
+        selected={segments}
+        onToggle={(id) => setSegments((s) => toggleSegment(s, id))}
+        onClear={clearSide}
+        tracks={trackCounts}
+        trackPicks={trackPicks}
+        onToggleTrack={(key) => setTrackPicks((p) => toggleSegment(p, key))}
+      />
 
       <section className="flex min-w-0 flex-1 flex-col">
         {(me?.role === "HEAD" || me?.submits) && !preview && defaultArchive !== "archived" && <CycleStrip />}
         <div className="border-b border-outline-variant bg-surface px-6 py-4 max-md:px-3 max-md:py-3">
           <div className="mb-3">
-            <SegmentSelect segments={segmentRefs} counts={counts} selected={segments} onToggle={(id) => setSegments((s) => toggleSegment(s, id))} onClear={() => setSegments([])} />
+            <SegmentSelect
+              segments={segmentRefs}
+              counts={counts}
+              selected={segments}
+              onToggle={(id) => setSegments((s) => toggleSegment(s, id))}
+              onClear={clearSide}
+              tracks={trackCounts}
+              trackPicks={trackPicks}
+              onToggleTrack={(key) => setTrackPicks((p) => toggleSegment(p, key))}
+            />
           </div>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
@@ -779,7 +810,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 ))}
               {!loading && !error && <ShowMore chunk={chunk} total={visibleRows.length} />}
               {!loading && !error && visibleRows.length === 0 && (
-                <EmptyState query={q} filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
+                <EmptyState query={q} filtered={anyFilter || segments.length > 0 || trackPicks.length > 0} onReset={() => { resetFilters(); clearSide(); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
               )}
             </div>
           ) : (
@@ -885,7 +916,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             {!loading && !error && <ShowMore chunk={chunk} total={visibleRows.length} />}
 
             {!loading && !error && visibleRows.length === 0 && (
-              <EmptyState query={q} filtered={anyFilter || segments.length > 0} onReset={() => { resetFilters(); setSegments([]); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
+              <EmptyState query={q} filtered={anyFilter || segments.length > 0 || trackPicks.length > 0} onReset={() => { resetFilters(); clearSide(); }} archive={defaultArchive === "archived"} canCreate={!!me && canCreateItem(me.role as UserRole)} onCreate={() => setEditor({ row: null })} />
             )}
           </div>
           )}

@@ -44,3 +44,51 @@ export function groupBySegment<T extends { segmentId: string | null }>(rows: T[]
   const rest = [...byId.keys()].filter((k) => !known.includes(k));
   return [...known, ...rest].filter((id) => byId.has(id)).map((id) => ({ id, rows: byId.get(id)! }));
 }
+
+export const NO_TRACK = "none";
+
+/** Ключ выбранного в сайдбаре трека: трек внутри конкретного сегмента («Без трека» и «Без сегмента» — свои ключи). */
+export const trackPickKey = (segmentId: string | null, trackId: string | null) => `${segmentId ?? NO_SEGMENT}:${trackId ?? NO_TRACK}`;
+
+export type TrackCount = { key: string; trackId: string; name: string; total: number };
+
+/**
+ * Треки внутри каждого сегмента для раскрывающегося списка слева: только треки, где есть позиции;
+ * больше позиций — выше, при равенстве по алфавиту; «Без трека» — в конце.
+ */
+export function countByTrack(rows: Array<{ segmentId: string | null; trackId: string | null; trackName: string | null }>): Map<string, TrackCount[]> {
+  const bySegment = new Map<string, Map<string, TrackCount>>();
+  for (const r of rows) {
+    const seg = r.segmentId ?? NO_SEGMENT;
+    const trackId = r.trackId ?? NO_TRACK;
+    const tracks = bySegment.get(seg) ?? new Map<string, TrackCount>();
+    const t = tracks.get(trackId) ?? { key: trackPickKey(r.segmentId, r.trackId), trackId, name: r.trackId ? r.trackName ?? "Трек" : "Без трека", total: 0 };
+    t.total++;
+    tracks.set(trackId, t);
+    bySegment.set(seg, tracks);
+  }
+  const out = new Map<string, TrackCount[]>();
+  for (const [seg, tracks] of bySegment) {
+    out.set(
+      seg,
+      [...tracks.values()].sort((a, b) => Number(a.trackId === NO_TRACK) - Number(b.trackId === NO_TRACK) || b.total - a.total || a.name.localeCompare(b.name, "ru"))
+    );
+  }
+  return out;
+}
+
+/**
+ * Выбор слева: сегменты и треки внутри сегментов (можно несколько). Ничего не выбрано — все строки.
+ * Строка видна, если отмечена её пара «сегмент + трек», или отмечен её сегмент и в нём не отмечено ни одного трека.
+ */
+export function filterBySegmentsAndTracks<T extends { segmentId: string | null; trackId: string | null }>(rows: T[], segments: string[], trackPicks: string[]): T[] {
+  if (trackPicks.length === 0) return filterBySegments(rows, segments);
+  const picks = new Set(trackPicks);
+  const segsWithPicks = new Set(trackPicks.map((k) => k.slice(0, k.indexOf(":"))));
+  const segs = new Set(segments);
+  return rows.filter((r) => {
+    const seg = r.segmentId ?? NO_SEGMENT;
+    if (picks.has(trackPickKey(r.segmentId, r.trackId))) return true;
+    return segs.has(seg) && !segsWithPicks.has(seg);
+  });
+}

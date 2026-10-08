@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countBySegment, filterBySegments, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
+import { countBySegment, countByTrack, filterBySegments, filterBySegmentsAndTracks, groupBySegment, NO_SEGMENT, toggleSegment, trackPickKey } from "@/lib/segment-counts";
 
 const rows = [
   { segmentId: "a", operFlag: true },
@@ -58,5 +58,39 @@ describe("groupBySegment", () => {
     const g = groupBySegment(rows, ["b", "a", "c"]);
     expect(g.map((x) => x.id)).toEqual(["b", "a", NO_SEGMENT]);
     expect(g.find((x) => x.id === "a")!.rows).toHaveLength(2);
+  });
+});
+
+describe("треки внутри сегментов (сайдбар)", () => {
+  const r = (id: string, segmentId: string | null, trackId: string | null, trackName: string | null = trackId) => ({ id, segmentId, trackId, trackName });
+  const rows = [
+    r("1", "tank", "gpf", "Танкеры ГПФ"),
+    r("2", "tank", "gpf", "Танкеры ГПФ"),
+    r("3", "tank", "tug", "Буксиры"),
+    r("4", "tank", null),
+    r("5", "off", "tid", "Tidebon"),
+    r("6", null, "gpf", "Танкеры ГПФ"),
+  ];
+
+  it("countByTrack: по убыванию числа, «Без трека» в конце, только треки с позициями", () => {
+    const c = countByTrack(rows);
+    expect(c.get("tank")!.map((t) => [t.name, t.total])).toEqual([["Танкеры ГПФ", 2], ["Буксиры", 1], ["Без трека", 1]]);
+    expect(c.get("off")!.map((t) => t.name)).toEqual(["Tidebon"]);
+    expect(c.get(NO_SEGMENT)!.map((t) => t.key)).toEqual([trackPickKey(null, "gpf")]);
+  });
+
+  it("ничего не выбрано — все; только сегмент — весь сегмент", () => {
+    expect(filterBySegmentsAndTracks(rows, [], []).length).toBe(6);
+    expect(filterBySegmentsAndTracks(rows, ["tank"], []).map((x) => x.id)).toEqual(["1", "2", "3", "4"]);
+  });
+
+  it("трек в сегменте — только его строки (тот же трек в другом сегменте не попадает)", () => {
+    expect(filterBySegmentsAndTracks(rows, ["tank"], [trackPickKey("tank", "gpf")]).map((x) => x.id)).toEqual(["1", "2"]);
+    expect(filterBySegmentsAndTracks(rows, [], [trackPickKey("tank", "gpf")]).map((x) => x.id)).toEqual(["1", "2"]);
+  });
+
+  it("несколько треков и сегмент без отмеченных треков — вместе", () => {
+    const got = filterBySegmentsAndTracks(rows, ["tank", "off"], [trackPickKey("tank", "tug"), trackPickKey("tank", null)]);
+    expect(got.map((x) => x.id)).toEqual(["3", "4", "5"]);
   });
 });
