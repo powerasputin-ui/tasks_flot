@@ -77,8 +77,18 @@ describe("связь с источниками", () => {
     expect(r.doc.sections[0].bullets[0].text).toBe("Стало"); // текст не застревает
     const veiled = hideMissingSources(r.doc, r.flags);
     expect(veiled.hidden).toBe(1);
-    expect(veiled.doc.sections[0].bullets[0].hidden).toBe(true); // в файл не пойдёт
+    expect(veiled.doc.sections[0].bullets).toHaveLength(0); // непоправленный пункт убран совсем — строка снова в «Не вошло»
     expect(visibleSections(veiled.doc)).toHaveLength(0);
+  });
+
+  it("пункт, где директор правил текст, при снятой подаче не теряется — только скрывается", async () => {
+    const { hideMissingSources } = await import("@/lib/memo");
+    const doc = buildDraft([item("a", { comment: "Было" })], defs);
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: "Моя формулировка", edited: true };
+    const r = syncWithSources(doc, [item("a", { operFlag: false, comment: "Было" })]);
+    const veiled = hideMissingSources(r.doc, r.flags);
+    expect(veiled.doc.sections[0].bullets).toHaveLength(1);
+    expect(veiled.doc.sections[0].bullets[0]).toMatchObject({ hidden: true, text: "Моя формулировка" });
   });
 
   it("строку, которую директор положил в справку сам, автоматика не убирает даже без подачи", async () => {

@@ -349,13 +349,21 @@ export function syncWithSources(doc: MemoDoc, items: SourceItem[]): { doc: MemoD
  * кнопкой). Ничего не удаляем: текст, который мог написать директор, остаётся на месте.
  */
 export function hideMissingSources(doc: MemoDoc, flags: Map<string, BulletFlags>): { doc: MemoDoc; hidden: number } {
+  // Строку сняли с подачи (или удалили) — её пункту в справке не место: пункт, который никто не правил, убирается совсем,
+  // а строка снова появляется в «Не вошло в справку» с пометкой «не подана». Пункт, где директор правил текст, только
+  // скрывается — чтобы не потерять его правку. Пункт, который директор положил сам (pinned), автоматика не трогает.
   let hidden = 0;
   const sections = doc.sections.map((s) => ({
     ...s,
-    bullets: s.bullets.map((b) => {
-      if (b.hidden || b.pinned || !flags.get(b.id)?.sourceMissing) return b;
+    bullets: s.bullets.flatMap((b) => {
+      if (b.pinned || !flags.get(b.id)?.sourceMissing) return [b];
+      if (!b.edited && b.origin !== "manual") {
+        hidden++;
+        return [];
+      }
+      if (b.hidden) return [b];
       hidden++;
-      return { ...b, hidden: true };
+      return [{ ...b, hidden: true }];
     }),
   }));
   return { doc: hidden > 0 ? { ...doc, sections } : doc, hidden };
