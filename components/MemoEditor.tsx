@@ -3,7 +3,7 @@
 import { fetchRetry } from "@/lib/fetch-retry";
 import { askConfirm } from "@/components/ui/Dialog";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, Settings2, Trash2, Undo2 } from "lucide-react";
+import { History, AlertTriangle, Check, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, Settings2, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { useIsMobile } from "@/lib/use-mobile";
 import { loadBootstrap } from "@/lib/client-bootstrap";
@@ -563,7 +563,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
         setRemindNote("Не удалось отправить напоминание.");
         return;
       }
-      const targets = ids ?? missing.map((p) => p.id);
+      const targets = ids ?? data.submission.filter((p) => p.sent === 0).map((p) => p.id);
       setReminded((prev) => new Set([...prev, ...targets]));
       setRemindNote(d.sent > 0 ? `Напоминание отправлено: ${d.sent}.` : "Недавно уже напоминали — повторим не раньше, чем через 30 минут.");
       if (d.sent > 0 && d.skippedRecent > 0) setRemindNote(`Отправлено: ${d.sent}. Ещё ${d.skippedRecent} напоминали недавно.`);
@@ -571,7 +571,6 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
       setReminding(false);
     }
   };
-  const missing = data.submission.filter((p) => p.sent === 0);
 
   /** Правка текста пункта с запоминанием курсора в позициях всего пункта — по ним курсор найдёт свой лист. */
   const setBulletText = (sid: string, bid: string, text: string, caretStart: number, caretEnd = caretStart) => {
@@ -778,36 +777,32 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
             <p className="mt-1 text-[13px] text-on-surface">
               Подали <span className="font-semibold">{submitted}</span> из {data.submission.length}
             </p>
-            {missing.length > 0 && (
-              <div className="mt-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[12px] font-semibold text-status-red">Не подали · {missing.length}</p>
-                  {data.editable && (
-                    <button onClick={() => void remind()} disabled={reminding || readOnly} title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : undefined} className="text-[12px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline">
-                      Напомнить всем
-                    </button>
-                  )}
-                </div>
-                <ul className="mt-1 divide-y divide-outline-variant/50">
-                  {missing.map((p) => (
-                    <li key={p.id} className="flex items-center gap-2 py-1.5">
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-on-surface" title={p.name}>
-                        {p.name}
+            {/* все, кто подаёт: отправившим — зелёная отметка, остальным — «Напомнить» */}
+            {data.submission.length > 0 && (
+              <ul className="mt-2 divide-y divide-outline-variant/50">
+                {data.submission.map((p) => (
+                  <li key={p.id} className="flex items-center gap-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-on-surface" title={p.name}>
+                      {p.name}
+                    </span>
+                    {p.sent > 0 ? (
+                      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-status-emerald/12 px-2 text-[11px] font-semibold text-status-emerald" title={`Отправлено директору позиций: ${p.sent}`}>
+                        <Check size={12} /> Отправил · {p.sent}
                       </span>
-                      {data.editable &&
-                        (reminded.has(p.id) ? (
-                          <span className="shrink-0 text-[11px] text-status-emerald">напомнено</span>
-                        ) : (
-                          <button onClick={() => void remind([p.id])} disabled={reminding || readOnly} className="btn-ghost h-6 shrink-0 px-2 text-[11px] disabled:opacity-50" title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Отправить напоминание в уведомления"}>
-                            <Bell size={11} /> Напомнить
-                          </button>
-                        ))}
-                    </li>
-                  ))}
-                </ul>
-                {remindNote && <p className="mt-1.5 text-[11px] leading-snug text-on-surface-variant">{remindNote}</p>}
-              </div>
+                    ) : !data.editable ? (
+                      <span className="shrink-0 text-[11px] text-status-red">не подал</span>
+                    ) : reminded.has(p.id) ? (
+                      <span className="shrink-0 text-[11px] text-on-surface-variant">напомнено</span>
+                    ) : (
+                      <button onClick={() => void remind([p.id])} disabled={reminding || readOnly} className="btn-ghost h-6 shrink-0 px-2 text-[11px] disabled:opacity-50" title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Ещё не отправил — напомнить в уведомлениях"}>
+                        <Bell size={11} /> Напомнить
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
+            {remindNote && <p className="mt-1.5 text-[11px] leading-snug text-on-surface-variant">{remindNote}</p>}
           </section>
 
           <section className="surface p-4">
