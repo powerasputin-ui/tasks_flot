@@ -3,7 +3,7 @@
 import { fetchRetry } from "@/lib/fetch-retry";
 import { askConfirm } from "@/components/ui/Dialog";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { History, AlertTriangle, Check, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, Settings2, Trash2, Undo2 } from "lucide-react";
+import { Sparkles, History, AlertTriangle, Check, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, Settings2, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { useIsMobile } from "@/lib/use-mobile";
 import { loadBootstrap } from "@/lib/client-bootstrap";
@@ -11,6 +11,7 @@ import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { manualBullet, memoTitle, mergeBullets, sectionOf, sourceText, splitTitleDate, type BulletFlags, type MemoBullet, type MemoDoc, type MemoSectionDoc, type SectionDef } from "@/lib/memo";
 import type { MemoSource } from "@/lib/memo-load";
 import { FilesHover, fileEntries, type FileEntry } from "@/components/ItemFiles";
+import { Operativshchik, RewritePanel } from "@/components/Operativshchik";
 
 /** Документы всех строк-источников пункта (пункт может склеивать несколько строк). */
 const sourceDocs = (sources: MemoSource[]): FileEntry[] => sources.flatMap((s) => fileEntries(s.id, s.files));
@@ -335,6 +336,8 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
     [schedule]
   );
 
+  // «Оперативщик»: вариант формулировки одного пункта (у кнопки ✨ или по правой кнопке на пункте)
+  const [assist, setAssist] = useState<{ sid: string; bid: string; text: string; anchor: { x: number; y: number } } | null>(null);
   const sourceById = new Map([...(data?.sources ?? []), ...(data?.notIncluded ?? [])].map((s) => [s.id, s]));
   const allSources = [...sourceById.values()];
   // «Не вошло в справку» считаем по текущему тексту справки, а не по загруженному с сервера: добавили строку «+» — она
@@ -701,6 +704,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
               }
               onMerge={() => change(mergeBullets(doc, section.id, b.id, section.bullets[bi + 1].id, allSources))}
               onAccept={() => void acceptSource(b.id)}
+              onAssist={editable && !readOnly && b.text.trim() ? (anchor) => setAssist({ sid: section.id, bid: b.id, text: b.text, anchor }) : undefined}
               onReset={() => resetBulletText(section.id, b)}
               onRemove={b.itemIds.length === 0 || data.flags[b.id]?.sourceMissing ? () => removeBullet(section.id, b.id) : undefined}
             />
@@ -993,6 +997,18 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                             {byOther && <p className="ml-4 mt-0.5 text-[11px] text-status-amber">Изменил(а) {b.changedBy}{b.changedAt ? `, ${new Date(b.changedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}</p>}
                             {editable && (
                               <div className="mt-1.5 flex items-center justify-end gap-1">
+                                {!readOnly && b.text.trim() && (
+                                  <button
+                                    onClick={(e) => {
+                                      const r = e.currentTarget.getBoundingClientRect();
+                                      setAssist({ sid: section.id, bid: b.id, text: b.text, anchor: { x: r.right, y: r.top } });
+                                    }}
+                                    className="btn-icon h-9 w-9 text-primary"
+                                    aria-label="Улучшить формулировку"
+                                  >
+                                    <Sparkles size={15} />
+                                  </button>
+                                )}
                                 <button onClick={() => patchBullet(section.id, b.id, b.hidden && data.flags[b.id]?.sourceMissing ? { hidden: false, pinned: true } : { hidden: !b.hidden })} className="btn-ghost h-9 px-2.5 text-[13px]">
                                   {b.hidden ? <><Eye size={14} /> Вернуть</> : <><EyeOff size={14} /> Скрыть</>}
                                 </button>
@@ -1046,6 +1062,19 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
 
       {/* Масштаб — плавающая панель в левом нижнем углу (как в Word/просмотрщиках PDF), вне трансформированного
           контейнера листов, чтобы сама кнопка не масштабировалась вместе с ними. */}
+      {assist && (
+        <RewritePanel
+          cycleId={cycleId}
+          text={assist.text}
+          anchor={assist.anchor}
+          onClose={() => setAssist(null)}
+          onReplace={(t) => {
+            patchBullet(assist.sid, assist.bid, { text: t, edited: true });
+            setAssist(null);
+          }}
+        />
+      )}
+      {editable && <Operativshchik cycleId={cycleId} disabledReason={readOnly ? "В режиме просмотра помощник недоступен — выйдите из режима (меню под вашим именем)." : undefined} />}
       <div className="fixed bottom-4 left-4 z-40 flex items-center gap-0.5 rounded-md border border-outline-variant bg-surface px-0.5 py-0.5 shadow-md max-md:hidden">
         <button onClick={() => zoomBy(-10)} disabled={zoom <= ZOOM_MIN} className={ICON} title="Уменьшить (Ctrl+колесо)" aria-label="Уменьшить масштаб"><Minus size={14} /></button>
         <button onClick={() => setZoom(100)} className="min-w-[3.5ch] px-1 text-center text-[12px] text-on-surface-variant hover:text-on-surface" title="Сбросить масштаб">{zoom}%</button>
@@ -1156,6 +1185,7 @@ function BulletFragment({
   onAccept,
   onReset,
   onRemove,
+  onAssist,
 }: {
   bullet: MemoBullet;
   value: string;
@@ -1190,6 +1220,8 @@ function BulletFragment({
   onReset: () => void;
   /** У ручных пунктов (без источника) и у пунктов с пропавшим источником — насовсем убрать из справки (строка таблицы не трогается). */
   onRemove?: () => void;
+  /** «Оперативщик»: предложить другую формулировку пункта (карточка открывается в точке anchor). */
+  onAssist?: (anchor: { x: number; y: number }) => void;
 }) {
   // пункт собрался из строки, но в «Виде справки» не отмечено ничего текстового — объясняем, почему он пустой
   const emptyByView = !bullet.text.trim() && bullet.itemIds.length > 0 && !bullet.edited;
@@ -1230,6 +1262,11 @@ function BulletFragment({
       className={`group/item relative flex items-start ${bullet.hidden ? "opacity-45" : ""}`}
       style={{ columnGap: MARKER_GAP }}
       onFocus={() => setInside(true)}
+      onContextMenu={(e) => {
+        if (!onAssist) return;
+        e.preventDefault();
+        onAssist({ x: e.clientX, y: e.clientY });
+      }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setInside(false);
       }}
@@ -1307,6 +1344,20 @@ function BulletFragment({
       </div>
       {(sources.length > 0 || editable) && (
         <span className={`${PILL} -top-3`}>
+          {onAssist && (
+            <button
+              tabIndex={tab}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                onAssist({ x: r.right, y: r.bottom });
+              }}
+              className={`${ICON} text-primary`}
+              title="Оперативщик: предложить другую формулировку (или правая кнопка на пункте)"
+              aria-label="Улучшить формулировку"
+            >
+              <Sparkles size={14} />
+            </button>
+          )}
           {sources.length > 0 && (
             <Popover
               align="right"

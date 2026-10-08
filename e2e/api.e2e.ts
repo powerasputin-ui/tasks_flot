@@ -69,6 +69,7 @@ import * as attrRoute from "@/app/api/attractiveness/route";
 import * as attrOne from "@/app/api/attractiveness/[id]/route";
 import * as memo from "@/app/api/cycles/[id]/memo/route";
 import * as memoRefresh from "@/app/api/cycles/[id]/memo/refresh/route";
+import * as memoAssist from "@/app/api/ai/memo-assist/route";
 import * as memoHistory from "@/app/api/cycles/[id]/memo/history/route";
 import * as memoExport from "@/app/api/cycles/[id]/memo/export/route";
 import * as memoSections from "@/app/api/memo-sections/route";
@@ -1072,6 +1073,19 @@ describe("справка директора", () => {
     expect(b1.text).toBe("Моя редакция первого пункта."); // правки директора не затёрты
     expect(r.data.flags[b1.id].sourceChanged).toBe(true);
     expect(b2.text).toBe("Новый второй."); // неправленный подтянулся сам
+  });
+
+  it("Оперативщик: только составители своей дирекции; пустой пункт и пустой вопрос — 400", async () => {
+    const ask = (who: Actor, body: unknown) => call(who, memoAssist.POST, "/api/ai/memo-assist", { method: "POST", body });
+    // руководитель (не составитель), ЗГД и директор чужой дирекции — справки не видят
+    expect((await ask(headB, { cycleId, mode: "rewrite", text: "Текст" })).status).toBe(404);
+    expect((await ask(management, { cycleId, mode: "rewrite", text: "Текст" })).status).toBe(404);
+    expect((await ask(director, { cycleId, mode: "rewrite", text: "Текст" })).status).toBe(404);
+    expect((await ask(directorB, { cycleId: "нет-такого", mode: "rewrite", text: "Текст" })).status).toBe(404);
+    // директор своей дирекции: проверка запроса идёт до обращения к ИИ
+    expect((await ask(directorB, { cycleId, mode: "rewrite", text: "   " })).status).toBe(400);
+    expect((await ask(directorB, { cycleId, mode: "chat", messages: [] })).status).toBe(400);
+    expect((await ask(directorB, { cycleId, mode: "что-то" })).status).toBe(400);
   });
 
   it("новая подача сама встаёт в собранную справку (с меткой «новая подача»), правки директора не трогаются", async () => {
