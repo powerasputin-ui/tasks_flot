@@ -10,6 +10,10 @@ import { loadBootstrap } from "@/lib/client-bootstrap";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { manualBullet, memoTitle, mergeBullets, sectionOf, sourceText, splitTitleDate, type BulletFlags, type MemoBullet, type MemoDoc, type MemoSectionDoc, type SectionDef } from "@/lib/memo";
 import type { MemoSource } from "@/lib/memo-load";
+import { FilesHover, fileEntries, type FileEntry } from "@/components/ItemFiles";
+
+/** Документы всех строк-источников пункта (пункт может склеивать несколько строк). */
+const sourceDocs = (sources: MemoSource[]): FileEntry[] => sources.flatMap((s) => fileEntries(s.id, s.files));
 
 type Person = { id: string; name: string; role: string; total: number; sent: number };
 type Payload = {
@@ -812,9 +816,10 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                   <li key={s.id} className="flex items-start gap-2 rounded-md border border-outline-variant/60 px-2 py-1.5">
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-2 text-[12px] leading-snug text-on-surface">{s.title}</p>
-                      <p className="text-[11px] text-on-surface-variant">
+                      <p className="flex flex-wrap items-center gap-x-1 text-[11px] text-on-surface-variant">
                         {s.ownerName ?? "без ответственного"}
                         {!s.operFlag && " · не подана"}
+                        {!!s.files?.length && <FilesHover entries={fileEntries(s.id, s.files)} />}
                       </p>
                     </div>
                     {editable && (
@@ -956,6 +961,10 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                                 className="text-[15px] leading-snug text-on-surface"
                                 label="Текст пункта"
                               />
+                              {(() => {
+                                const docs = sourceDocs(b.itemIds.map((id) => sourceById.get(id)).filter((x): x is MemoSource => !!x));
+                                return docs.length > 0 ? <FilesHover entries={docs} title="Документы пункта" className="mt-0.5 shrink-0 self-start" /> : null;
+                              })()}
                             </div>
                             {byOther && <p className="ml-4 mt-0.5 text-[11px] text-status-amber">Изменил(а) {b.changedBy}{b.changedAt ? `, ${new Date(b.changedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}</p>}
                             {editable && (
@@ -1202,6 +1211,11 @@ function BulletFragment({
         if (!e.currentTarget.contains(e.relatedTarget)) setInside(false);
       }}
     >
+      {first && sourceDocs(sources).length > 0 && (
+        <span className="absolute top-0 flex justify-end" style={{ left: -MARGIN + 6, width: MARGIN - 14 }}>
+          <FilesHover entries={sourceDocs(sources)} title="Документы пункта" />
+        </span>
+      )}
       {/* пункт менял кто-то другой — янтарная точка, при наведении «кто и когда» */}
       <span
         className={`shrink-0 select-none ${byOther ? "font-bold text-status-amber" : "text-on-surface"}`}
@@ -1304,6 +1318,11 @@ function BulletFragment({
                         {[s.ownerName, s.statusName, s.deadline ? `срок ${fmtDate(s.deadline)}` : null, s.trackName].filter(Boolean).join(" · ")}
                       </p>
                       {s.comment && <p className="mt-1 whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{s.comment}</p>}
+                      {!!s.files?.length && (
+                        <p className="mt-1 flex items-center gap-1 text-on-surface-variant">
+                          Документы: <FilesHover entries={fileEntries(s.id, s.files)} />
+                        </p>
+                      )}
                       <a href={`/table?item=${s.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-primary hover:underline">
                         Открыть строку в таблице
                       </a>

@@ -205,7 +205,13 @@ const HOVER_W = 340;
  * клик по документу — скачивается ярлык (веб-ссылка открывается в новой вкладке). Клики не открывают позицию.
  * На телефоне список открывается касанием по скрепке.
  */
-export function FilesHover({ itemId, files, className = "" }: { itemId: string; files: ItemFile[]; className?: string }) {
+export type FileEntry = { itemId: string; file: ItemFile };
+
+/** Документы позиции → записи для FilesHover. */
+export const fileEntries = (itemId: string, files: ItemFile[] | undefined): FileEntry[] => (files ?? []).map((file) => ({ itemId, file }));
+
+export function FilesHover({ entries, className = "", title = "Документы" }: { entries: FileEntry[]; className?: string; title?: string }) {
+  const files = entries.map((e) => e.file);
   const ref = useRef<HTMLSpanElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number; above: boolean } | null>(null);
@@ -252,13 +258,13 @@ export function FilesHover({ itemId, files, className = "" }: { itemId: string; 
             className="animate-fade-in fixed z-50 overflow-hidden rounded-lg border border-outline-variant bg-surface text-left shadow-xl"
             style={{ left: pos.left, top: pos.top, width: HOVER_W, maxWidth: "calc(100vw - 16px)", transform: pos.above ? "translateY(-100%)" : undefined }}
           >
-            <p className="label-caps border-b border-outline-variant px-3 py-2">Документы · {files.length}</p>
+            <p className="label-caps border-b border-outline-variant px-3 py-2">{title} · {files.length}</p>
             <ul className="max-h-80 overflow-y-auto py-1">
-              {files.map((f) => {
+              {entries.map(({ itemId, file: f }) => {
                 const d = describe(f.path);
                 const web = d?.kind === "web";
                 return (
-                  <li key={f.id}>
+                  <li key={`${itemId}:${f.id}`}>
                     <a
                       href={web ? f.path : `/api/items/${itemId}/files/${f.id}/shortcut`}
                       {...(web ? { target: "_blank", rel: "noopener noreferrer" } : {})}

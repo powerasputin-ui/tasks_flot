@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { readFiles, type ItemFile } from "@/lib/item-files";
 import { getDicts } from "@/lib/dictionaries";
 import { directorateName } from "@/lib/directorates";
 import { canCompileMemo, type Actor } from "@/lib/permissions";
@@ -17,6 +18,8 @@ export type MemoSource = SourceItem & {
   cost?: string | null;
   attractivenessName?: string | null;
   custom?: Record<string, string>;
+  /** Документы позиции (ссылки на общий диск) — директор и составитель видят их рядом с пунктом. */
+  files?: ItemFile[];
 };
 
 export const MEMO_LIMITS = { sections: 60, bullets: 400, textLength: 6000, titleLength: 200 };
@@ -76,7 +79,7 @@ export async function loadSources(directorateId: string, cfg?: MemoConfig, defs?
     getDicts().then((d) => Object.fromEntries(d.customColumns.filter((c) => c.directorateId === directorateId).map((c) => [`custom:${c.id}`, c.name] as const))),
     prisma.operationalItem.findMany({
       where: { directorateId, archivedAt: null },
-      select: { id: true, title: true, comment: true, operFlag: true, trackId: true, segmentId: true, responsibleId: true, deadline: true, statusId: true, createdAt: true, cost: true, attractivenessId: true, customValues: true },
+      select: { id: true, title: true, comment: true, operFlag: true, trackId: true, segmentId: true, responsibleId: true, deadline: true, statusId: true, createdAt: true, cost: true, attractivenessId: true, customValues: true, files: true },
       orderBy: { createdAt: "asc" },
     }),
     getDicts(),
@@ -110,6 +113,7 @@ export async function loadSources(directorateId: string, cfg?: MemoConfig, defs?
       cost: i.cost,
       attractivenessName,
       custom,
+      files: readFiles(i.files),
       text: composeText({ title: i.title, comment: i.comment, segmentName: head.segmentName, trackName: head.trackName, ownerName, deadline, statusName: status, cost: i.cost, attractivenessName, custom }, config.fields, customLabels),
     };
   });

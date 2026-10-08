@@ -16,7 +16,7 @@ import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemPrefill, type ItemRow, type Refs } from "@/components/ItemPanel";
-import { FilesHover } from "@/components/ItemFiles";
+import { FilesHover, fileEntries } from "@/components/ItemFiles";
 import { AddTrackInline } from "@/components/TrackPicker";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -613,7 +613,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         <div className="flex items-start gap-2">
           <p className={`min-w-0 flex-1 text-[15px] font-semibold leading-snug [overflow-wrap:anywhere] ${row.archived ? "text-outline" : "text-on-surface"}`}>
             <Highlight text={row.name} query={q} />
-            {!!row.files?.length && <FilesHover itemId={row.id} files={row.files} className="ml-1.5 align-middle" />}
+            {!!row.files?.length && <FilesHover entries={fileEntries(row.id, row.files)} className="ml-1.5 align-middle" />}
           </p>
           {row.statusName && <span className="shrink-0">{renderCell(row, { key: "status" } as ColumnConfig)}</span>}
         </div>
@@ -863,7 +863,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                             <Fragment key={col.key}>
                             {col.key === "name" && (
                               <td className="px-0 py-3.5 text-center align-middle">
-                                {!!row.files?.length && <FilesHover itemId={row.id} files={row.files} />}
+                                {!!row.files?.length && <FilesHover entries={fileEntries(row.id, row.files)} />}
                               </td>
                             )}
                             <td
