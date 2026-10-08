@@ -137,7 +137,7 @@ export default function SettingsPage() {
     { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length },
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
-    { key: "attractiveness", label: "Привлекательность", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
+    { key: "attractiveness", label: "Внимание", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
     // ИИ-помощник по справкам: подключает админ (ключ API); ЗГД делает то же у себя на странице «Оперативка»
     ...(me?.role === "ADMIN" ? [{ key: "ai" as const, label: "ИИ-помощник", icon: <Bot size={16} />, count: 0, noCount: true }] : []),
   ];
@@ -225,7 +225,7 @@ export default function SettingsPage() {
         )}
         {section === "attractiveness" && (
           <RefSection
-            title="Привлекательность"
+            title="Внимание"
             hint="Шкала: Высокое / Выше среднего / Среднее / Низкое / Отсутствует (общая для всех дирекций). Порядок шкалы при сортировке сохраняется и после переименования."
             items={attractiveness}
             display={attractivenessText}
