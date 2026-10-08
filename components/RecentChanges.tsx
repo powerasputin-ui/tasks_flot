@@ -37,12 +37,15 @@ export function RecentChanges({
   onOpen,
   people,
   customColumns,
+  fieldLabels = {},
 }: {
   segments: string[];
   refreshKey: number;
   onOpen: (itemId: string) => void;
   people: Array<{ id: string; name: string }>;
   customColumns: Array<{ id: string; name: string }>;
+  /** Подписи полей по «Настройкам → Колонки таблицы» (поле журнала → подпись). */
+  fieldLabels?: Record<string, string>;
 }) {
   const [events, setEvents] = useState<Ev[] | null>(null);
   const [limit, setLimit] = useState(PAGE);
@@ -52,11 +55,11 @@ export function RecentChanges({
   const peopleOptions = useMemo<Option[]>(() => people.map((p) => ({ id: p.id, name: p.name, leading: <PersonAvatar name={p.name} size={18} /> })), [people]);
   const fieldOptions = useMemo<Option[]>(
     () => [
-      ...STANDARD_FIELDS.map((f) => ({ id: f, name: FIELD_LABEL[f] ?? f })),
+      ...STANDARD_FIELDS.map((f) => ({ id: f, name: fieldLabels[f] ?? FIELD_LABEL[f] ?? f })),
       ...customColumns.map((c) => ({ id: `custom:${c.id}`, name: c.name })),
       { id: NO_FIELD, name: "Создание и архив" },
     ],
-    [customColumns]
+    [customColumns, fieldLabels]
   );
 
   useEffect(() => {

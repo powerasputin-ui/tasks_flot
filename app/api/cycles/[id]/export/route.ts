@@ -1,4 +1,5 @@
 import { exportLimited } from "@/lib/rate-limit";
+import { loadColumnLabels } from "@/lib/column-labels";
 import { attractivenessText } from "@/lib/attractiveness";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
@@ -64,6 +65,7 @@ async function GETHandler(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const rows = (cycle.snapshot ?? []) as unknown as SnapRow[];
+  const L = await loadColumnLabels(cycle.directorateId ?? "");
   const date = (v: string | null) => (v ? new Date(v).toLocaleDateString("ru-RU") : null);
   const report = {
     title: `Оперативка №${cycle.number}`,
@@ -71,7 +73,7 @@ async function GETHandler(request: NextRequest, { params }: { params: Promise<{ 
     sections: [
       {
         title: "Позиции",
-        headers: ["Сегмент", "Трек", "Задача", "Оценка $", "Внимание", "Ответственный", "Дедлайн", "Статус", "Комментарий", ...(rows[0]?.customFields?.map((f) => f.name) ?? [])],
+        headers: ["Сегмент", L.track, L.name, L.cost, L.attractiveness, L.owner, L.deadline, L.status, L.comment, ...(rows[0]?.customFields?.map((f) => f.name) ?? [])],
         rows: rows.map((r) => [
           r.segmentName,
           r.trackName,

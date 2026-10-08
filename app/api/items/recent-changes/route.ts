@@ -6,6 +6,7 @@ import { clipText, describeAuditAction, FIELD_LABEL, formatAuditValue, type Name
 import { CUSTOM_FIELD_PREFIX } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
 import { requireDirectorate } from "@/lib/scope";
+import { AUDIT_FIELD_COLUMN, loadColumnLabels } from "@/lib/column-labels";
 import { withApiErrors } from "@/lib/api-guard";
 
 // Предохранитель для очень старых записей: лимиты ввода (2000/300) держат обычные значения намного короче.
@@ -65,7 +66,8 @@ async function GETHandler(request: NextRequest) {
   };
   const customById = new Map(dicts.customColumns.map((c) => [`${CUSTOM_FIELD_PREFIX}${c.id}`, c]));
 
-  const labelOf = (field: string) => FIELD_LABEL[field] ?? customById.get(field)?.name ?? (field.startsWith(CUSTOM_FIELD_PREFIX) ? "Доп. поле" : field);
+  const colLabels = await loadColumnLabels(requireDirectorate(actor));
+  const labelOf = (field: string) => (AUDIT_FIELD_COLUMN[field] ? colLabels[AUDIT_FIELD_COLUMN[field]] : undefined) ?? FIELD_LABEL[field] ?? customById.get(field)?.name ?? (field.startsWith(CUSTOM_FIELD_PREFIX) ? "Доп. поле" : field);
   const valueOf = (field: string, v: string | null) => {
     const custom = customById.get(field);
     const text = custom ? (v && custom.type === "DATE" ? new Date(v).toLocaleDateString("ru-RU") : v || "—") : formatAuditValue(field, v, maps);

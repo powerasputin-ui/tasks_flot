@@ -352,7 +352,7 @@ describe("свои колонки", () => {
   it("лента изменений подписывает поле и учитывает свои колонки", async () => {
     const r = await call(head, recent.GET, "/api/items/recent-changes?limit=100");
     const labels = r.data.events.filter((e: { itemId: string }) => e.itemId === headItem).map((e: { label: string | null }) => e.label);
-    expect(labels).toContain("Комментарий");
+    expect(labels).toContain("Комментарии"); // как колонка в «Настройках → Колонки таблицы»
     expect(labels).toContain(`${TAG}-приоритет`);
   });
 

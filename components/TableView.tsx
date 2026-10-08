@@ -29,7 +29,7 @@ import { usePreviewAs } from "@/lib/preview-as";
 import { HoverText } from "@/components/ui/HoverText";
 import { Popover } from "@/components/ui/Popover";
 import { useIsMobile } from "@/lib/use-mobile";
-import { applyWidthOverrides, DEFAULT_COLUMNS, loadLocalColumns, loadWidthOverrides, normalizeColumns, saveWidthOverrides, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
+import { applyWidthOverrides, DEFAULT_COLUMNS, DEFAULT_LABEL, loadLocalColumns, loadWidthOverrides, normalizeColumns, saveWidthOverrides, withCustomColumns, type ColumnConfig, type ColumnKey, type CustomCol } from "@/lib/table-columns";
 import { countBySegment, countByTrack, filterBySegmentsAndTracks, groupBySegment, NO_SEGMENT, toggleSegment } from "@/lib/segment-counts";
 
 type Row = ItemRow & {
@@ -421,6 +421,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
   const counts = useMemo(() => countBySegment(rows), [rows]);
   const trackCounts = useMemo(() => countByTrack(rows), [rows]);
+  // подписи колонок из «Настроек → Колонки таблицы» — те же в фильтрах и сортировке
+  const colLabel = (k: keyof typeof DEFAULT_LABEL) => columns.find((c) => c.key === k)?.label?.trim() || DEFAULT_LABEL[k];
   const visibleRows = useMemo(() => filterBySegmentsAndTracks(rows, segments, trackPicks), [rows, segments, trackPicks]);
   const colors = useMemo(() => segmentColors(segmentRefs), [segmentRefs]);
   const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : segmentRefs.find((s) => s.id === id)?.name ?? "Сегмент");
@@ -740,10 +742,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 max-md:-mx-3 max-md:flex-nowrap max-md:overflow-x-auto max-md:px-3 max-md:pb-1 max-md:[scrollbar-width:none]">
-            <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} />
-            {defaultArchive !== "archived" && <WeekSelect selected={null} />}
+            <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} labelOf={colLabel} />
+            {defaultArchive !== "archived" && <WeekSelect selected={null} label={colLabel("deadlineWeek")} />}
             <FilterChip
-              label="Трек"
+              label={colLabel("track")}
               value={trackIds}
               options={refs.tracks}
               onChange={setTrackIds}
@@ -759,17 +761,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                 />
               )}
             />
-            <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
-            <FilterChip label="Внимание" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
-            <FilterChip label="Ответственный" value={ownerIds} options={refs.users} onChange={setOwnerIds} />
+            <FilterChip label={colLabel("status")} value={statusIds} options={refs.statuses} onChange={setStatusIds} />
+            <FilterChip label={colLabel("attractiveness")} value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
+            <FilterChip label={colLabel("owner")} value={ownerIds} options={refs.users} onChange={setOwnerIds} />
             <FilterChip
-              label="Оперативка"
+              label={colLabel("operFlag")}
               value={operFlags}
               options={[{ id: "true", name: "Отправлено" }, { id: "false", name: "Не отправлено" }]}
               onChange={setOperFlags}
             />
             <MoreFilters activeCount={moreActive}>
-              <FilterField label="Дедлайн">
+              <FilterField label={colLabel("deadline")}>
                 <div className="flex items-center gap-1.5">
                   <input type="date" value={deadlineFrom} onChange={(e) => setDeadlineFrom(e.target.value)} className="input w-full" />
                   <span className="text-outline">—</span>
@@ -1021,7 +1023,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
       {history && (
         <Panel title="История изменений" subtitle={segments.length === 0 ? "Все сегменты" : selectedName} width={480} onClose={() => setHistory(false)}>
-          <RecentChanges segments={segments} refreshKey={feedTick + refetchTick} onOpen={openById} people={refs.users} customColumns={customCols} />
+          <RecentChanges
+            segments={segments}
+            refreshKey={feedTick + refetchTick}
+            onOpen={openById}
+            people={refs.users}
+            customColumns={customCols}
+            fieldLabels={{ title: colLabel("name"), cost: colLabel("cost"), trackId: colLabel("track"), attractivenessId: colLabel("attractiveness"), responsibleId: colLabel("owner"), deadline: colLabel("deadline"), statusId: colLabel("status"), comment: colLabel("comment"), operFlag: colLabel("operFlag") }}
+          />
         </Panel>
       )}
 
@@ -1088,19 +1097,20 @@ function EmptyState({ filtered, onReset, archive, canCreate, onCreate, query }: 
 }
 
 type SortChoice = { label: string; field: string; dir: "asc" | "desc" };
-const SORT_GROUPS: Array<{ title: string; choices: SortChoice[] }> = [
-  { title: "Задача", choices: [{ label: "От А до Я", field: "title", dir: "asc" }, { label: "От Я до А", field: "title", dir: "desc" }] },
-  { title: "Дедлайн", choices: [{ label: "Сначала ближайшие", field: "deadline", dir: "asc" }, { label: "Сначала дальние", field: "deadline", dir: "desc" }] },
-  { title: "Внимание", choices: [{ label: "От высокого к низкому", field: "attractiveness", dir: "desc" }, { label: "От низкого к высокому", field: "attractiveness", dir: "asc" }] },
-  { title: "Ответственный", choices: [{ label: "От А до Я", field: "owner", dir: "asc" }, { label: "От Я до А", field: "owner", dir: "desc" }] },
-  { title: "Трек", choices: [{ label: "От А до Я", field: "track", dir: "asc" }, { label: "От Я до А", field: "track", dir: "desc" }] },
-  { title: "Статус", choices: [{ label: "От А до Я", field: "status", dir: "asc" }, { label: "От Я до А", field: "status", dir: "desc" }] },
+const SORT_GROUPS: Array<{ title: string; col?: keyof typeof DEFAULT_LABEL; choices: SortChoice[] }> = [
+  { title: "Задача", col: "name", choices: [{ label: "От А до Я", field: "title", dir: "asc" }, { label: "От Я до А", field: "title", dir: "desc" }] },
+  { title: "Дедлайн", col: "deadline", choices: [{ label: "Сначала ближайшие", field: "deadline", dir: "asc" }, { label: "Сначала дальние", field: "deadline", dir: "desc" }] },
+  { title: "Внимание", col: "attractiveness", choices: [{ label: "От высокого к низкому", field: "attractiveness", dir: "desc" }, { label: "От низкого к высокому", field: "attractiveness", dir: "asc" }] },
+  { title: "Ответственный", col: "owner", choices: [{ label: "От А до Я", field: "owner", dir: "asc" }, { label: "От Я до А", field: "owner", dir: "desc" }] },
+  { title: "Трек", col: "track", choices: [{ label: "От А до Я", field: "track", dir: "asc" }, { label: "От Я до А", field: "track", dir: "desc" }] },
+  { title: "Статус", col: "status", choices: [{ label: "От А до Я", field: "status", dir: "asc" }, { label: "От Я до А", field: "status", dir: "desc" }] },
   { title: "Дата обновления", choices: [{ label: "Сначала новые", field: "updatedAt", dir: "desc" }, { label: "Сначала старые", field: "updatedAt", dir: "asc" }] },
 ];
 
 /** Кнопка-иконка сортировки: варианты появляются при наведении (как в образце). */
-function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc" | "desc"; onChange: (field: string, dir: "asc" | "desc") => void }) {
-  const active = SORT_GROUPS.flatMap((g) => g.choices.map((c) => ({ ...c, group: g.title }))).find((c) => c.field === sortBy && c.dir === sortDir);
+function SortMenu({ sortBy, sortDir, onChange, labelOf }: { sortBy: string; sortDir: "asc" | "desc"; onChange: (field: string, dir: "asc" | "desc") => void; labelOf: (k: keyof typeof DEFAULT_LABEL) => string }) {
+  const title = (g: (typeof SORT_GROUPS)[number]) => (g.col ? labelOf(g.col) : g.title);
+  const active = SORT_GROUPS.flatMap((g) => g.choices.map((c) => ({ ...c, group: title(g) }))).find((c) => c.field === sortBy && c.dir === sortDir);
   return (
     <Popover
       hover
@@ -1121,7 +1131,7 @@ function SortMenu({ sortBy, sortDir, onChange }: { sortBy: string; sortDir: "asc
         <div className="max-h-[70vh] overflow-y-auto">
           {SORT_GROUPS.map((g) => (
             <div key={g.title} className="py-1">
-              <p className="label-caps px-3.5 pb-0.5 pt-1.5">{g.title}</p>
+              <p className="label-caps px-3.5 pb-0.5 pt-1.5">{title(g)}</p>
               {g.choices.map((c) => {
                 const on = c.field === sortBy && c.dir === sortDir;
                 return (

@@ -1,4 +1,5 @@
 import { exportLimited } from "@/lib/rate-limit";
+import { loadColumnLabels } from "@/lib/column-labels";
 import { attractivenessText } from "@/lib/attractiveness";
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
@@ -42,7 +43,8 @@ async function GETHandler(request: NextRequest) {
 
   // свои колонки куратора — в конец таблицы выгрузки
   const custom = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: requireDirectorate(actor) }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
-  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Внимание", "Ответственный", "Дедлайн", "Неделя", "Статус", "Оперативка", "Комментарий", ...custom.map((c) => c.name)];
+  const L = await loadColumnLabels(requireDirectorate(actor));
+  const headers = ["Сегмент", L.track, L.name, L.cost, L.attractiveness, L.owner, L.deadline, L.deadlineWeek, L.status, L.operFlag, L.comment, ...custom.map((c) => c.name)];
   const data = rows.map((r) => [
     r.segmentName,
     r.trackName,
