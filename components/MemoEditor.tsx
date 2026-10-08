@@ -786,8 +786,13 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                       {p.name}
                     </span>
                     {p.sent > 0 ? (
-                      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-status-emerald/40 bg-status-emerald/10 px-2 text-[11px] font-semibold text-status-emerald" title={`Отправлено директору позиций: ${p.sent}`}>
-                        <Check size={12} /> Отправил · {p.sent}
+                      <span
+                        className="btn-ghost h-6 shrink-0 cursor-default px-2 text-[11px]"
+                        // та же «кнопка», что «Напомнить», только зелёная (цвета — поверх стилей .btn-ghost)
+                        style={{ color: "var(--emerald)", borderColor: "color-mix(in srgb, var(--emerald) 45%, transparent)", background: "color-mix(in srgb, var(--emerald) 10%, var(--surface))" }}
+                        title={`Отправлено директору позиций: ${p.sent}`}
+                      >
+                        <Check size={11} /> Отправил · {p.sent}
                       </span>
                     ) : !data.editable ? (
                       <span className="shrink-0 text-[11px] text-status-red">не подал</span>
