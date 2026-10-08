@@ -241,9 +241,9 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
                 }
               }}
               rows={1}
-              placeholder={disabledReason ?? "Спросите или вставьте текст, который улучшить"}
+              placeholder={disabledReason ? "Недоступно в режиме просмотра" : "Спроси меня…"}
               disabled={!!disabledReason}
-              className="input max-h-28 min-h-[38px] flex-1 resize-none py-2"
+              className="input max-h-28 min-h-[38px] flex-1 resize-none overflow-hidden py-2 leading-snug [scrollbar-width:none]"
             />
             {busy ? (
               <button type="button" onClick={() => abort.current?.abort()} className="btn-icon h-9 w-9" aria-label="Остановить"><Square size={15} /></button>
