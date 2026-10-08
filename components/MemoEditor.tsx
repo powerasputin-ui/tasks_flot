@@ -337,12 +337,11 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   // «Не вошло в справку» считаем по текущему тексту справки, а не по загруженному с сервера: добавили строку «+» — она
   // сразу уходит из списка; убрали/скрыли пункт — строка сразу возвращается (то же правило, что notIncluded в lib/memo).
   // В справку попадает только поданное. «Не вошло» — поданные строки, которых нет среди видимых пунктов (скрытые
-  // директором — с кнопкой «Вернуть»); неподанные — отдельно, только для сведения.
+  // директором — с кнопкой «Вернуть»); неподанные здесь не показываются вовсе.
   const usedNow = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.filter((b) => !b.hidden).flatMap((b) => b.itemIds)));
   const anyBullet = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.flatMap((b) => b.itemIds)));
   const byCreated = (a: MemoSource, b: MemoSource) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
   const notIncludedNow = allSources.filter((s) => !s.archived && s.operFlag && !usedNow.has(s.id)).sort(byCreated);
-  const notSubmittedNow = allSources.filter((s) => !s.archived && !s.operFlag && !anyBullet.has(s.id)).sort(byCreated);
   /** Строки, уже лежащие в справке скрытым пунктом: «Вернуть» снимает скрытие, а не добавляет второй пункт. */
   const hiddenIds = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.filter((b) => b.hidden).flatMap((b) => b.itemIds)));
 
@@ -840,20 +839,6 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                   </li>
                 ))}
               </ul>
-            )}
-            {notSubmittedNow.length > 0 && (
-              <details className="mt-3 border-t border-outline-variant/60 pt-2">
-                <summary className="cursor-pointer select-none text-[12px] font-semibold text-on-surface-variant">Ещё не поданы · {notSubmittedNow.length}</summary>
-                <p className="mt-1 text-[11px] leading-snug text-on-surface-variant">Руководитель ещё не отправил эти строки (нет галки «Опер»). Когда отправит — они сами появятся в справке.</p>
-                <ul className="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
-                  {notSubmittedNow.map((s) => (
-                    <li key={s.id} className="rounded-md px-2 py-1 text-[12px] leading-snug text-on-surface-variant">
-                      <span className="line-clamp-2">{s.title}</span>
-                      <span className="text-[11px] text-outline">{s.ownerName ?? "без ответственного"}</span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
             )}
           </section>
         </aside>
