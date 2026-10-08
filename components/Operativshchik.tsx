@@ -124,6 +124,8 @@ export function RewritePanel({ cycleId, text, anchor, onReplace, onClose }: { cy
 }
 
 type Msg = { role: "user" | "assistant"; content: string };
+const BALL = 56;
+const POS_KEY = "operativka.operativshchik.pos.v1";
 const QUICK = ["Проверь справку: где формулировки слабые", "Приведи пункты к одному стилю", "Что в справке будет непонятно руководству?"];
 
 /** «Оперативщик» в правом нижнем углу справки: клик — маленький чат по текущему черновику. */
@@ -135,6 +137,21 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  // Шар можно перетащить, зажав левую кнопку: место запоминается в этом браузере. По умолчанию — правый нижний угол.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const drag = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null);
+  const clamp = (x: number, y: number) => ({ x: Math.min(Math.max(8, x), window.innerWidth - BALL - 8), y: Math.min(Math.max(8, y), window.innerHeight - BALL - 8) });
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(POS_KEY) ?? "null") as { x: number; y: number } | null;
+      if (saved && typeof saved.x === "number" && typeof saved.y === "number") setPos(clamp(saved.x, saved.y));
+    } catch {
+      // приватный режим — угол по умолчанию
+    }
+    const onResize = () => setPos((p) => (p ? clamp(p.x, p.y) : p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -182,9 +199,19 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2 max-md:bottom-[calc(4.2rem+env(safe-area-inset-bottom))] max-md:right-3">
+    <div
+      className={pos ? "fixed z-40" : "fixed bottom-5 right-5 z-40 max-md:bottom-[calc(4.2rem+env(safe-area-inset-bottom))] max-md:right-3"}
+      style={pos ? { left: pos.x, top: pos.y } : undefined}
+    >
       {open && (
-        <div className="animate-fade-in flex h-[480px] max-h-[70vh] w-[360px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl border border-outline-variant bg-surface shadow-2xl">
+        <div
+          className="animate-fade-in absolute flex h-[480px] max-h-[70vh] w-[360px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl border border-outline-variant bg-surface shadow-2xl"
+          // окно чата раскрывается в ту сторону, где есть место: над шаром или под ним, вправо или влево от него
+          style={{
+            ...(pos && pos.y < window.innerHeight / 2 ? { top: BALL + 8 } : { bottom: BALL + 8 }),
+            ...(pos && pos.x < window.innerWidth / 2 ? { left: 0 } : { right: 0 }),
+          }}
+        >
           <div className="flex items-center gap-2 border-b border-outline-variant px-3 py-2">
             <OperativshchikAvatar size={32} />
             <div className="min-w-0 flex-1">
@@ -254,14 +281,49 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
         </div>
       )}
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="group relative rounded-full shadow-lg ring-2 ring-white/70 transition-transform hover:scale-105 active:scale-95"
-        title={open ? "Свернуть Оперативщика" : "Оперативщик — помощник по тексту справки"}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, sx: e.clientX, sy: e.clientY, moved: false };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          // меньше 5 px — это ещё щелчок, а не перетаскивание
+          if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
+          d.moved = true;
+          setPos(clamp(e.clientX - d.dx, e.clientY - d.dy));
+        }}
+        onPointerUp={(e) => {
+          const d = drag.current;
+          drag.current = null;
+          e.currentTarget.releasePointerCapture?.(e.pointerId);
+          if (d?.moved) {
+            const r = e.currentTarget.getBoundingClientRect();
+            try {
+              localStorage.setItem(POS_KEY, JSON.stringify({ x: r.left, y: r.top }));
+            } catch {
+              // не сохранилось — останется до перезагрузки
+            }
+          } else setOpen((o) => !o);
+        }}
+        onDoubleClick={() => {
+          // двойной щелчок — вернуть в угол по умолчанию
+          setPos(null);
+          try {
+            localStorage.removeItem(POS_KEY);
+          } catch {
+            // ignore
+          }
+        }}
+        className="group relative cursor-grab touch-none select-none rounded-full shadow-lg active:cursor-grabbing ring-2 ring-white/70 transition-transform hover:scale-105 active:scale-95"
+        title={open ? "Свернуть Оперативщика" : "Оперативщик — щелчок открывает чат; зажмите и перетащите в удобное место (двойной щелчок — вернуть в угол)"}
         aria-label="Оперативщик"
       >
         <OperativshchikAvatar size={56} />
         {!open && messages.length === 0 && (
-          <span className="pointer-events-none absolute right-[64px] top-1/2 hidden -translate-y-1/2 whitespace-nowrap rounded-full bg-surface px-3 py-1 text-[12px] font-semibold text-on-surface shadow-md group-hover:block">
+          <span className={`pointer-events-none absolute top-1/2 hidden -translate-y-1/2 whitespace-nowrap rounded-full bg-surface px-3 py-1 text-[12px] font-semibold text-on-surface shadow-md group-hover:block ${pos && pos.x < 200 ? "left-[64px]" : "right-[64px]"}`}>
             Привет! Я Оперативщик
           </span>
         )}
