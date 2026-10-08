@@ -1074,16 +1074,16 @@ describe("справка директора", () => {
     expect(b2.text).toBe("Новый второй."); // неправленный подтянулся сам
   });
 
-  it("«Обновить из данных» добавляет только новые поданные позиции", async () => {
-    const before = await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
-    expect(before.data.added).toBe(0);
+  it("новая подача сама встаёт в собранную справку (с меткой «новая подача»), правки директора не трогаются", async () => {
     const r = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} п5`, trackId: trackA, operFlag: true, comment: "Пятый." } });
     created.items.push(r.data.row.id);
-    const after = await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
-    expect(after.data.added).toBe(1);
     const got = await call(directorB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
-    expect(got.data.doc.sections[0].bullets.map((b: { text: string }) => b.text)).toContain("Пятый.");
+    const fifth = got.data.doc.sections[0].bullets.find((b: { text: string }) => b.text === "Пятый.");
+    expect(fifth).toBeTruthy();
+    expect(fifth.fresh).toBe(true);
     expect(got.data.doc.sections[0].bullets[0].text).toBe("Моя редакция первого пункта.");
+    // «Обновить» больше нечего добавлять
+    expect((await call(directorB, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId })).data.added).toBe(0);
   });
 
   it("журнал правок: правки не директора — один сеанс, одно уведомление директору, метка «кто менял» на пункте", async () => {
@@ -1203,13 +1203,18 @@ describe("составитель справки и решение «в спра�
     expect((await call(headB, inclusion.GET, "/api/memo/inclusion")).data.cycleId).toBeNull();
   });
 
-  it("решение из таблицы: включить неподанную, исключить поданную; повторная сборка их не возвращает", async () => {
+  it("решение из таблицы: неподанную включить нельзя, поданную исключить можно; повторная сборка её не возвращает", async () => {
     const on = await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain, include: true } });
-    expect(on.status).toBe(200);
+    expect(on.status).toBe(409);
+    expect(on.data.error).toBe("NOT_SUBMITTED");
+    // и в обход интерфейса — сохранением черновика с пунктом на неподанную строку
+    const cur = await call(compiler, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    const forged = { ...cur.data.doc, sections: [...cur.data.doc.sections, { id: "s_forged", title: "X", kind: "section", bullets: [{ id: "b_forged", text: "x", itemIds: [itemPlain], origin: "auto", edited: false, hidden: false, sourceHash: "" }] }] };
+    expect((await call(compiler, memo.PUT, `/api/cycles/${cycleId}/memo`, { method: "PUT", id: cycleId, body: { doc: forged, version: cur.data.version } })).status).toBe(400);
     const off = await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemSubmitted, include: false } });
     expect(off.status).toBe(200);
     const inc = await call(compiler, inclusion.GET, "/api/memo/inclusion");
-    expect(inc.data.included).toContain(itemPlain);
+    expect(inc.data.included).not.toContain(itemPlain);
     expect(inc.data.included).not.toContain(itemSubmitted);
     expect(inc.data.known).toContain(itemSubmitted); // решение принято: исключена, не «новая»
     const refresh = await call(compiler, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId });
@@ -1662,17 +1667,11 @@ describe("недели в «Общей таблице»", () => {
     const blocked = await call(management, archiveReturn.POST, `/api/memo-archive/${latest.id}/return`, { method: "POST", id: latest.id, body: { comment: "x" } });
     expect(blocked.data.error).toBe("CYCLE_EXISTS");
 
-    // подано во время сборки и не попало в справку — отправить нельзя, пока директор не решит
+    // подано во время сборки — само встаёт в справку, отправка не блокируется и подача не «сгорает» мимо справки
     expect((await call(directorB, cycleReview.POST, `/api/cycles/${next.data.id}/review`, { method: "POST", id: next.data.id })).status).toBe(200);
     const late = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} подана во время сборки`, operFlag: true } });
     expect(late.status).toBe(201);
     created.items.push(late.data.row.id);
-    const fin = await call(directorB, cycleFinalize.POST, `/api/cycles/${next.data.id}/finalize`, { method: "POST", id: next.data.id, body: {} });
-    expect(fin.status).toBe(409);
-    expect(fin.data.error).toBe("UNDECIDED");
-    expect(fin.data.message).toContain("1 поданная позиция");
-    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: late.data.row.id } })).operFlag).toBe(true); // не «сгорела»
-    expect((await call(directorB, memoRefresh.POST, `/api/cycles/${next.data.id}/memo/refresh`, { method: "POST", id: next.data.id })).status).toBe(200);
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${next.data.id}/finalize`, { method: "POST", id: next.data.id, body: {} })).status).toBe(200);
     const v = await prisma.memoVersion.findFirstOrThrow({ where: { cycleId: next.data.id } });
     expect((v.rows as unknown as Array<{ id: string; inMemo: boolean }>).find((x) => x.id === late.data.row.id)?.inMemo).toBe(true);

@@ -22,6 +22,7 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   const sources = await loadSources(cycle.directorateId ?? "", undefined, defs);
   const item = sources.find((s) => s.id === body.itemId);
   if (!item) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (body.include && !item.operFlag) return NextResponse.json({ error: "NOT_SUBMITTED", message: "Строка ещё не отправлена директору — в справку попадает только поданное." }, { status: 409 });
   const changed = setIncluded(state.doc, item, body.include, defs, sources);
   const now = new Date();
   const doc = stampChanges(state.doc, changed, actor.name, now); // кто включил/изменил пункт — видно в справке

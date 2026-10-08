@@ -91,16 +91,38 @@ describe("связь с источниками", () => {
     expect(veiled.doc.sections[0].bullets[0]).toMatchObject({ hidden: true, text: "Моя формулировка" });
   });
 
-  it("строку, которую директор положил в справку сам, автоматика не убирает даже без подачи", async () => {
+  it("в справку — только поданное: неподанную строку положить нельзя, а положенную ранее (pinned) автоматика убирает", async () => {
     const { hideMissingSources, setIncluded } = await import("@/lib/memo");
-    const notSubmitted = item("a", { operFlag: false, comment: "Не подана, но нужна в справке" });
-    const doc = setIncluded({ sections: [] }, notSubmitted, true, defs, [notSubmitted]);
-    expect(doc.sections[0].bullets[0].pinned).toBe(true);
-    const r = syncWithSources(doc, [notSubmitted]);
-    expect(r.flags.get(doc.sections[0].bullets[0].id)?.sourceMissing).toBe("unsubmitted");
+    const notSubmitted = item("a", { operFlag: false, comment: "Не подана" });
+    expect(setIncluded({ sections: [] }, notSubmitted, true, defs, [notSubmitted]).sections).toHaveLength(0);
+    // старый черновик, где директор положил неподанную строку сам
+    const legacy = buildDraft([item("a")], defs);
+    legacy.sections[0].bullets[0] = { ...legacy.sections[0].bullets[0], pinned: true };
+    const r = syncWithSources(legacy, [notSubmitted]);
     const veiled = hideMissingSources(r.doc, r.flags);
-    expect(veiled.hidden).toBe(0); // решение человека сильнее автоматики
-    expect(visibleSections(veiled.doc)).toHaveLength(1);
+    expect(veiled.doc.sections[0].bullets).toHaveLength(0);
+  });
+
+  it("правленый пункт, скрытый из-за снятой подачи, возвращается сам, когда строку снова подали", async () => {
+    const { hideMissingSources } = await import("@/lib/memo");
+    const doc = buildDraft([item("a", { comment: "Было" })], defs);
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: "Моя формулировка", edited: true };
+    const off = hideMissingSources(syncWithSources(doc, [item("a", { operFlag: false, comment: "Было" })]).doc, syncWithSources(doc, [item("a", { operFlag: false, comment: "Было" })]).flags);
+    expect(off.doc.sections[0].bullets[0]).toMatchObject({ hidden: true, autoHidden: true });
+    const back = syncWithSources(off.doc, [item("a", { comment: "Было" })]);
+    const on = hideMissingSources(back.doc, back.flags);
+    expect(on.doc.sections[0].bullets[0].hidden).toBe(false);
+    expect(on.doc.sections[0].bullets[0].autoHidden).toBeUndefined();
+    expect(on.doc.sections[0].bullets[0].text).toBe("Моя формулировка");
+  });
+
+  it("новые подачи после сборки добавляются с меткой «новая подача», скрытые не возвращаются", () => {
+    const doc = buildDraft([item("a")], defs);
+    const r = refreshDraft(doc, [item("a"), item("bb"), item("cc", { operFlag: false })], defs);
+    expect(r.added).toBe(1);
+    const ids = r.doc.sections.flatMap((s) => s.bullets.map((b) => [b.itemIds[0], !!b.fresh]));
+    expect(ids).toEqual([["a", false], ["bb", true]]);
+    expect(refreshDraft(r.doc, [item("a"), item("bb")], defs).added).toBe(0); // повторно не дублирует
   });
 
   it("hideMissingSources не трогает пункты с живыми источниками и уже скрытые", async () => {
@@ -193,6 +215,9 @@ describe("решение «в справку» из таблицы", () => {
     const items = [item("a"), item("bb", { trackId: "t2", operFlag: false })];
     const doc = buildDraft(items, defs);
     expect(doc.sections).toHaveLength(1); // неподанный не входит
+    // неподанную включить нельзя; после подачи — можно
+    expect(setIncluded(doc, items[1], true, defs, items)).toBe(doc);
+    items[1] = { ...items[1], operFlag: true };
     const added = setIncluded(doc, items[1], true, defs, items);
     expect(added.sections.map((s) => s.id)).toEqual(["s1", "s2"]);
     expect(added.sections[1].bullets[0].itemIds).toEqual(["bb"]);

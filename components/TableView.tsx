@@ -538,6 +538,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "memo": {
         if (!memo || row.archived) return "—";
         const isIn = memo.included.has(row.id);
+        // в справку попадает только поданное: пока руководитель не отправил строку, решать по ней нечего
+        if (!isIn && !row.operFlag) return <span className="text-[11px] text-outline" title="Руководитель ещё не отправил строку директору">не подана</span>;
         const undecided = row.operFlag && !memo.known.has(row.id) && !row.archived;
         return (
           <span className="inline-flex items-center gap-1.5">

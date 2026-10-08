@@ -20,9 +20,13 @@ export type MemoBullet = {
   sourceHash: string;
   /**
    * Директор положил строку в справку сам — из таблицы («В справку») или кнопкой «+» из «Не вошло в справку».
-   * Такой пункт автоматика не выкидывает, даже если строка не подана: явное решение человека сильнее правила.
+   * В справку попадает только поданное: если строку потом сняли с подачи, пункт уходит, как и любой другой.
    */
   pinned?: boolean;
+  /** Пункт добавился сам из новой подачи уже после сборки справки — метка «новая подача» до первой правки. */
+  fresh?: boolean;
+  /** Скрыт автоматически, потому что строку сняли с подачи (а текст правили) — вернётся сам, когда строку снова подадут. */
+  autoHidden?: boolean;
   /** Кто последним менял текст или видимость пункта и когда (ставит сервер при сохранении; клиенту не доверяем). */
   changedBy?: string;
   changedAt?: string;
@@ -286,7 +290,7 @@ export function refreshDraft(doc: MemoDoc, items: SourceItem[], defs: SectionDef
       section = emptySection(def, defs);
       sections.push(section);
     }
-    section.bullets.push(bulletFor(item));
+    section.bullets.push({ ...bulletFor(item), fresh: true });
     used.add(item.id);
     added++;
   }
@@ -349,21 +353,27 @@ export function syncWithSources(doc: MemoDoc, items: SourceItem[]): { doc: MemoD
  * кнопкой). Ничего не удаляем: текст, который мог написать директор, остаётся на месте.
  */
 export function hideMissingSources(doc: MemoDoc, flags: Map<string, BulletFlags>): { doc: MemoDoc; hidden: number } {
-  // Строку сняли с подачи (или удалили) — её пункту в справке не место: пункт, который никто не правил, убирается совсем,
-  // а строка снова появляется в «Не вошло в справку» с пометкой «не подана». Пункт, где директор правил текст, только
-  // скрывается — чтобы не потерять его правку. Пункт, который директор положил сам (pinned), автоматика не трогает.
+  // В справке только поданное. Строку сняли с подачи (или удалили) — пункт, который никто не правил, убирается совсем
+  // (строка видна в «Ещё не поданы»); пункт, где директор правил текст, только скрывается — чтобы не потерять правку.
   let hidden = 0;
   const sections = doc.sections.map((s) => ({
     ...s,
     bullets: s.bullets.flatMap((b) => {
-      if (b.pinned || !flags.get(b.id)?.sourceMissing) return [b];
+      if (!flags.get(b.id)?.sourceMissing) {
+        // строку снова подали — пункт, который справка сама прятала, возвращается
+        if (!b.autoHidden) return [b];
+        hidden++;
+        const { autoHidden: _a, ...rest } = b;
+        void _a;
+        return [{ ...rest, hidden: false }];
+      }
       if (!b.edited && b.origin !== "manual") {
         hidden++;
         return [];
       }
       if (b.hidden) return [b];
       hidden++;
-      return [{ ...b, hidden: true }];
+      return [{ ...b, hidden: true, autoHidden: true }];
     }),
   }));
   return { doc: hidden > 0 ? { ...doc, sections } : doc, hidden };
@@ -507,6 +517,8 @@ export function parseMemoDoc(value: unknown): MemoDoc | null {
         hidden: !!b.hidden,
         sourceHash: String(b.sourceHash ?? ""),
         ...(b.pinned ? { pinned: true } : {}),
+        ...(b.fresh ? { fresh: true } : {}),
+        ...(b.autoHidden ? { autoHidden: true } : {}),
         ...(typeof b.changedBy === "string" && b.changedBy ? { changedBy: b.changedBy } : {}),
         ...(typeof b.changedAt === "string" && b.changedAt ? { changedAt: b.changedAt } : {}),
       })),
@@ -523,6 +535,7 @@ export function parseMemoDoc(value: unknown): MemoDoc | null {
 export function setIncluded(doc: MemoDoc, item: SourceItem, include: boolean, defs: SectionDef[], items: SourceItem[]): MemoDoc {
   const byId = new Map(items.map((i) => [i.id, i]));
   if (include) {
+    if (!isEligible(item)) return doc; // в справку — только поданное (галка «Опер»)
     const has = doc.sections.some((s) => s.bullets.some((b) => b.itemIds.includes(item.id)));
     if (has) return { ...doc, sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.itemIds.includes(item.id) ? { ...b, hidden: false } : b)) })) };
     const def = sectionOf(item, defs);
@@ -533,7 +546,6 @@ export function setIncluded(doc: MemoDoc, item: SourceItem, include: boolean, de
       target = emptySection(def, defs);
       sections.push(target);
     }
-    // решение принято человеком: даже если строка не подана, автоматика её из справки не уберёт
     target.bullets.push({ ...bulletFor(item), pinned: true });
     return { ...doc, sections: orderSections(sections, defs) };
   }

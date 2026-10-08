@@ -154,8 +154,10 @@ export async function loadMemo(cycle: Cycle): Promise<MemoState> {
   const resynced = resyncSections(synced.doc, sources, defs);
   // у зафиксированной справки подачу уже сбросили при отправке ЗГД — там прятать нечего, смотрим как есть
   const veiled = editable ? hideMissingSources(resynced.doc, synced.flags) : { doc: resynced.doc, hidden: 0 };
-  const finalDoc = veiled.doc;
-  if ((synced.autoUpdated > 0 || resynced.moved > 0 || veiled.hidden > 0) && editable) {
+  // новые подачи сами встают в справку в свой раздел (скрытые директором пункты считаются решёнными и не возвращаются)
+  const refreshed = editable ? refreshDraft(veiled.doc, sources, defs) : { doc: veiled.doc, added: 0 };
+  const finalDoc = refreshed.doc;
+  if ((synced.autoUpdated > 0 || resynced.moved > 0 || veiled.hidden > 0 || refreshed.added > 0) && editable) {
     const r = await prisma.cycle.updateMany({ where: { id: cycle.id, memoVersion: version }, data: { memoDraft: finalDoc as unknown as Prisma.InputJsonValue, memoVersion: { increment: 1 } } });
     if (r.count === 1) version += 1;
   }

@@ -3,8 +3,8 @@
 import { fetchRetry } from "@/lib/fetch-retry";
 import { askConfirm } from "@/components/ui/Dialog";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, RefreshCw, Settings2, Trash2, Undo2 } from "lucide-react";
-import { MenuItem, Popover } from "@/components/ui/Popover";
+import { History, AlertTriangle, ArrowDown, Bell, ArrowUp, Eye, EyeOff, FileDown, Info, Merge, Minus, MoreHorizontal, Plus, Settings2, Trash2, Undo2 } from "lucide-react";
+import { Popover } from "@/components/ui/Popover";
 import { useIsMobile } from "@/lib/use-mobile";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
@@ -131,7 +131,7 @@ function estimateLineStarts(text: string): number[] {
 
 function hasHint(b: MemoBullet, f?: BulletFlags): boolean {
   const emptyByView = !b.text.trim() && b.itemIds.length > 0 && !b.edited;
-  return !!(f?.sourceChanged || f?.sourceMissing || b.hidden || emptyByView || (b.origin === "manual" && b.itemIds.length === 0 && b.text.trim()) || (b.edited && b.itemIds.length > 0));
+  return !!(b.fresh || f?.sourceChanged || f?.sourceMissing || b.hidden || emptyByView || (b.origin === "manual" && b.itemIds.length === 0 && b.text.trim()) || (b.edited && b.itemIds.length > 0));
 }
 
 /**
@@ -336,10 +336,15 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   const allSources = [...sourceById.values()];
   // «Не вошло в справку» считаем по текущему тексту справки, а не по загруженному с сервера: добавили строку «+» — она
   // сразу уходит из списка; убрали/скрыли пункт — строка сразу возвращается (то же правило, что notIncluded в lib/memo).
+  // В справку попадает только поданное. «Не вошло» — поданные строки, которых нет среди видимых пунктов (скрытые
+  // директором — с кнопкой «Вернуть»); неподанные — отдельно, только для сведения.
   const usedNow = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.filter((b) => !b.hidden).flatMap((b) => b.itemIds)));
-  const notIncludedNow = allSources
-    .filter((s) => !s.archived && !usedNow.has(s.id))
-    .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime());
+  const anyBullet = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.flatMap((b) => b.itemIds)));
+  const byCreated = (a: MemoSource, b: MemoSource) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
+  const notIncludedNow = allSources.filter((s) => !s.archived && s.operFlag && !usedNow.has(s.id)).sort(byCreated);
+  const notSubmittedNow = allSources.filter((s) => !s.archived && !s.operFlag && !anyBullet.has(s.id)).sort(byCreated);
+  /** Строки, уже лежащие в справке скрытым пунктом: «Вернуть» снимает скрытие, а не добавляет второй пункт. */
+  const hiddenIds = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.filter((b) => b.hidden).flatMap((b) => b.itemIds)));
 
   // --- Раскладка по листам А4 ---
   // Невидимый измеритель с той же шириной и шрифтом, что поле пункта: по нему находим, где браузер переносит строки.
@@ -469,8 +474,9 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   // строки таблицы, которых ещё нет в справке: для «Добавить пункт» — сначала те, что относятся к этому разделу
   const availableFor = (sectionId: string) => {
     const mine = (s: MemoSource) => (sectionOf(s, data.defs)?.id ?? "other") === sectionId;
-    const rest = notIncludedNow.filter((s) => !mine(s));
-    return [...notIncludedNow.filter(mine), ...rest];
+    const free = notIncludedNow.filter((s) => !anyBullet.has(s.id));
+    const rest = free.filter((s) => !mine(s));
+    return [...free.filter(mine), ...rest];
   };
   /**
    * Разделы структуры, которых сейчас нет в справке — их можно вернуть одним кликом. Только те, где в таблице
@@ -495,6 +501,9 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   // строку кладём именно в тот раздел, где нажали «Добавить пункт» — это решение человека, автоматика его не переложит
   const addSourceTo = (sid: string, s: MemoSource) =>
     patchSection(sid, (bs) => [...bs, { ...manualBullet(sourceText(s), [s.id], allSources), origin: "auto" as const, edited: false, pinned: true }]);
+
+  const unhideItem = (itemId: string) =>
+    change({ ...doc, sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.hidden && b.itemIds.includes(itemId) ? { ...b, hidden: false } : b)) })) });
 
   // «не вошло»: строка добавляется пунктом в раздел её трека, иначе — сегмента, иначе — в «Прочие»
   const addFromSource = (s: MemoSource) => {
@@ -535,16 +544,6 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z - Math.sign(e.deltaY) * 10)));
-  };
-
-  const refresh = async () => {
-    await flush();
-    const r = await fetch(`/api/cycles/${cycleId}/memo/refresh`, { method: "POST" });
-    if (r.ok) {
-      const d = await r.json();
-      setNotice(d.added ? `Добавлено пунктов: ${d.added}.` : "Новых поданных позиций нет.");
-      await load();
-    } else setError("Не удалось обновить из данных.");
   };
 
   const acceptSource = async (bid: string) => {
@@ -814,6 +813,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
 
           <section className="surface p-4">
             <h3 className="label-caps">Не вошло в справку · {notIncludedNow.length}</h3>
+            <p className="mt-1 text-[11px] leading-snug text-on-surface-variant">Новые подачи встают в справку сами. Здесь — поданное, что вы скрыли.</p>
             {notIncludedNow.length === 0 ? (
               <p className="mt-1 text-[12px] text-on-surface-variant">Все поданные позиции уже в справке.</p>
             ) : (
@@ -824,11 +824,15 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                       <p className="line-clamp-2 text-[12px] leading-snug text-on-surface">{s.title}</p>
                       <p className="flex flex-wrap items-center gap-x-1 text-[11px] text-on-surface-variant">
                         {s.ownerName ?? "без ответственного"}
-                        {!s.operFlag && " · не подана"}
                         {!!s.files?.length && <FilesHover entries={fileEntries(s.id, s.files)} />}
                       </p>
                     </div>
-                    {editable && (
+                    {editable && hiddenIds.has(s.id) && (
+                      <button onClick={() => unhideItem(s.id)} className="btn-ghost h-6 shrink-0 px-1.5 text-[11px]" title="Снова показать скрытый пункт в справке">
+                        <Undo2 size={12} /> Вернуть
+                      </button>
+                    )}
+                    {editable && !hiddenIds.has(s.id) && (
                       <button onClick={() => addFromSource(s)} className="btn-icon h-6 w-6 shrink-0" title="Добавить пунктом в справку" aria-label="Добавить в справку">
                         <Plus size={14} />
                       </button>
@@ -836,6 +840,20 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                   </li>
                 ))}
               </ul>
+            )}
+            {notSubmittedNow.length > 0 && (
+              <details className="mt-3 border-t border-outline-variant/60 pt-2">
+                <summary className="cursor-pointer select-none text-[12px] font-semibold text-on-surface-variant">Ещё не поданы · {notSubmittedNow.length}</summary>
+                <p className="mt-1 text-[11px] leading-snug text-on-surface-variant">Руководитель ещё не отправил эти строки (нет галки «Опер»). Когда отправит — они сами появятся в справке.</p>
+                <ul className="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
+                  {notSubmittedNow.map((s) => (
+                    <li key={s.id} className="rounded-md px-2 py-1 text-[12px] leading-snug text-on-surface-variant">
+                      <span className="line-clamp-2">{s.title}</span>
+                      <span className="text-[11px] text-outline">{s.ownerName ?? "без ответственного"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </section>
         </aside>
@@ -860,11 +878,6 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                 >
                   {(close) => (
                     <div className="py-1">
-                      {editable && (
-                        <MenuItem onClick={() => { close(); void refresh(); }} icon={<RefreshCw size={15} />}>
-                          Обновить из данных
-                        </MenuItem>
-                      )}
                       <a href={`/api/cycles/${cycleId}/memo/export?format=pdf`} onClick={() => { void flush(); close(); }} download className="flex items-center gap-2.5 px-3.5 py-3 text-[15px] text-on-surface">
                         <FileDown size={15} className="text-outline" /> Скачать PDF
                       </a>
@@ -898,11 +911,6 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                     </div>
                   )}
                 </Popover>
-              )}
-              {editable && !mobile && (
-                <button onClick={() => void refresh()} className="btn-ghost h-8" title="Добавить в справку новые поданные позиции; ваши правки не затрагиваются">
-                  <RefreshCw size={14} /> Обновить из данных
-                </button>
               )}
               {!mobile && (
                 <>
@@ -1271,6 +1279,7 @@ function BulletFragment({
         {showHint && (
           <p ref={registerHint} className="flex flex-wrap items-center gap-x-3 pb-1 pt-0.5 text-[11px] text-on-surface-variant">
             {bullet.hidden && !flags?.sourceMissing && <span>скрыт — в файл не идёт</span>}
+            {bullet.fresh && <span className="font-semibold text-primary">новая подача — добавлена в справку автоматически</span>}
             {emptyByView && <span>пусто по текущему «Виду справки» — в файл не пойдёт</span>}
             {bullet.origin === "manual" && bullet.itemIds.length === 0 && <span>написан вручную</span>}
             {bullet.edited && bullet.itemIds.length > 0 && (
@@ -1339,9 +1348,9 @@ function BulletFragment({
               {canMergeNext && (
                 <button tabIndex={tab} onClick={onMerge} className={ICON} title="Объединить со следующим пунктом" aria-label="Объединить"><Merge size={14} /></button>
               )}
-              <button tabIndex={tab} onClick={onHide} className={ICON} title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
+              {!flags?.sourceMissing && <button tabIndex={tab} onClick={onHide} className={ICON} title={bullet.hidden ? "Вернуть в справку" : "Скрыть (в файл не пойдёт)"} aria-label="Скрыть">
                 {bullet.hidden ? <Undo2 size={14} /> : <EyeOff size={14} />}
-              </button>
+              </button>}
               {onRemove && (
                 <button tabIndex={tab} onClick={onRemove} className={DANGER} title="Удалить пункт" aria-label="Удалить пункт"><Trash2 size={14} /></button>
               )}
@@ -1379,32 +1388,15 @@ function MissingNote({
       ? `строка${who ? ` (${who})` : ""} не отправлена директору — в таблице снята галка «Опер»`
       : `строка${who ? ` (${who})` : ""} удалена в таблице`;
   const btn = "font-semibold text-primary hover:underline";
-  if (hidden) {
-    return (
-      <span className="text-status-amber" title="Справка сама скрывает пункты, чьи строки не отправлены или удалены: так в файл не попадает то, что руководитель ещё не подал.">
-        Скрыт, в файл не идёт: {why}.
-        {editable && (
-          <>
-            {" "}
-            <button onClick={onToggle} className={btn}>Всё равно оставить в справке</button>
-            {onRemove && (
-              <>
-                {" · "}
-                <button onClick={onRemove} className={btn}>убрать пункт</button>
-              </>
-            )}
-          </>
-        )}
-      </span>
-    );
-  }
+  void hidden;
+  void onToggle;
   return (
-    <span className="text-on-surface-variant">
-      Оставлен вручную и идёт в файл, хотя {why}.
-      {editable && (
+    <span className="text-status-amber" title="В справку попадает только поданное. Пункт с вашей правкой текста не удаляется сам, чтобы правка не пропала: когда строку снова подадут, он вернётся в справку.">
+      Не идёт в файл: {why}. Ваш текст сохранён — пункт вернётся, когда строку снова подадут.
+      {editable && onRemove && (
         <>
           {" "}
-          <button onClick={onToggle} className={btn}>Скрыть</button>
+          <button onClick={onRemove} className={btn}>Убрать пункт</button>
         </>
       )}
     </span>

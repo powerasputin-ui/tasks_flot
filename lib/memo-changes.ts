@@ -45,7 +45,13 @@ export function stampChanges(before: MemoDoc | null, after: MemoDoc, who: string
         void _at;
         const o = old.get(b.id);
         const touched = !o || o.text !== b.text || o.hidden !== b.hidden;
-        if (touched) return { ...rest, changedBy: who, changedAt: iso };
+        if (touched) {
+          // человек поправил пункт из новой подачи — метка «новая подача» больше не нужна
+          const { fresh: _fresh, autoHidden: _auto, ...plain } = rest;
+          void _fresh;
+          void _auto;
+          return { ...(o ? plain : rest), changedBy: who, changedAt: iso };
+        }
         return { ...rest, ...(o.changedBy ? { changedBy: o.changedBy } : {}), ...(o.changedAt ? { changedAt: o.changedAt } : {}) };
       }),
     })),

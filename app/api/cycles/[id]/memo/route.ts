@@ -68,6 +68,13 @@ async function PUTHandler(request: NextRequest, { params }: { params: Promise<{ 
 
   // кто и что поменял: метки на пунктах ставит сервер, сеанс правки — в журнал, директору — уведомление, если правит не он
   const before = parseMemoDoc(cycle.memoDraft);
+  // в справку попадает только поданное: новые ссылки пунктов на неподанные строки не принимаем
+  const known = new Set((before?.sections ?? []).flatMap((s) => s.bullets.flatMap((b) => b.itemIds)));
+  const added = [...new Set(doc.sections.flatMap((s) => s.bullets.flatMap((b) => b.itemIds)))].filter((x) => !known.has(x));
+  if (added.length) {
+    const notSubmitted = await prisma.operationalItem.count({ where: { id: { in: added }, OR: [{ operFlag: false }, { archivedAt: { not: null } }] } });
+    if (notSubmitted > 0) return NextResponse.json({ error: "NOT_SUBMITTED", message: "В справку попадает только поданное: строка ещё не отправлена директору." }, { status: 400 });
+  }
   const now = new Date();
   const stamped = stampChanges(before, doc, actor.name, now);
   const diff = {
