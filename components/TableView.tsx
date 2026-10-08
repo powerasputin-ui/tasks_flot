@@ -7,7 +7,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Highlight } from "@/components/ui/Highlight";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Copy, History, Paperclip, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Copy, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
 import { CycleStrip } from "@/components/CycleStrip";
@@ -16,6 +16,7 @@ import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemPrefill, type ItemRow, type Refs } from "@/components/ItemPanel";
+import { FilesHover } from "@/components/ItemFiles";
 import { AddTrackInline } from "@/components/TrackPicker";
 import { SegmentList, SegmentSelect, segmentColors, type SegmentRef } from "@/components/SegmentList";
 import { Avatar } from "@/components/ui/Avatar";
@@ -612,12 +613,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
         <div className="flex items-start gap-2">
           <p className={`min-w-0 flex-1 text-[15px] font-semibold leading-snug [overflow-wrap:anywhere] ${row.archived ? "text-outline" : "text-on-surface"}`}>
             <Highlight text={row.name} query={q} />
-            {!!row.files?.length && (
-              <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[11px] font-semibold text-on-surface-variant">
-                <Paperclip size={12} />
-                {row.files.length}
-              </span>
-            )}
+            {!!row.files?.length && <FilesHover itemId={row.id} files={row.files} className="ml-1.5 align-middle" />}
           </p>
           {row.statusName && <span className="shrink-0">{renderCell(row, { key: "status" } as ColumnConfig)}</span>}
         </div>
@@ -867,12 +863,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                             <Fragment key={col.key}>
                             {col.key === "name" && (
                               <td className="px-0 py-3.5 text-center align-middle">
-                                {!!row.files?.length && (
-                                  <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-on-surface-variant" title={`Прикреплено документов: ${row.files.length}`}>
-                                    <Paperclip size={13} />
-                                    {row.files.length}
-                                  </span>
-                                )}
+                                {!!row.files?.length && <FilesHover itemId={row.id} files={row.files} />}
                               </td>
                             )}
                             <td

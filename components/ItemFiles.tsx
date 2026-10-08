@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Copy, Download, ExternalLink, Paperclip, Plus, Trash2 } from "lucide-react";
 import { askText } from "@/components/ui/Dialog";
 import { fileBadge, MAX_FILES, parseFilePath, type ItemFile } from "@/lib/item-files";
@@ -194,5 +195,91 @@ export function ItemFiles({
         </div>
       )}
     </div>
+  );
+}
+
+const HOVER_W = 340;
+
+/**
+ * Скрепка с числом документов в таблице. Наведение — список документов (тип, название, папка);
+ * клик по документу — скачивается ярлык (веб-ссылка открывается в новой вкладке). Клики не открывают позицию.
+ * На телефоне список открывается касанием по скрепке.
+ */
+export function FilesHover({ itemId, files, className = "" }: { itemId: string; files: ItemFile[]; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; above: boolean } | null>(null);
+
+  const open = () => {
+    if (timer.current) clearTimeout(timer.current);
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const h = Math.min(64 + files.length * 52, 360);
+    const above = r.bottom + h + 8 > window.innerHeight && r.top > h;
+    setPos({ left: Math.max(8, Math.min(r.left - 12, window.innerWidth - HOVER_W - 8)), top: above ? r.top - 6 : r.bottom + 6, above });
+  };
+  const close = (delay = 180) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setPos(null), delay);
+  };
+
+  return (
+    <>
+      <span
+        ref={ref}
+        role="button"
+        tabIndex={0}
+        aria-label={`Документы: ${files.length}`}
+        onMouseEnter={open}
+        onMouseLeave={() => close()}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (pos) close(0);
+          else open();
+        }}
+        onContextMenu={(e) => e.stopPropagation()}
+        className={`inline-flex cursor-pointer items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-semibold text-on-surface-variant hover:bg-primary-soft hover:text-primary ${className}`}
+      >
+        <Paperclip size={13} />
+        {files.length}
+      </span>
+      {pos &&
+        createPortal(
+          <div
+            onMouseEnter={() => timer.current && clearTimeout(timer.current)}
+            onMouseLeave={() => close()}
+            onClick={(e) => e.stopPropagation()}
+            className="animate-fade-in fixed z-50 overflow-hidden rounded-lg border border-outline-variant bg-surface text-left shadow-xl"
+            style={{ left: pos.left, top: pos.top, width: HOVER_W, maxWidth: "calc(100vw - 16px)", transform: pos.above ? "translateY(-100%)" : undefined }}
+          >
+            <p className="label-caps border-b border-outline-variant px-3 py-2">Документы · {files.length}</p>
+            <ul className="max-h-80 overflow-y-auto py-1">
+              {files.map((f) => {
+                const d = describe(f.path);
+                const web = d?.kind === "web";
+                return (
+                  <li key={f.id}>
+                    <a
+                      href={web ? f.path : `/api/items/${itemId}/files/${f.id}/shortcut`}
+                      {...(web ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      onClick={() => close(0)}
+                      className="flex items-center gap-2.5 px-3 py-2 hover:bg-primary-soft"
+                      title={web ? "Открыть ссылку" : "Скачать ярлык — откройте его двойным щелчком (нужен доступ к диску)"}
+                    >
+                      <Badge ext={d?.ext ?? ""} kind={d?.kind} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-on-surface">{f.name}</span>
+                        <span className="block truncate text-[11px] text-on-surface-variant">{d?.folder || f.path}</span>
+                      </span>
+                      {web ? <ExternalLink size={15} className="shrink-0 text-outline" /> : <Download size={15} className="shrink-0 text-outline" />}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
