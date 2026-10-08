@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { sendMissingReminders } from "@/lib/cycles";
+import { sendDeadlineReminders } from "@/lib/deadline-reminders";
 
 /**
- * Ежедневный запуск Vercel Cron: напоминания «не подал» уходят за 2 дня до срока, даже если экран оперативки никто не открывал.
+ * Ежедневный запуск Vercel Cron (09:00 МСК): напоминания «не подал» за 2 дня до срока оперативки и напоминания по срокам позиций.
  * Vercel передаёт `Authorization: Bearer <CRON_SECRET>`; без заданного CRON_SECRET маршрут закрыт.
  */
 export async function GET(request: NextRequest) {
@@ -16,5 +17,7 @@ export async function GET(request: NextRequest) {
   const cycles = await prisma.cycle.findMany({ where: { status: { not: "FINAL" }, remindersSentAt: null } });
   let people = 0;
   for (const c of cycles) people += await sendMissingReminders(c);
-  return NextResponse.json({ cycles: cycles.length, people });
+  // сроки позиций: «через 2 дня» и «просрочено» ответственным, сводка просрочек директору и админу
+  const deadlines = await sendDeadlineReminders();
+  return NextResponse.json({ cycles: cycles.length, people, deadlines });
 }

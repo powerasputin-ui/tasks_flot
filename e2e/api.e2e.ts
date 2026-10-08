@@ -36,6 +36,7 @@ import * as purgeRoute from "@/app/api/items/[id]/purge/route";
 import * as ret from "@/app/api/items/[id]/return/route";
 import * as history from "@/app/api/items/[id]/history/route";
 import * as fileShortcut from "@/app/api/items/[id]/files/[fileId]/shortcut/route";
+import { sendDeadlineReminders } from "@/lib/deadline-reminders";
 import * as recent from "@/app/api/items/recent-changes/route";
 import * as columns from "@/app/api/columns/route";
 import * as column from "@/app/api/columns/[id]/route";
@@ -545,6 +546,39 @@ describe("справочники: переименование и удалени
     // чужая дирекция не видит
     expect((await call(directorB, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(403);
     expect((await call(curator, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(200);
+  });
+});
+
+describe("напоминания по срокам позиций", () => {
+  it("ответственному — «через 2 дня» и «просрочено», директору — сводка; повторный запуск не дублирует", async () => {
+    // «сегодня» — 08.10.2030 09:00 МСК, чтобы не пересекаться с живыми данными
+    const now = new Date("2030-10-08T06:00:00Z");
+    const mk = async (title: string, deadline: string) => {
+      const r = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG}-${title}`, deadline } });
+      expect(r.status).toBe(201);
+      created.items.push(r.data.row.id);
+      return r.data.row.id as string;
+    };
+    const soonId = await mk("срок скоро", "2030-10-10");
+    const overId = await mk("срок прошёл", "2030-10-07");
+    await mk("срок далеко", "2030-10-20");
+
+    const first = await sendDeadlineReminders(now);
+    expect(first.soon).toBeGreaterThanOrEqual(1);
+    expect(first.overdue).toBeGreaterThanOrEqual(1);
+    const mine = await prisma.notification.findMany({ where: { userId: head.id, type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] } } });
+    expect(mine.some((n) => n.type === "DEADLINE_SOON" && n.link?.includes(soonId))).toBe(true);
+    expect(mine.some((n) => n.type === "DEADLINE_OVERDUE" && n.link?.includes(overId))).toBe(true);
+    expect(mine.some((n) => n.message.includes("срок далеко"))).toBe(false);
+    const summary = await prisma.notification.findFirst({ where: { userId: director.id, type: "DEADLINE_OVERDUE", message: { contains: "Просрочено со вчерашнего дня" } } });
+    expect(summary).toBeTruthy();
+
+    // второй запуск в тот же день — ничего нового
+    const before = await prisma.notification.count({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] } } });
+    const again = await sendDeadlineReminders(now);
+    expect(again).toEqual({ soon: 0, overdue: 0, summaries: 0 });
+    expect(await prisma.notification.count({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] } } })).toBe(before);
+    await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: new Date(Date.now() - 600000) } } });
   });
 });
 

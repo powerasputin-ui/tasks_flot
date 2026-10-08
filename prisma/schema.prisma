@@ -212,6 +212,8 @@ enum NotificationType {
   ROLE_CHANGED // назначен куратором / снят с кураторства
   MEMO_SENT // директор отправил справку ЗГД
   MEMO_RETURNED // ЗГД вернул справку директору
+  DEADLINE_SOON // через 2 дня срок позиции (ответственному)
+  DEADLINE_OVERDUE // срок позиции прошёл (ответственному; сводка — директору и админу)
 }
 
 model Notification {

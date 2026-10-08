@@ -3,7 +3,7 @@
 import { fetchRetry } from "@/lib/fetch-retry";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Clock } from "lucide-react";
 
 type Notification = {
   id: string;
@@ -95,7 +95,12 @@ export function NotificationsBell() {
                     <div
                       className={`px-3 py-2.5 text-[13px] ${n.isRead ? "text-on-surface-variant" : "bg-primary-soft/60 text-on-surface"}`}
                     >
-                      <p>{n.message}</p>
+                      <p className="flex gap-1.5">
+                        {(n.type === "DEADLINE_SOON" || n.type === "DEADLINE_OVERDUE") && (
+                          <Clock size={14} className={`mt-[2px] shrink-0 ${n.type === "DEADLINE_OVERDUE" ? "text-status-red" : "text-status-amber"}`} />
+                        )}
+                        <span>{n.message}</span>
+                      </p>
                       <p className="mt-0.5 text-[11px] text-outline">
                         {new Date(n.createdAt).toLocaleString("ru-RU")}
                       </p>
