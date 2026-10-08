@@ -333,7 +333,13 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   );
 
   const sourceById = new Map([...(data?.sources ?? []), ...(data?.notIncluded ?? [])].map((s) => [s.id, s]));
-  const allSources = [...(data?.sources ?? []), ...(data?.notIncluded ?? [])];
+  const allSources = [...sourceById.values()];
+  // «Не вошло в справку» считаем по текущему тексту справки, а не по загруженному с сервера: добавили строку «+» — она
+  // сразу уходит из списка; убрали/скрыли пункт — строка сразу возвращается (то же правило, что notIncluded в lib/memo).
+  const usedNow = new Set((doc?.sections ?? []).flatMap((s) => s.bullets.filter((b) => !b.hidden).flatMap((b) => b.itemIds)));
+  const notIncludedNow = allSources
+    .filter((s) => !s.archived && !usedNow.has(s.id))
+    .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime());
 
   // --- Раскладка по листам А4 ---
   // Невидимый измеритель с той же шириной и шрифтом, что поле пункта: по нему находим, где браузер переносит строки.
@@ -463,8 +469,8 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
   // строки таблицы, которых ещё нет в справке: для «Добавить пункт» — сначала те, что относятся к этому разделу
   const availableFor = (sectionId: string) => {
     const mine = (s: MemoSource) => (sectionOf(s, data.defs)?.id ?? "other") === sectionId;
-    const rest = data.notIncluded.filter((s) => !mine(s));
-    return [...data.notIncluded.filter(mine), ...rest];
+    const rest = notIncludedNow.filter((s) => !mine(s));
+    return [...notIncludedNow.filter(mine), ...rest];
   };
   /**
    * Разделы структуры, которых сейчас нет в справке — их можно вернуть одним кликом. Только те, где в таблице
@@ -807,12 +813,12 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
           </section>
 
           <section className="surface p-4">
-            <h3 className="label-caps">Не вошло в справку · {data.notIncluded.length}</h3>
-            {data.notIncluded.length === 0 ? (
+            <h3 className="label-caps">Не вошло в справку · {notIncludedNow.length}</h3>
+            {notIncludedNow.length === 0 ? (
               <p className="mt-1 text-[12px] text-on-surface-variant">Все поданные позиции уже в справке.</p>
             ) : (
               <ul className="mt-2 max-h-72 space-y-1.5 overflow-y-auto">
-                {data.notIncluded.map((s) => (
+                {notIncludedNow.map((s) => (
                   <li key={s.id} className="flex items-start gap-2 rounded-md border border-outline-variant/60 px-2 py-1.5">
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-2 text-[12px] leading-snug text-on-surface">{s.title}</p>
