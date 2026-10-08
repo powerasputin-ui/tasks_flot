@@ -317,8 +317,8 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
             // ignore
           }
         }}
-        className="group relative cursor-grab touch-none select-none rounded-full shadow-lg active:cursor-grabbing ring-2 ring-white/70 transition-transform hover:scale-105 active:scale-95"
-        title={open ? "Свернуть Оперативщика" : "Оперативщик — щелчок открывает чат; зажмите и перетащите в удобное место (двойной щелчок — вернуть в угол)"}
+        className="group relative cursor-grab touch-none select-none rounded-full drop-shadow-lg active:cursor-grabbing transition-transform hover:scale-105 active:scale-95"
+        title={open ? "Свернуть" : "Оперативщик · можно перетащить"}
         aria-label="Оперативщик"
       >
         <OperativshchikAvatar size={56} />
