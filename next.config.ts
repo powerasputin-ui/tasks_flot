@@ -33,7 +33,11 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+    return [
+      { source: "/:path*", headers: SECURITY_HEADERS },
+      // анимация помощника не меняется — браузер держит её в кэше неделю и не перекачивает при каждом открытии
+      ...["/operativshchik.webp", "/operativshchik-still.webp"].map((source) => ({ source, headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }] })),
+    ];
   },
   // pdfkit читает свои шрифтовые данные из node_modules во время выполнения — не бандлим его.
   serverExternalPackages: ["pdfkit"],

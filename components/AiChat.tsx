@@ -2,7 +2,8 @@
 
 import { fetchFirstByteRetry } from "@/lib/fetch-retry";
 import { useEffect, useRef, useState } from "react";
-import { Bot, ChevronDown, Plus, Send, Settings2, Square } from "lucide-react";
+import { ChevronDown, Plus, Send, Settings2, Square } from "lucide-react";
+import { OperativshchikAvatar } from "@/components/Operativshchik";
 import { Popover } from "@/components/ui/Popover";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { AiModelPicker, useAiEngine } from "@/components/AiModelPicker";
@@ -107,7 +108,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
           <div className="flex max-h-[45vh] flex-col border-b border-outline-variant">
             <div className="flex items-center justify-between px-4 pt-2.5">
               <span className="flex items-center gap-1.5 text-[12px] font-semibold text-on-surface-variant">
-                <Bot size={14} /> Помощник · {scopeLabel}
+                <OperativshchikAvatar size={18} /> Помощник · {scopeLabel}
               </span>
               <span className="flex items-center gap-1">
                 {messages.length > 0 && (
@@ -163,8 +164,8 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
           }}
           className="flex items-center gap-2 px-3 py-2"
         >
-          <button type="button" onClick={() => setOpen((v) => !v)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary hover:bg-primary-soft" title="Помощник" aria-label="Помощник">
-            <Bot size={18} />
+          <button type="button" onClick={() => setOpen((v) => !v)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110" title="Помощник" aria-label="Помощник">
+            <OperativshchikAvatar size={30} />
           </button>
           <input
             value={input}

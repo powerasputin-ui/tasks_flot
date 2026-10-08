@@ -10,7 +10,7 @@ export function OperativshchikAvatar({ size = 56, still = false }: { size?: numb
   return (
     <picture>
       {!still && <source srcSet="/operativshchik.webp" media="(prefers-reduced-motion: no-preference)" />}
-      <img src="/operativshchik-still.webp" alt="" width={size} height={size} style={{ width: size, height: size }} className="select-none rounded-full" draggable={false} />
+      <img src="/operativshchik-still.webp" alt="" width={size} height={size} loading="eager" decoding="async" style={{ width: size, height: size }} className="select-none rounded-full" draggable={false} />
     </picture>
   );
 }
@@ -224,31 +224,31 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
             {error && <p className="text-[12px] text-status-red">{error}</p>}
             <div ref={bottom} />
           </div>
+          {/* поле ввода — как у помощника ЗГД: строка в рамке, справа синяя кнопка «Отправить» */}
           <form
-            className="flex items-end gap-1.5 border-t border-outline-variant p-2"
+            className="m-2 flex items-center gap-2 rounded-xl border border-outline-variant px-2 py-1.5 focus-within:border-primary"
             onSubmit={(e) => {
               e.preventDefault();
               void ask(input);
             }}
           >
-            <textarea
+            <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void ask(input);
-                }
-              }}
-              rows={1}
+              maxLength={4000}
               placeholder={disabledReason ? "Недоступно в режиме просмотра" : "Спроси меня…"}
               disabled={!!disabledReason}
-              className="input max-h-28 min-h-[38px] flex-1 resize-none overflow-y-auto py-2 leading-snug [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              aria-label="Вопрос Оперативщику"
+              className="min-w-0 flex-1 bg-transparent px-1 text-[14px] text-on-surface outline-none placeholder:text-outline"
             />
             {busy ? (
-              <button type="button" onClick={() => abort.current?.abort()} className="btn-icon h-9 w-9" aria-label="Остановить"><Square size={15} /></button>
+              <button type="button" onClick={() => abort.current?.abort()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-high text-on-surface" title="Остановить" aria-label="Остановить">
+                <Square size={13} fill="currentColor" />
+              </button>
             ) : (
-              <button type="submit" disabled={!input.trim() || !!disabledReason} className="btn-primary h-9 w-9 px-0" aria-label="Отправить"><Send size={15} /></button>
+              <button type="submit" disabled={!input.trim() || !!disabledReason} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white disabled:opacity-40" title="Отправить" aria-label="Отправить">
+                <Send size={15} />
+              </button>
             )}
           </form>
         </div>
