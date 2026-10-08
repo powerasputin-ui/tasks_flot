@@ -42,7 +42,7 @@ async function GETHandler(request: NextRequest) {
 
   // свои колонки куратора — в конец таблицы выгрузки
   const custom = await prisma.customColumn.findMany({ where: { isActive: true, directorateId: requireDirectorate(actor) }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
-  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Неделя", "Статус", "Оперативка", "Комментарий", ...custom.map((c) => c.name)];
+  const headers = ["Сегмент", "Трек", "Задача", "Оценка $", "Внимание", "Ответственный", "Дедлайн", "Неделя", "Статус", "Оперативка", "Комментарий", ...custom.map((c) => c.name)];
   const data = rows.map((r) => [
     r.segmentName,
     r.trackName,

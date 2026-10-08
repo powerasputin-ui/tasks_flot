@@ -71,7 +71,7 @@ async function GETHandler(request: NextRequest, { params }: { params: Promise<{ 
     sections: [
       {
         title: "Позиции",
-        headers: ["Сегмент", "Трек", "Задача", "Оценка $", "Привлекательность", "Ответственный", "Дедлайн", "Статус", "Комментарий", ...(rows[0]?.customFields?.map((f) => f.name) ?? [])],
+        headers: ["Сегмент", "Трек", "Задача", "Оценка $", "Внимание", "Ответственный", "Дедлайн", "Статус", "Комментарий", ...(rows[0]?.customFields?.map((f) => f.name) ?? [])],
         rows: rows.map((r) => [
           r.segmentName,
           r.trackName,

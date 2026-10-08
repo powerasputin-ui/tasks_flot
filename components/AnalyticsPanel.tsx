@@ -57,7 +57,7 @@ export function AnalyticsPanel({ rows, title, onClose }: { rows: AnalyticsRow[];
         </div>
 
         <div className="rounded-lg border border-outline-variant bg-surface-low p-4">
-          <h3 className="label-caps mb-4">Распределение по привлекательности</h3>
+          <h3 className="label-caps mb-4">Распределение по вниманию</h3>
           {stats.total === 0 ? (
             <p className="text-[13px] text-outline">Нет данных для выборки.</p>
           ) : (

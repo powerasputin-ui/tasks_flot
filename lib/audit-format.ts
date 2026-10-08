@@ -5,7 +5,7 @@ export const FIELD_LABEL: Record<string, string> = {
   comment: "Комментарий",
   segmentId: "Сегмент",
   trackId: "Трек",
-  attractivenessId: "Привлекательность",
+  attractivenessId: "Внимание",
   responsibleId: "Ответственный",
   deadline: "Дедлайн",
   statusId: "Статус",

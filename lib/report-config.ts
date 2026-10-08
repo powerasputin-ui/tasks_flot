@@ -12,7 +12,7 @@ export const COLUMN_LABEL: Record<StdColumn, string> = {
   track: "Трек",
   name: "Задача",
   cost: "Оценка $",
-  attractiveness: "Привлекательность",
+  attractiveness: "Внимание",
   owner: "Ответственный",
   deadline: "Дедлайн",
   status: "Статус",

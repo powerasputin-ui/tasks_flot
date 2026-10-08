@@ -4,7 +4,7 @@
  * пометки «источник изменился». Хранится как JSON в `Cycle.memoDraft`.
  */
 
-import { ATTRACTIVENESS_LABEL_F, attractivenessCode, attractivenessText } from "@/lib/attractiveness";
+import { attractivenessText } from "@/lib/attractiveness";
 
 export type MemoBullet = {
   id: string;
@@ -82,7 +82,7 @@ export const MEMO_FIELDS: Array<{ key: MemoField; label: string }> = [
   { key: "deadline", label: "Дедлайн" },
   { key: "status", label: "Статус" },
   { key: "cost", label: "Оценка $" },
-  { key: "attractiveness", label: "Привлекательность" },
+  { key: "attractiveness", label: "Внимание" },
 ];
 /** По умолчанию как в исходной справке: разделы по трекам + комментарий в пунктах (если комментария нет — название задачи). */
 export const DEFAULT_MEMO_CONFIG: MemoConfig = { fields: ["track", "comment"] };
@@ -139,7 +139,7 @@ export function composeText(item: ComposeInput, fields: MemoField[], labels: Rec
     has("deadline") && item.deadline ? `срок ${ruDay(item.deadline)}` : null,
     has("status") ? item.statusName : null,
     has("cost") && item.cost ? `оценка ${item.cost}` : null,
-    has("attractiveness") && item.attractivenessName ? `привлекательность ${ATTRACTIVENESS_LABEL_F[attractivenessCode(item.attractivenessName) ?? ""] ?? attractivenessText(item.attractivenessName).toLowerCase()}` : null,
+    has("attractiveness") && item.attractivenessName ? `внимание ${attractivenessText(item.attractivenessName).toLowerCase()}` : null,
     ...custom,
   ]
     .filter(Boolean)

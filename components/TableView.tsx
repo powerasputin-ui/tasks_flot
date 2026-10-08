@@ -702,7 +702,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               )}
             />
             <FilterChip label="Статус" value={statusIds} options={refs.statuses} onChange={setStatusIds} />
-            <FilterChip label="Привлекательность" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
+            <FilterChip label="Внимание" value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
             <FilterChip label="Ответственный" value={ownerIds} options={refs.users} onChange={setOwnerIds} />
             <FilterChip
               label="Оперативка"
@@ -1032,7 +1032,7 @@ type SortChoice = { label: string; field: string; dir: "asc" | "desc" };
 const SORT_GROUPS: Array<{ title: string; choices: SortChoice[] }> = [
   { title: "Задача", choices: [{ label: "От А до Я", field: "title", dir: "asc" }, { label: "От Я до А", field: "title", dir: "desc" }] },
   { title: "Дедлайн", choices: [{ label: "Сначала ближайшие", field: "deadline", dir: "asc" }, { label: "Сначала дальние", field: "deadline", dir: "desc" }] },
-  { title: "Привлекательность", choices: [{ label: "От высокой к низкой", field: "attractiveness", dir: "desc" }, { label: "От низкой к высокой", field: "attractiveness", dir: "asc" }] },
+  { title: "Внимание", choices: [{ label: "От высокого к низкому", field: "attractiveness", dir: "desc" }, { label: "От низкого к высокому", field: "attractiveness", dir: "asc" }] },
   { title: "Ответственный", choices: [{ label: "От А до Я", field: "owner", dir: "asc" }, { label: "От Я до А", field: "owner", dir: "desc" }] },
   { title: "Трек", choices: [{ label: "От А до Я", field: "track", dir: "asc" }, { label: "От Я до А", field: "track", dir: "desc" }] },
   { title: "Статус", choices: [{ label: "От А до Я", field: "status", dir: "asc" }, { label: "От Я до А", field: "status", dir: "desc" }] },

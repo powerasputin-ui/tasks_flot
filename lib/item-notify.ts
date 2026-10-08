@@ -10,7 +10,7 @@ const LABEL: Record<string, string> = {
   comment: "комментарий",
   segmentId: "сегмент",
   trackId: "трек",
-  attractivenessId: "привлекательность",
+  attractivenessId: "внимание",
   responsibleId: "ответственный",
   deadline: "срок",
   statusId: "статус",

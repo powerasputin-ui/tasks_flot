@@ -11,7 +11,7 @@ export type ColumnConfig = { key: ColumnKey; label: string; visible: boolean; wi
 export const DEFAULT_LABEL: Record<StdKey, string> = {
   track: "Трек",
   cost: "Оценка $",
-  attractiveness: "Привлекательность",
+  attractiveness: "Внимание",
   name: "Задача",
   deadline: "Дедлайн",
   deadlineWeek: "Неделя",
