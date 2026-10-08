@@ -71,6 +71,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const q = searchParams.get("q") ?? "";
 
   const tableWrapRef = useRef<HTMLDivElement>(null);
+  // ширина области таблицы — чтобы на узком экране ужать колонки, а не обрезать правые
+  const [wrapWidth, setWrapWidth] = useState(0);
   // телефон: карточки вместо таблицы, долгое нажатие вместо правой кнопки
   const mobile = useIsMobile();
   const longPress = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
@@ -495,12 +497,35 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       // не сохранилось — не страшно
     }
   };
+  useEffect(() => {
+    const el = tableWrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWrapWidth(el.clientWidth));
+    ro.observe(el);
+    setWrapWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, [mobile, loading]);
   // ширина колонки — как в Excel: у каждой своя, независимая, в пикселях; растягивание одной колонки не трогает остальные.
   // Последняя колонка ширины не задаёт — сама сжимается/растягивается под оставшееся место, так таблица всегда ровно по ширине контейнера.
   const fillerKey = visibleColumns.length ? visibleColumns[visibleColumns.length - 1].key : null;
   // у «резиновой» колонки всегда виден правый край — не даём ей схлопнуться в ноль при растягивании соседних
   const FILLER_MIN_WIDTH = 160;
   const COLUMN_MIN_WIDTH = 60;
+  // Экран уже, чем сумма ширин колонок (ноутбук вместо монитора): колонки пропорционально ужимаются, чтобы таблица
+  // поместилась целиком; сохранённые ширины не меняются. Если и при сжатии до 55 % не влезает — горизонтальная прокрутка.
+  const fixedWidths = visibleColumns.filter((c) => c.key !== fillerKey).map((c) => c.width);
+  const avail = wrapWidth - FILLER_MIN_WIDTH - (hasNameCol ? filesColWidth : 0);
+  // коэффициент подбираем с учётом того, что узкие колонки не ужимаются меньше 56 px
+  let fitScale = 1;
+  if (wrapWidth > 0 && fixedWidths.reduce((a, w) => a + w, 0) > avail) {
+    for (let i = 0; i < 4; i++) {
+      const pinned = fixedWidths.filter((w) => w * fitScale <= 56);
+      const free = fixedWidths.filter((w) => w * fitScale > 56).reduce((a, w) => a + w, 0);
+      fitScale = Math.max(0.4, (avail - pinned.length * 56) / Math.max(1, free));
+    }
+  }
+  const shown = (w: number) => Math.max(56, Math.round(w * fitScale));
+  const tableMinWidth = visibleColumns.filter((c) => c.key !== fillerKey).reduce((sum, c) => sum + shown(c.width), 0) + (hasNameCol ? filesColWidth : 0) + FILLER_MIN_WIDTH;
 
   function renderCell(row: Row, col: ColumnConfig) {
     switch (col.key) {
@@ -816,14 +841,14 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               )}
             </div>
           ) : (
-          <div ref={tableWrapRef} className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm">
+          <div ref={tableWrapRef} className="overflow-x-auto rounded-lg border border-outline-variant bg-surface shadow-sm">
             {/* тянешь колонку — меняется только она, как в Excel; последняя (текстовая) сама сжимается/растягивается под оставшееся место — таблица всегда ровно по ширине контейнера, без скролла */}
-            <table className="w-full table-fixed border-collapse text-[13px]">
+            <table className="w-full table-fixed border-collapse text-[13px]" style={{ minWidth: tableMinWidth }}>
               <colgroup>
                 {visibleColumns.map((c) => (
                   <Fragment key={c.key}>
                     {c.key === "name" && <col style={{ width: filesColWidth }} />}
-                    <col style={c.key === fillerKey ? undefined : { width: c.width }} />
+                    <col style={c.key === fillerKey ? undefined : { width: shown(c.width) }} />
                   </Fragment>
                 ))}
               </colgroup>
@@ -836,6 +861,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                       {col.key === "name" && <DragTh width={filesColWidth} onResize={resizeFilesCol} label="Прикреплённые документы" />}
                       <ResizableTh
                         column={col}
+                        scale={fitScale}
                         resizable={!!next}
                         onResize={(desiredWidth) => {
                           if (!next) return;
@@ -1158,7 +1184,7 @@ function DragTh({ width, onResize, label }: { width: number; onResize: (width: n
   );
 }
 
-function ResizableTh({ column, resizable, onResize }: { column: ColumnConfig; resizable: boolean; onResize: (width: number) => void }) {
+function ResizableTh({ column, resizable, onResize, scale = 1 }: { column: ColumnConfig; resizable: boolean; onResize: (width: number) => void; scale?: number }) {
   const startX = useRef(0);
   const startWidth = useRef(column.width);
 
@@ -1170,7 +1196,8 @@ function ResizableTh({ column, resizable, onResize }: { column: ColumnConfig; re
     startWidth.current = column.width;
 
     function onMove(ev: MouseEvent) {
-      onResize(Math.round(Math.max(60, startWidth.current + (ev.clientX - startX.current))));
+      // на ужатой таблице сдвиг мыши пересчитываем в «настоящую» ширину колонки
+      onResize(Math.round(Math.max(60, startWidth.current + (ev.clientX - startX.current) / scale)));
     }
     function onUp() {
       window.removeEventListener("mousemove", onMove);
@@ -1183,7 +1210,7 @@ function ResizableTh({ column, resizable, onResize }: { column: ColumnConfig; re
   return (
     <th
       className="label-caps relative border-b border-outline-variant px-4 py-3 text-center border-r border-r-outline-variant/60 last:border-r-0"
-      style={{ width: resizable ? column.width : undefined, color: "var(--on-surface-variant)" }}
+      style={{ width: resizable ? Math.max(56, Math.round(column.width * scale)) : undefined, color: "var(--on-surface-variant)" }}
     >
       <span className="block truncate">{column.label}</span>
       {resizable && <span onMouseDown={onMouseDown} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize select-none transition-colors hover:bg-sky" />}
