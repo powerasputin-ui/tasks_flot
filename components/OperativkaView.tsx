@@ -339,7 +339,6 @@ export function OperativkaView() {
 
       {aiUser && tab === "finals" && (
         <AiChat
-          disabledReason={previewUser ? "В режиме просмотра помощник недоступен — выйдите из режима (меню под вашим именем)." : undefined}
           versionIds={memoId ? [memoId] : isManagement && archiveMode === "summary" ? summaryIds : []}
           scopeLabel={memoId ? "открытая справка" : archiveMode === "summary" ? `справок в сводке: ${summaryIds.length}` : "последние справки дирекций"}
         />
