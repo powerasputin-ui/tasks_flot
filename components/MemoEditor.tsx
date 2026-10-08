@@ -38,6 +38,9 @@ const DANGER = "flex h-6 w-6 items-center justify-center rounded text-on-surface
 /** Идентификатор раздела, заведённого директором вручную (структурные разделы имеют id вида track:…/segment:…). */
 const newSectionId = () => `s_${Date.now().toString(36)}`;
 
+/** Ширина отметки «Отправил» и кнопки «Напомнить» в блоке «Подача» — одна на обе, чтобы столбец был ровным. */
+const SUBMIT_PILL_W = 132;
+
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("ru-RU") : "—");
 const isoDay = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
@@ -787,20 +790,20 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                     </span>
                     {p.sent > 0 ? (
                       <span
-                        className="btn-ghost h-6 shrink-0 cursor-default px-2 text-[11px]"
-                        // та же «кнопка», что «Напомнить», только зелёная (цвета — поверх стилей .btn-ghost)
-                        style={{ color: "var(--emerald)", borderColor: "color-mix(in srgb, var(--emerald) 45%, transparent)", background: "color-mix(in srgb, var(--emerald) 10%, var(--surface))" }}
+                        className="btn-ghost shrink-0 cursor-default"
+                        // та же «кнопка», что «Напомнить» (тот же размер), только зелёная — цвета поверх стилей .btn-ghost
+                        style={{ width: SUBMIT_PILL_W, color: "var(--emerald)", borderColor: "color-mix(in srgb, var(--emerald) 45%, transparent)", background: "color-mix(in srgb, var(--emerald) 10%, var(--surface))" }}
                         title={`Отправлено директору позиций: ${p.sent}`}
                       >
-                        <Check size={11} /> Отправил · {p.sent}
+                        <Check size={14} /> Отправил
                       </span>
                     ) : !data.editable ? (
                       <span className="shrink-0 text-[11px] text-status-red">не подал</span>
                     ) : reminded.has(p.id) ? (
-                      <span className="shrink-0 text-[11px] text-on-surface-variant">напомнено</span>
+                      <span className="btn-ghost shrink-0 cursor-default text-on-surface-variant" style={{ width: SUBMIT_PILL_W }}>Напомнено</span>
                     ) : (
-                      <button onClick={() => void remind([p.id])} disabled={reminding || readOnly} className="btn-ghost h-6 shrink-0 px-2 text-[11px] disabled:opacity-50" title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Ещё не отправил — напомнить в уведомлениях"}>
-                        <Bell size={11} /> Напомнить
+                      <button onClick={() => void remind([p.id])} disabled={reminding || readOnly} className="btn-ghost shrink-0 disabled:opacity-50" style={{ width: SUBMIT_PILL_W }} title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Ещё не отправил — напомнить в уведомлениях"}>
+                        <Bell size={14} /> Напомнить
                       </button>
                     )}
                   </li>
