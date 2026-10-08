@@ -1,5 +1,5 @@
 import type { TableRow } from "@/lib/table-view";
-import { ATTRACTIVENESS_LABEL, attractivenessText } from "@/lib/attractiveness";
+import { ATTRACTIVENESS_LABEL, attractivenessRank, attractivenessText } from "@/lib/attractiveness";
 import { COLUMN_LABEL, GROUP_LABEL, resolveConfig, type GroupKey, type ReportConfig, type StdColumn } from "@/lib/report-config";
 
 /**
@@ -106,7 +106,7 @@ function summarize(rows: TableRow[], now: Date): ReportSummary {
     byStatus: statusCounts(rows),
     byAttractiveness: [...attr.entries()]
       .map(([name, count]) => ({ name, label: ATTRACTIVENESS_LABEL[name] ?? null, count }))
-      .sort((a, b) => (parseInt(b.name.slice(1), 10) || 0) - (parseInt(a.name.slice(1), 10) || 0)),
+      .sort((a, b) => (attractivenessRank(b.name) ?? -1) - (attractivenessRank(a.name) ?? -1)),
     overdue: rows.filter((r) => isOverdue(r, now)).length,
     sent: rows.filter((r) => r.operFlag).length,
   };

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getDicts, type Dicts } from "@/lib/dictionaries";
 import { deadlineWeek } from "@/lib/deadline-week";
 import { idsChangedAfterSubmission } from "@/lib/submission";
-import { ATTRACTIVENESS_LABEL, ATTRACTIVENESS_LABEL_F } from "@/lib/attractiveness";
+import { ATTRACTIVENESS_LABEL, ATTRACTIVENESS_LABEL_F, attractivenessRank } from "@/lib/attractiveness";
 import { readFiles, type ItemFile } from "@/lib/item-files";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import type { Prisma } from "@prisma/client";
@@ -208,9 +208,8 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
       case "status":
         return r.statusName ?? "";
       case "attractiveness": {
-        // Шкала P100 / P70 / P50 / P10 / P0 сортируется по числу, а не как текст.
-        const m = /^P(\d+)$/i.exec(r.attractivenessName ?? "");
-        return m ? Number(m[1]) : r.attractivenessName ? -1 : null;
+        // Шкала P100 / P70 / P50 / P10 / P0 сортируется по месту в шкале, а не как текст (и после переименования в слова).
+        return attractivenessRank(r.attractivenessName);
       }
       case "owner":
         return r.ownerName ?? "";

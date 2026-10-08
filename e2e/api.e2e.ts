@@ -62,6 +62,11 @@ import * as login from "@/app/api/auth/login/route";
 import { hashPassword } from "@/lib/auth";
 import { notifyDirectors } from "@/lib/memo-log";
 import * as segments from "@/app/api/segments/route";
+import * as segmentOne from "@/app/api/segments/[id]/route";
+import * as statusesRoute from "@/app/api/statuses/route";
+import * as statusOne from "@/app/api/statuses/[id]/route";
+import * as attrRoute from "@/app/api/attractiveness/route";
+import * as attrOne from "@/app/api/attractiveness/[id]/route";
 import * as memo from "@/app/api/cycles/[id]/memo/route";
 import * as memoRefresh from "@/app/api/cycles/[id]/memo/refresh/route";
 import * as memoHistory from "@/app/api/cycles/[id]/memo/history/route";
@@ -489,6 +494,56 @@ describe("файлы позиции (ссылки на общий диск)", ()
     expect((await fileShortcut.GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ id, fileId }) })).status).toBe(404);
     state.actor = head;
     expect((await fileShortcut.GET(new NextRequest("http://localhost/x"), { params: Promise.resolve({ id, fileId: "нет" }) })).status).toBe(404);
+  });
+});
+
+describe("справочники: переименование и удаление (только админ)", () => {
+  it("статусы, привлекательность и сегменты: админ правит и удаляет неиспользуемое; системные и используемые защищены; остальным — 403", async () => {
+    // статус
+    const st = await call(curator, statusesRoute.POST, "/api/statuses", { method: "POST", body: { name: `${TAG}-статус` } });
+    expect(st.status).toBe(201);
+    const sid = st.data.status.id as string;
+    expect((await call(director, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: `${TAG}-x` } })).status).toBe(403);
+    expect((await call(head, statusOne.DELETE, `/api/statuses/${sid}`, { method: "DELETE", id: sid })).status).toBe(403);
+    expect((await call(curator, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: "завершено" } })).status).toBe(409); // дубль без учёта регистра
+    expect((await call(curator, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: "  " } })).status).toBe(400);
+    const ren = await call(curator, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: `${TAG}-статус-2` } });
+    expect(ren.status).toBe(200);
+    expect(ren.data.status.name).toBe(`${TAG}-статус-2`);
+    // используемый — не удаляется
+    const it1 = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG}-со статусом`, statusId: sid } });
+    expect(it1.status).toBe(201);
+    created.items.push(it1.data.row.id);
+    const busy = await call(curator, statusOne.DELETE, `/api/statuses/${sid}`, { method: "DELETE", id: sid });
+    expect(busy.status).toBe(409);
+    expect(busy.data.error).toBe("IN_USE");
+    await prisma.operationalItem.update({ where: { id: it1.data.row.id }, data: { statusId: null } });
+    expect((await call(curator, statusOne.DELETE, `/api/statuses/${sid}`, { method: "DELETE", id: sid })).status).toBe(200);
+    // системный статус
+    const done = await prisma.status.findFirst({ where: { name: "Завершено" } });
+    if (done) {
+      expect((await call(curator, statusOne.PATCH, `/api/statuses/${done.id}`, { method: "PATCH", id: done.id, body: { name: "Готово" } })).status).toBe(409);
+      expect((await call(curator, statusOne.DELETE, `/api/statuses/${done.id}`, { method: "DELETE", id: done.id })).status).toBe(409);
+    }
+
+    // привлекательность
+    const at = await call(curator, attrRoute.POST, "/api/attractiveness", { method: "POST", body: { name: `${TAG}-оценка` } });
+    expect(at.status).toBe(201);
+    const aid = at.data.attractiveness.id as string;
+    expect((await call(director, attrOne.PATCH, `/api/attractiveness/${aid}`, { method: "PATCH", id: aid, body: { name: `${TAG}-y` } })).status).toBe(403);
+    expect((await call(curator, attrOne.PATCH, `/api/attractiveness/${aid}`, { method: "PATCH", id: aid, body: { name: "Среднее" } })).status).toBe(409); // совпадает со словом P50
+    expect((await call(curator, attrOne.PATCH, `/api/attractiveness/${aid}`, { method: "PATCH", id: aid, body: { name: `${TAG}-оценка-2` } })).status).toBe(200);
+    expect((await call(curator, attrOne.DELETE, `/api/attractiveness/${aid}`, { method: "DELETE", id: aid })).status).toBe(200);
+
+    // сегмент своей дирекции
+    const sg = await call(curator, segments.POST, "/api/segments", { method: "POST", body: { name: `${TAG}-сегмент` } });
+    expect(sg.status).toBe(201);
+    const gid = sg.data.segment.id as string;
+    expect((await call(director, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-z` } })).status).toBe(403);
+    expect((await call(curator, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-сегмент-2` } })).status).toBe(200);
+    // чужая дирекция не видит
+    expect((await call(directorB, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(403);
+    expect((await call(curator, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(200);
   });
 });
 

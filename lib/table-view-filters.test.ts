@@ -131,3 +131,15 @@ describe("normalizeColumns", () => {
     expect(out.find((c) => c.key === "deadline")?.label).toBe("Срок");
   });
 });
+
+describe("attractivenessRank / attractivenessCode", () => {
+  it("место в шкалы сохраняется и после переименования значения в слово", async () => {
+    const { attractivenessCode, attractivenessRank } = await import("@/lib/attractiveness");
+    expect(attractivenessCode("P70")).toBe("P70");
+    expect(attractivenessCode("Выше среднего")).toBe("P70");
+    expect(attractivenessCode("высокая")).toBe("P100");
+    expect(attractivenessCode("Своё")).toBeNull();
+    expect(["Своё", "Низкое", "P100", "Среднее"].map(attractivenessRank)).toEqual([-1, 10, 100, 50]);
+    expect(attractivenessRank(null)).toBeNull();
+  });
+});

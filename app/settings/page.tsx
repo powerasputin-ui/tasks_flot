@@ -3,8 +3,9 @@
 import { fetchRetry } from "@/lib/fetch-retry";
 import { askConfirm, askText } from "@/components/ui/Dialog";
 import { attractivenessText } from "@/lib/attractiveness";
+import { PROTECTED_STATUSES } from "@/lib/statuses";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Lock, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -29,7 +30,7 @@ type Directorate = {
 };
 /** Заготовка формы «новый пользователь» — из карточки дирекции «Добавить директора». */
 type UserPreset = { role: string; directorateId: string };
-type Result = { ok: boolean; status: number; data: { error?: string } | null };
+type Result = { ok: boolean; status: number; data: { error?: string; message?: string } | null };
 type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 
 /** Группа «без дирекции» в списке людей у админа. */
@@ -111,6 +112,9 @@ export default function SettingsPage() {
           : e === "LAST_DIRECTORATE" ? "Нельзя отключить последнюю активную дирекцию."
           : e === "EMAIL_TAKEN" ? "Такой e-mail уже зарегистрирован."
           : e === "CANNOT_DEMOTE_SELF" ? "Нельзя отключить себя или снять с себя роль: это может сделать другой админ."
+          : e === "IN_USE" ? r.data?.message ?? "Значение используется в позициях — сначала поменяйте его в них."
+          : e === "PROTECTED" ? "Это системное значение: его нельзя переименовать или удалить."
+          : e === "INVALID_INPUT" && r.data?.message ? r.data.message
           : e === "LAST_ADMIN" ? "Нельзя снять последнего админа: в системе должен остаться хотя бы один."
           : r.status === 403 ? "Недостаточно прав."
           : "Не удалось выполнить действие.",
@@ -191,9 +195,26 @@ export default function SettingsPage() {
         {section === "columns" && <ColumnsSettings />}
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
-          <RefSection title="Сегменты" hint="Левая колонка таблицы вашей дирекции. Не удаляются: сегмент можно только добавить." items={segments} onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")} />
+          <RefSection
+            title="Сегменты"
+            hint={isAdmin ? "Левая колонка таблицы вашей дирекции. Переименование видно сразу во всех позициях; удалить можно сегмент без позиций и треков." : "Левая колонка таблицы вашей дирекции. Переименовывать и удалять сегменты может админ."}
+            items={segments}
+            onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")}
+            onRename={isAdmin ? (id, name) => act(send(`/api/segments/${id}`, "PATCH", { name }), "Сегмент переименован.") : undefined}
+            onDelete={isAdmin ? (id) => act(send(`/api/segments/${id}`, "DELETE"), "Сегмент удалён.") : undefined}
+          />
         )}
-        {section === "statuses" && <RefSection title="Статусы" hint="Значения колонки «Статус»." items={statuses} onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")} />}
+        {section === "statuses" && (
+          <RefSection
+            title="Статусы"
+            hint="Значения колонки «Статус» (общие для всех дирекций). Переименование видно сразу во всех позициях; удалить можно статус, который не стоит ни в одной позиции."
+            items={statuses}
+            onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")}
+            onRename={(id, name) => act(send(`/api/statuses/${id}`, "PATCH", { name }), "Статус переименован.")}
+            onDelete={(id) => act(send(`/api/statuses/${id}`, "DELETE"), "Статус удалён.")}
+            locked={(i) => (PROTECTED_STATUSES.includes(i.name) ? "Системный статус: по нему считаются просрочки и напоминания, поэтому его не переименовывают и не удаляют." : null)}
+          />
+        )}
         {section === "ai" && (
           <div className="max-w-md">
             <SectionHeader title="ИИ-помощник" hint="Ключ API любого провайдера: помощник отвечает по справкам на странице «Оперативка → Архив». У каждого пользователя своё подключение." />
@@ -203,7 +224,15 @@ export default function SettingsPage() {
           </div>
         )}
         {section === "attractiveness" && (
-          <RefSection title="Привлекательность" hint="Шкала: Высокое / Выше среднего / Среднее / Низкое / Отсутствует." items={attractiveness} display={attractivenessText} onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")} />
+          <RefSection
+            title="Привлекательность"
+            hint="Шкала: Высокое / Выше среднего / Среднее / Низкое / Отсутствует (общая для всех дирекций). Порядок шкалы при сортировке сохраняется и после переименования."
+            items={attractiveness}
+            display={attractivenessText}
+            onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")}
+            onRename={(id, name) => act(send(`/api/attractiveness/${id}`, "PATCH", { name }), "Значение переименовано.")}
+            onDelete={(id) => act(send(`/api/attractiveness/${id}`, "DELETE"), "Значение удалено.")}
+          />
         )}
       </section>
     </div>
@@ -858,19 +887,132 @@ function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[];
   );
 }
 
-function RefSection({ title, hint, items, onAdd, display }: { title: string; hint: string; items: Ref[]; onAdd: (name: string) => void; display?: (name: string) => string }) {
+function RefSection({
+  title,
+  hint,
+  items,
+  onAdd,
+  display,
+  onRename,
+  onDelete,
+  locked,
+}: {
+  title: string;
+  hint: string;
+  items: Ref[];
+  onAdd: (name: string) => void;
+  display?: (name: string) => string;
+  /** Нет — правка недоступна (не админ). */
+  onRename?: (id: string, name: string) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
+  /** Причина, по которой значение нельзя менять (системное), или null. */
+  locked?: (item: Ref) => string | null;
+}) {
   return (
     <>
       <SectionHeader title={title} hint={hint} />
       <AddRow placeholder="Новое значение" onAdd={onAdd} />
       <ListCard>
         {items.map((i) => (
-          <li key={i.id} className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-semibold text-on-surface">
-            {i.color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: i.color }} />}
-            {display ? display(i.name) : i.name}
-          </li>
+          <RefItem key={i.id} item={i} label={display ? display(i.name) : i.name} onRename={onRename} onDelete={onDelete} lockedReason={locked?.(i) ?? null} />
         ))}
       </ListCard>
     </>
+  );
+}
+
+/** Строка справочника: карандаш — переименовать в строке, корзина — удалить с подтверждением (как у треков). */
+function RefItem({
+  item,
+  label,
+  onRename,
+  onDelete,
+  lockedReason,
+}: {
+  item: Ref;
+  label: string;
+  onRename?: (id: string, name: string) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
+  lockedReason: string | null;
+}) {
+  const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
+  const [name, setName] = useState(label);
+  const [busy, setBusy] = useState(false);
+  const canEdit = !!onRename && !lockedReason;
+  const canDelete = !!onDelete && !lockedReason;
+
+  async function save() {
+    const next = name.trim();
+    if (!next || next === label || !onRename) return setMode("view");
+    setBusy(true);
+    await onRename(item.id, next);
+    setBusy(false);
+    setMode("view");
+  }
+
+  return (
+    <li className="px-4 py-2.5">
+      {mode === "edit" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {item.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />}
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void save();
+              if (e.key === "Escape") setMode("view");
+            }}
+            maxLength={80}
+            autoFocus
+            className="input h-9 min-w-48 flex-1"
+            aria-label="Новое название"
+          />
+          <button disabled={!name.trim() || busy} onClick={() => void save()} className="btn-primary h-9">Сохранить</button>
+          <button onClick={() => setMode("view")} className="btn-ghost h-9">Отмена</button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2.5">
+          {item.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />}
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-on-surface">{label}</span>
+          {lockedReason && (onRename || onDelete) && (
+            <span className="flex h-8 w-8 items-center justify-center text-outline" title={lockedReason}>
+              <Lock size={14} />
+            </span>
+          )}
+          {mode === "view" && canEdit && (
+            <button onClick={() => { setName(label); setMode("edit"); }} className="btn-icon h-8 w-8" title="Переименовать" aria-label="Переименовать">
+              <Pencil size={15} />
+            </button>
+          )}
+          {mode === "view" && canDelete && (
+            <button onClick={() => setMode("delete")} className="btn-icon h-8 w-8 text-status-red" title="Удалить" aria-label="Удалить">
+              <Trash2 size={15} />
+            </button>
+          )}
+        </div>
+      )}
+      {mode === "delete" && (
+        <div className="mt-2.5 rounded-md border border-status-red/30 bg-status-red/5 p-3">
+          <p className="text-[13px] text-on-surface">Удалить «{label}»?</p>
+          <p className="mt-0.5 text-[12px] text-on-surface-variant">Удалить можно только значение, которое не стоит ни в одной позиции.</p>
+          <div className="mt-2.5 flex gap-2">
+            <button
+              disabled={busy}
+              onClick={async () => {
+                if (!onDelete) return;
+                setBusy(true);
+                await onDelete(item.id);
+                setBusy(false);
+                setMode("view");
+              }}
+              className="btn-danger h-8"
+            >
+              Да, удалить
+            </button>
+            <button onClick={() => setMode("view")} className="btn-ghost h-8">Отмена</button>
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
