@@ -972,6 +972,16 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                                 return docs.length > 0 ? <FilesHover entries={docs} title="Документы пункта" className="mt-0.5 shrink-0 self-start" /> : null;
                               })()}
                             </div>
+                            {data.flags[b.id]?.sourceMissing && (
+                              <p className="ml-4 mt-1 text-[11px] leading-snug">
+                                <MissingNote
+                                  reason={data.flags[b.id].sourceMissing as "unsubmitted" | "archived"}
+                                  hidden={!!b.hidden}
+                                  owners={b.itemIds.map((id) => sourceById.get(id)?.ownerName).filter((x): x is string => !!x)}
+                                  editable={false}
+                                />
+                              </p>
+                            )}
                             {byOther && <p className="ml-4 mt-0.5 text-[11px] text-status-amber">Изменил(а) {b.changedBy}{b.changedAt ? `, ${new Date(b.changedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}</p>}
                             {editable && (
                               <div className="mt-1.5 flex items-center justify-end gap-1">
@@ -1273,23 +1283,7 @@ function BulletFragment({
                 )}
               </span>
             )}
-            {flags?.sourceMissing && (
-              <span className="text-status-amber">
-                {flags.sourceMissing === "unsubmitted" ? "источник не подан" : "строка в архиве"} — в файл не попадёт
-                {editable && (
-                  <>
-                    {" · "}
-                    <button onClick={onHide} className="font-semibold text-primary hover:underline">
-                      вернуть в справку
-                    </button>
-                    {" · "}
-                    <button onClick={onRemove} className="font-semibold text-primary hover:underline">
-                      убрать совсем
-                    </button>
-                  </>
-                )}
-              </span>
-            )}
+            {flags?.sourceMissing && <MissingNote reason={flags.sourceMissing} hidden={!!bullet.hidden} owners={sources.map((s) => s.ownerName).filter((x): x is string => !!x)} editable={editable} onToggle={onHide} onRemove={onRemove} />}
             {flags?.sourceChanged && (
               <span className="text-status-amber">
                 источник изменился{" "}
@@ -1356,6 +1350,64 @@ function BulletFragment({
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * Пояснение к пункту, строка-источник которого не отправлена директору (галка «Опер» снята) или удалена в таблице.
+ * Такой пункт справка сама скрывает (в файл не идёт). Если директор/составитель решил оставить его — пункт закреплён
+ * и идёт в файл; подпись тогда спокойная, без предупреждения, и предлагает обратное действие.
+ */
+function MissingNote({
+  reason,
+  hidden,
+  owners,
+  editable,
+  onToggle,
+  onRemove,
+}: {
+  reason: "unsubmitted" | "archived";
+  hidden: boolean;
+  owners: string[];
+  editable: boolean;
+  onToggle?: () => void;
+  onRemove?: () => void;
+}) {
+  const who = [...new Set(owners)].join(", ");
+  const why =
+    reason === "unsubmitted"
+      ? `строка${who ? ` (${who})` : ""} не отправлена директору — в таблице снята галка «Опер»`
+      : `строка${who ? ` (${who})` : ""} удалена в таблице`;
+  const btn = "font-semibold text-primary hover:underline";
+  if (hidden) {
+    return (
+      <span className="text-status-amber" title="Справка сама скрывает пункты, чьи строки не отправлены или удалены: так в файл не попадает то, что руководитель ещё не подал.">
+        Скрыт, в файл не идёт: {why}.
+        {editable && (
+          <>
+            {" "}
+            <button onClick={onToggle} className={btn}>Всё равно оставить в справке</button>
+            {onRemove && (
+              <>
+                {" · "}
+                <button onClick={onRemove} className={btn}>убрать пункт</button>
+              </>
+            )}
+          </>
+        )}
+      </span>
+    );
+  }
+  return (
+    <span className="text-on-surface-variant">
+      Оставлен вручную и идёт в файл, хотя {why}.
+      {editable && (
+        <>
+          {" "}
+          <button onClick={onToggle} className={btn}>Скрыть</button>
+        </>
+      )}
+    </span>
   );
 }
 
