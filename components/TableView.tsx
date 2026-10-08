@@ -653,7 +653,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       {headerSlot &&
         createPortal(
           <>
-            <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
+            <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика" aria-label="Аналитика">
               <BarChart3 size={18} />
             </button>
             {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} />}
@@ -697,7 +697,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             </div>
             {/* телефон: действия — рядом с заголовком (строка фильтров прокручивается и спрятала бы их) */}
             <div className="flex items-center gap-1.5 md:hidden">
-              <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика выборки" aria-label="Аналитика выборки">
+              <button onClick={toggleAnalytics} className={`btn-icon ${analytics ? "bg-primary-soft text-primary" : ""}`} title="Аналитика" aria-label="Аналитика">
                 <BarChart3 size={18} />
               </button>
               {me && me.role !== "SYSTEM_ADMIN" && <TableExportMenu params={exportParams} />}
