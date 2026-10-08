@@ -786,7 +786,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                       {p.name}
                     </span>
                     {p.sent > 0 ? (
-                      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-status-emerald/12 px-2 text-[11px] font-semibold text-status-emerald" title={`Отправлено директору позиций: ${p.sent}`}>
+                      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-status-emerald/40 bg-status-emerald/10 px-2 text-[11px] font-semibold text-status-emerald" title={`Отправлено директору позиций: ${p.sent}`}>
                         <Check size={12} /> Отправил · {p.sent}
                       </span>
                     ) : !data.editable ? (
