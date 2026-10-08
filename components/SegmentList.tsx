@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { ChevronDown, ChevronsDownUp, ChevronsUpDown, Layers } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { NO_SEGMENT, type SegmentCount, type TrackCount } from "@/lib/segment-counts";
 
@@ -71,6 +71,21 @@ export function SegmentList({
 }) {
   const colors = segmentColors(segments);
   const [open, toggleOpen] = useOpenSegments();
+  // правая кнопка по карточке сегмента — меню «Раскрыть сегмент» / «Свернуть сегмент»
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
   const total = [...counts.values()].reduce((s, c) => s + c.total, 0);
   const totalOper = [...counts.values()].reduce((s, c) => s + c.oper, 0);
   const noSegment = counts.get(NO_SEGMENT);
@@ -94,7 +109,7 @@ export function SegmentList({
           </button>
         )}
       </div>
-      <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">Выберите несколько сегментов, чтобы сравнить их в одной таблице. Стрелка справа на карточке (или двойной клик) — треки сегмента.</p>
+      <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">Выберите несколько сегментов, чтобы сравнить их в одной таблице. Правая кнопка по сегменту — «Раскрыть сегмент»: его треки.</p>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         <button
@@ -125,9 +140,12 @@ export function SegmentList({
               <div className="relative">
                 <button
                   onClick={() => onToggle(it.id)}
-                  onDoubleClick={() => list.length > 0 && toggleOpen(it.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ id: it.id, x: e.clientX, y: e.clientY });
+                  }}
                   aria-pressed={active}
-                  className={`w-full rounded-md border border-l-4 p-3 pr-9 text-left transition-all ${
+                  className={`w-full rounded-md border border-l-4 p-3 text-left transition-all ${
                     active ? "border-transparent" : "border-outline-variant/60 bg-surface hover:bg-surface-high"
                   }`}
                   // Выбранный сегмент — цветной контур и заливка в цвет сегмента (без галочек).
@@ -145,17 +163,6 @@ export function SegmentList({
                     {picked > 0 && !isOpen && <span className="font-semibold" style={{ color }}> · выбрано треков: {picked}</span>}
                   </p>
                 </button>
-                {list.length > 0 && (
-                  <button
-                    onClick={() => toggleOpen(it.id)}
-                    className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-on-surface-variant transition-colors hover:bg-surface-highest hover:text-on-surface"
-                    title={isOpen ? "Свернуть треки" : `Показать треки сегмента (${list.length})`}
-                    aria-label={isOpen ? "Свернуть треки" : "Показать треки"}
-                    aria-expanded={isOpen}
-                  >
-                    {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  </button>
-                )}
               </div>
               {isOpen && (
                 <ul className="animate-fade-in ml-3 mt-1 space-y-0.5 border-l-2 pl-2" style={{ borderLeftColor: `${color}66` }}>
@@ -182,6 +189,34 @@ export function SegmentList({
           );
         })}
       </div>
+
+      {menu &&
+        (() => {
+          const list = tracks.get(menu.id) ?? [];
+          const isOpen = open.has(menu.id);
+          return (
+            <div
+              className="fixed z-50 w-56 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
+              style={{ left: Math.min(menu.x, window.innerWidth - 232), top: Math.min(menu.y, window.innerHeight - 60) }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {list.length === 0 ? (
+                <p className="px-3.5 py-2 text-[12px] text-on-surface-variant">В сегменте пока нет позиций с треками.</p>
+              ) : (
+                <button
+                  onClick={() => {
+                    toggleOpen(menu.id);
+                    setMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft"
+                >
+                  {isOpen ? <ChevronsDownUp size={14} className="text-outline" /> : <ChevronsUpDown size={14} className="text-outline" />}
+                  {isOpen ? "Свернуть сегмент" : `Раскрыть сегмент (треков: ${list.length})`}
+                </button>
+              )}
+            </div>
+          );
+        })()}
     </aside>
   );
 }
