@@ -777,9 +777,21 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
         <aside className="space-y-4 max-md:order-2 lg:sticky lg:top-40 lg:self-start">
           <section className="surface p-4">
             <h3 className="label-caps">Подача</h3>
-            <p className="mt-1 text-[13px] text-on-surface">
-              Подали <span className="font-semibold">{submitted}</span> из {data.submission.length}
-            </p>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <p className="text-[13px] text-on-surface">
+                Подали <span className="font-semibold">{submitted}</span> из {data.submission.length}
+              </p>
+              {data.editable && submitted < data.submission.length && (
+                <button
+                  onClick={() => void remind()}
+                  disabled={reminding || readOnly}
+                  title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Напомнить всем, кто ещё не отправил"}
+                  className="text-[12px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
+                >
+                  Напомнить всем
+                </button>
+              )}
+            </div>
             {/* все, кто подаёт: отправившим — зелёная отметка, остальным — «Напомнить» */}
             {data.submission.length > 0 && (
               <ul className="mt-2 divide-y divide-outline-variant/50">
@@ -792,7 +804,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                       <span
                         className="btn-ghost shrink-0 cursor-default"
                         // та же «кнопка», что «Напомнить» (тот же размер), только зелёная — цвета поверх стилей .btn-ghost
-                        style={{ width: SUBMIT_PILL_W, color: "var(--emerald)", borderColor: "color-mix(in srgb, var(--emerald) 45%, transparent)", background: "color-mix(in srgb, var(--emerald) 10%, var(--surface))" }}
+                        style={{ width: SUBMIT_PILL_W, justifyContent: "flex-start", paddingLeft: 14, color: "var(--emerald)", borderColor: "color-mix(in srgb, var(--emerald) 45%, transparent)", background: "color-mix(in srgb, var(--emerald) 10%, var(--surface))" }}
                         title={`Отправлено директору позиций: ${p.sent}`}
                       >
                         <Check size={14} /> Отправил
@@ -800,9 +812,9 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                     ) : !data.editable ? (
                       <span className="shrink-0 text-[11px] text-status-red">не подал</span>
                     ) : reminded.has(p.id) ? (
-                      <span className="btn-ghost shrink-0 cursor-default text-on-surface-variant" style={{ width: SUBMIT_PILL_W }}>Напомнено</span>
+                      <span className="btn-ghost shrink-0 cursor-default text-on-surface-variant" style={{ width: SUBMIT_PILL_W, justifyContent: "flex-start", paddingLeft: 14 }}><Check size={14} /> Напомнено</span>
                     ) : (
-                      <button onClick={() => void remind([p.id])} disabled={reminding || readOnly} className="btn-ghost shrink-0 disabled:opacity-50" style={{ width: SUBMIT_PILL_W }} title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Ещё не отправил — напомнить в уведомлениях"}>
+                      <button onClick={() => void remind([p.id])} disabled={reminding || readOnly} className="btn-ghost shrink-0 disabled:opacity-50" style={{ width: SUBMIT_PILL_W, justifyContent: "flex-start", paddingLeft: 14 }} title={readOnly ? "В режиме просмотра напоминать нельзя — выйдите из режима (меню под вашим именем)" : "Ещё не отправил — напомнить в уведомлениях"}>
                         <Bell size={14} /> Напомнить
                       </button>
                     )}
@@ -951,7 +963,7 @@ export function MemoEditor({ cycleId, readOnly = false }: { cycleId: string; rea
                     )}
                     <ul className="mt-1 space-y-2">
                       {section.bullets.map((b, bi) => {
-                        const byOther = !!b.changedBy && !!meName && b.changedBy !== meName;
+                        const byOther = !!b.changedBy; // пункт правил человек — оранжевая точка, при наведении «кто и когда»
                         return (
                           <li key={b.id} className={`rounded-md border border-outline-variant/60 p-2 ${b.hidden ? "opacity-50" : ""}`}>
                             <div className="flex gap-1.5">
@@ -1124,7 +1136,6 @@ function BulletFragment({
   last,
   flags,
   editable,
-  meName,
   sources,
   canMergeNext,
   isFirst,
@@ -1183,7 +1194,7 @@ function BulletFragment({
   // пункт собрался из строки, но в «Виде справки» не отмечено ничего текстового — объясняем, почему он пустой
   const emptyByView = !bullet.text.trim() && bullet.itemIds.length > 0 && !bullet.edited;
   const showHint = last && hasHint(bullet, flags);
-  const byOther = !!bullet.changedBy && !!meName && bullet.changedBy !== meName;
+  const byOther = !!bullet.changedBy; // пункт правил человек — оранжевая точка, при наведении «кто и когда»
   // кнопки действий пункта попадают в Tab только пока фокус внутри пункта: иначе на странице сотни лишних остановок
   const [inside, setInside] = useState(false);
   const tab = inside ? 0 : -1;
