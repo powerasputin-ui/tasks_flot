@@ -38,10 +38,17 @@ export const PLAIN_SPACES = /[    ]/g;
 export const plainText = (s: string) => s.replace(PLAIN_SPACES, " ");
 
 function plainSpaces(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-  return stream
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(new TransformStream<string, string>({ transform: (chunk, ctrl) => ctrl.enqueue(plainText(chunk)) }))
-    .pipeThrough(new TextEncoderStream());
+  const dec = new TextDecoder();
+  const enc = new TextEncoder();
+  return stream.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform: (chunk, ctrl) => ctrl.enqueue(enc.encode(plainText(dec.decode(chunk, { stream: true })))),
+      flush: (ctrl) => {
+        const tail = dec.decode();
+        if (tail) ctrl.enqueue(enc.encode(plainText(tail)));
+      },
+    }),
+  );
 }
 
 /**
