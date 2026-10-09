@@ -11,7 +11,7 @@ import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion, type AiDoc } from "@/lib/ai-docs";
 import { quickAnswer } from "@/lib/local-quick";
-import { TABLE_RULE, itemRefs, itemsHeader, labelItems, tableAnswer, tableContext } from "@/lib/ai-table";
+import { TABLE_RULE, hasConditions, itemRefs, itemsHeader, labelItems, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
 import { loadTableFacts } from "@/lib/ai-table-load";
 import { guardStream } from "@/lib/ai-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -83,7 +83,7 @@ async function POSTHandler(request: NextRequest) {
         // таблица (итоги, выборка по вопросу, карточки) — с правилом; из поиска — только найденное в справках
         hits: [
           facts ? `${TABLE_RULE}\n${tableContext({ ...facts, question, memoItemIds, budget: Math.round(lb.contextChars * 0.45) }).text}` : "",
-          found && (task === "search" || found.hits.length) ? hitsBlock(facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found, Math.round(lb.contextChars * 0.15), found.scope) : "",
+          found && (task === "search" || found.hits.length) && !(facts && hasConditions(parseTableQuestion(question, facts.dict))) ? hitsBlock(facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found, Math.round(lb.contextChars * 0.15), found.scope) : "",
         ].filter(Boolean).join("\n\n") || undefined,
         docs,
       });
@@ -112,7 +112,9 @@ async function POSTHandler(request: NextRequest) {
     const ctx = memoAssistContext(state.doc, state.title, { number: cycle.number, meetingDate: cycle.meetingDate, deadline: cycle.deadline }, docs, labels ? (id) => labels.get(id) : undefined);
     const { task, found } = await searchFor(actor, messages, state);
     // таблица уже целиком в контексте — из поиска берём только найденное в справках (архив, черновик)
-    const memoFound = found && facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found;
+    // в вопросе точные условия (статус, ответственный…) — ответ из выборки таблицы; поиск похожих слов только сбивает модель (экзамен, R2)
+    const precise = !!facts && hasConditions(parseTableQuestion(question, facts.dict));
+    const memoFound = precise ? null : found && facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found;
     let used = chain as Parameters<typeof modelLabel>[0];
     const make = async (c: Parameters<typeof aiBudget>[0] & Parameters<typeof streamText>[0]) => {
       used = c;

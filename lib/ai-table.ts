@@ -182,7 +182,8 @@ export function cardLine(i: FactItem, label: string, today: number, titleLimit =
     i.files.length ? `документы: ${i.files.map((f) => `«${f.name}»`).join(", ")}` : null,
     i.comment ? `комментарий: ${i.comment.length > 200 ? `${i.comment.slice(0, 200)}…` : i.comment}` : null,
   ].filter(Boolean);
-  const title = i.title.length > titleLimit ? `${i.title.slice(0, titleLimit)}…` : i.title;
+  // сокращение помечаем явно: иначе модель решает, что текст в таблице «обрезан» (экзамен, вопрос R1)
+  const title = i.title.length > titleLimit ? `${i.title.slice(0, titleLimit)}… [в карточке сокращено, в таблице текст полный]` : i.title;
   return `[${label}] ${i.archived ? "УДАЛЕНА — " : ""}задача «${title}» | ${parts.join(" | ")}`;
 }
 

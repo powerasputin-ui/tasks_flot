@@ -69,7 +69,7 @@ def mentioned(item: dict, answer: str, all_items: list[dict]) -> bool:
     return any(line_owner(x, all_items) is item for x in lines)
 
 
-HONEST = re.compile(r"(^\s*нет[.,!]|задач нет|позиций нет|таких позиций нет|нет данных|не указан|нет информации|не нашел|не найден|не найдено|отсутству|нет в справке|в справке нет|нет такого|нет сведений|не содерж|не удалось найти|нет позиций|не значится|нет ответственного)")
+HONEST = re.compile(r"(^\s*нет[.,!]|задач нет|позиций нет|таких позиций нет|нет данных|не указан|нет информации|не нашел|не найден|не найдено|отсутству|нет в справке|в справке нет|нет такого|нет сведений|не содерж|не удалось найти|нет позиций|не значится|нет ответственного|нет задач|не имеет|нет ни одной)")
 
 
 def score(q: dict, exp: dict, answer: str, items: list[dict]) -> dict:
@@ -85,6 +85,7 @@ def score(q: dict, exp: dict, answer: str, items: list[dict]) -> dict:
         res["verdict"] = "ручная оценка"
         return res
     if "items" in exp and exp["items"] and q["check"].get("list", True):
+        exp["items"] = list({i["id"]: i for i in exp["items"]}.values())  # одна позиция могла попасть дважды (две подачи)
         exp_ids = {i["id"] for i in exp["items"]}
         hit = [i for i in exp["items"] if mentioned(i, answer, items)]
         extra = [i for i in items if i["id"] not in exp_ids and mentioned(i, answer, items)]
@@ -94,16 +95,20 @@ def score(q: dict, exp: dict, answer: str, items: list[dict]) -> dict:
     if exp.get("no_data"):
         add("честно «нет данных»", bool(HONEST.search(norm(answer))))
     if "count" in exp:
-        nums = {int(n) for n in re.findall(r"(?<![\d.,])\d{1,3}(?![\d.,])", answer)}
+        nums = {int(n) for n in re.findall(r"(?<![\d.,])\d{1,3}(?!\d|[.,]\d)", answer)}
         add("число", exp["count"] in nums, f"ожидалось {exp['count']}")
     if "count_pair" in exp:
-        nums = {int(n) for n in re.findall(r"(?<![\d.,])\d{1,3}(?![\d.,])", answer)}
+        nums = {int(n) for n in re.findall(r"(?<![\d.,])\d{1,3}(?!\d|[.,]\d)", answer)}
         a, b = exp["count_pair"]
         add("числа", a in nums and b in nums, f"ожидалось {a} и {b}")
     for n in exp.get("names", []):
         add("имя", norm(n.split()[0]) in norm(answer), n)
     for s in exp.get("strings", []):
         key = norm(s)[:28]
+        if key.startswith("№"):  # «№3» ~ «оперативка 3» / «№ 3»
+            # «№3», «оперативка №3», «номер текущей оперативки — 3»
+            add("номер", bool(re.search(r"(№\s*|оперативк\w*\D{0,6})" + key[1:] + r"(?!\d)", norm(answer))), s)
+            continue
         add("фраза", key in norm(answer), s)
     if "date" in exp:
         if exp["date"]:

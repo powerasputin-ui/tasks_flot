@@ -7,7 +7,7 @@ import { buildLocalPrompt, routeTask } from "@/lib/local-ai-prompt";
 import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion } from "@/lib/ai-docs";
-import { TABLE_RULE, itemRefs, itemsHeader, tableAnswer, tableContext } from "@/lib/ai-table";
+import { TABLE_RULE, hasConditions, itemRefs, itemsHeader, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
 import { loadTableFacts } from "@/lib/ai-table-load";
 import { guardStream } from "@/lib/ai-guard";
 import { canViewItems } from "@/lib/permissions";
@@ -52,6 +52,8 @@ async function POSTHandler(request: NextRequest) {
     const memoItemIds = memos.flatMap((m) => m.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds)));
     const tableFor = (budget: number) => (facts ? tableContext({ ...facts, question, memoItemIds, budget }).text : "");
     const memoHits = (f: NonNullable<typeof found>) => (facts ? { ...f, hits: f.hits.filter((h) => h.kind === "memo") } : f);
+    // в вопросе точные условия — отвечаем выборкой таблицы, без поиска похожих слов (он сбивает модель)
+    const precise = !!facts && hasConditions(parseTableQuestion(question, facts.dict));
     if (!cfg && b?.localDevice === "cpu" && facts && !(requested && memos.length === 0)) {
       const t = tableAnswer({ ...facts, question, memoItemIds, budget: 0 });
       if (t) return NextResponse.json({ local: { kind: "text", text: t, items: itemRefs({ ...facts, question, memoItemIds }) } }, { headers: { "Cache-Control": "no-store" } });
@@ -77,7 +79,7 @@ async function POSTHandler(request: NextRequest) {
         historyChars: lb.historyChars,
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
         lead,
-        hits: [facts ? `${TABLE_RULE}\n${tableFor(Math.round(lb.contextChars * 0.45))}` : "", withHits && found ? hitsBlock(memoHits(found), Math.round(lb.contextChars * 0.15), found.scope) : ""].filter(Boolean).join("\n\n") || undefined,
+        hits: [facts ? `${TABLE_RULE}\n${tableFor(Math.round(lb.contextChars * 0.45))}` : "", withHits && found && !precise ? hitsBlock(memoHits(found), Math.round(lb.contextChars * 0.15), found.scope) : ""].filter(Boolean).join("\n\n") || undefined,
         docs,
       });
       return NextResponse.json({ local: { ...local, docs: docRefs(docs), items: facts ? itemRefs({ ...facts, question, memoItemIds }) : undefined } }, { headers: { "Cache-Control": "no-store" } });
@@ -90,7 +92,7 @@ async function POSTHandler(request: NextRequest) {
       const budget = aiBudget(c);
       // найденное поиском — до трети окна (у бесплатного Groq окно маленькое), остальное — справки
       const table = tableFor(Math.round(budget.contextChars * 0.45));
-      const hits = withHits && found ? hitsBlock(memoHits(found), Math.round(budget.contextChars * (facts ? 0.15 : task === "search" ? 0.5 : 0.3)), found.scope) : "";
+      const hits = withHits && found && !precise ? hitsBlock(memoHits(found), Math.round(budget.contextChars * (facts ? 0.15 : task === "search" ? 0.5 : 0.3)), found.scope) : "";
       const docsText = docsBlock(docs, 4000);
       const ctx = buildContextInfo(memos, Math.max(2000, budget.contextChars - hits.length - docsText.length - table.length));
       const st = await streamText(c, { system: chatSystem(docsText ? `${ctx.text}\n\n${docsText}` : ctx.text, lead, hits || undefined, table || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
