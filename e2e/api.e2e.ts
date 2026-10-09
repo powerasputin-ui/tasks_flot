@@ -1159,6 +1159,13 @@ describe("справка директора", () => {
     const dg = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Где лежит презентация по Tidebon?" }], engine: "local" });
     expect(dg.data.local.system).toContain("ДОКУМЕНТЫ, прикреплённые");
     expect(dg.data.local.system).toContain("MPSV Tidebon v1.3.pptx");
+    // движок фактов: таблица целиком, итоги и точная выборка (процессор — сразу списком, видеокарта — в запросе модели)
+    const nq = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Какие позиции ещё не поданы в справку?" }], engine: "local", localDevice: "cpu" });
+    expect(nq.data.local.kind).toBe("text");
+    expect(nq.data.local.text).toMatch(/^По таблице \(не поданы в справку\)/);
+    const ng = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Какие позиции ещё не поданы в справку?" }], engine: "local" });
+    expect(ng.data.local.system).toContain("ИТОГИ ПО ТАБЛИЦЕ");
+    expect(ng.data.local.system).toContain("ВЫБОРКА ПО ВОПРОСУ");
     // ЗГД таблицу не видит — его поиск только по справкам
     const zs = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { messages: [{ role: "user", content: "Найди якорницу" }], engine: "local", localDevice: "cpu" } });
     expect(JSON.stringify(zs.data)).not.toContain("Якорница");

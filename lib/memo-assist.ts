@@ -1,6 +1,7 @@
 import { splitTitleDate, type MemoDoc } from "@/lib/memo";
 import { SEARCH_RULE } from "@/lib/ai-search";
 import { DOCS_RULE, docMarks, type AiDoc } from "@/lib/ai-docs";
+import { TABLE_RULE } from "@/lib/ai-table";
 
 /**
  * «Оперативщик» — ИИ-помощник того, кто составляет справку (директор, админ, составитель).
@@ -47,7 +48,7 @@ export function memoDateText(title: string, meetingDate?: Date | string | null):
   return splitTitleDate(title).date || "не заполнена (поле «Оперативное совещание» в справке пустое)";
 }
 
-export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = []): { text: string; count: number } {
+export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = [], itemLabel?: (id: string) => string | undefined): { text: string; count: number } {
   // дата справки (оперативного совещания) в документе стоит отдельно от заголовка — без неё модель не ответит «когда»
   const lines: string[] = [
     `Справка: ${title}`,
@@ -62,16 +63,20 @@ export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = 
     lines.push("", `Раздел: ${s.title || "Прочие направления"}`);
     for (const b of bullets) {
       const d = docMarks(b.itemIds, docs);
-      lines.push(`[${++n}] ${b.text.trim()}${d ? ` {${d}}` : ""}`);
+      // ← [Т5]: из какой позиции таблицы пункт; «текст правил» — кто вручную менял формулировку пункта в справке
+      const src = itemLabel ? b.itemIds.map(itemLabel).filter(Boolean).map((l) => `[${l}]`).join(", ") : "";
+      const marks = [d, b.changedBy ? `текст пункта в справке правил: ${b.changedBy}` : "", b.fresh ? "новая подача" : ""].filter(Boolean).join("; ");
+      lines.push(`[${++n}] ${b.text.trim()}${src ? ` ← ${src}` : ""}${marks ? ` {${marks}}` : ""}`);
     }
   }
   // сам блок «ДОКУМЕНТЫ» (названия и пути) маршрут добавляет отдельно, чтобы его не отрезало при сжатии справки под окно
   return { text: lines.join("\n"), count: n };
 }
 
-export function memoAssistSystem(context: string, hits?: string): string {
+export function memoAssistSystem(context: string, hits?: string, table?: string): string {
   return [
-    "Ты «Оперативщик» — помощник того, кто составляет справку для руководства. Помогаешь сделать пункты понятными, логичными и единообразными.",
+    "Ты «Оперативщик» — помощник того, кто составляет справку для руководства: отвечаешь на вопросы по справке и по таблице позиций дирекции, помогаешь сделать пункты понятными, логичными и единообразными.",
+    ...(table ? [TABLE_RULE] : []),
     "Что проверять: пустые формулировки без результата («ведётся работа», «прорабатывается»); нет срока или следующего шага; длинные и запутанные фразы; разный стиль пунктов; повторы.",
     "На прямой вопрос о содержании справки (дата справки, когда что сделано, кто, сколько) отвечай сразу фактом из справки со ссылкой на пункт [n] — не переспрашивай и не повторяй вопрос. Если такого факта в справке нет — так и скажи.",
     "Когда предлагаешь новую формулировку пункта — указывай его номер [n] и давай готовый текст отдельной строкой, начиная с «Вариант:».",
@@ -83,6 +88,7 @@ export function memoAssistSystem(context: string, hits?: string): string {
     `Сегодня: ${new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })}.`,
     "",
     context,
+    ...(table ? ["", table] : []),
     ...(hits ? ["", hits] : []),
   ].join("\n");
 }

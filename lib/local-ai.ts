@@ -308,25 +308,9 @@ const enc = new TextEncoder();
 /** Иероглифы, кана, хангыль — маленькие Qwen иногда вставляют их посреди русского текста. */
 const CJK = /[\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]/g;
 
-/** Русский ли текст: среди букв ≥ 60 % кириллицы (латиница бывает в названиях судов и аббревиатурах). */
-export function looksRussian(text: string): boolean {
-  const letters = text.match(/[A-Za-zА-Яа-яЁё]/g) ?? [];
-  if (letters.length < 12) return true;
-  return letters.filter((c) => /[А-Яа-яЁё]/.test(c)).length / letters.length >= 0.6;
-}
-
-/** Модель пошла по кругу: одна и та же фраза (от 20 знаков) уже трижды. */
-export function isLooping(text: string): boolean {
-  const seen = new Map<string, number>();
-  for (const raw of text.split(/[.!?\n]+/)) {
-    const k = raw.trim().toLowerCase();
-    if (k.length < 20) continue;
-    const c = (seen.get(k) ?? 0) + 1;
-    if (c >= 3) return true;
-    seen.set(k, c);
-  }
-  return false;
-}
+// проверки «по-русски» и «по кругу» — общие с облаком (lib/ai-guard.ts)
+export { isLooping, looksRussian } from "@/lib/ai-guard";
+import { isLooping, looksRussian } from "@/lib/ai-guard";
 
 const NUM = /\d+(?:[.,]\d+)*/g;
 /** Числа ответа, которых нет в запросе (справке): номера пунктов [n] и нумерацию списка не считаем. */

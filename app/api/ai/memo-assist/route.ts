@@ -11,6 +11,9 @@ import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion, type AiDoc } from "@/lib/ai-docs";
 import { quickAnswer } from "@/lib/local-quick";
+import { TABLE_RULE, labelItems, tableAnswer, tableContext } from "@/lib/ai-table";
+import { loadTableFacts } from "@/lib/ai-table-load";
+import { guardStream } from "@/lib/ai-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 const MAX_TEXT = 6000;
@@ -57,8 +60,14 @@ async function POSTHandler(request: NextRequest) {
       const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources, date: memoDateText(state.title, cycle.meetingDate) }];
       const { task, found } = await searchFor(actor, messages, state);
       const docs = memoDocs(state);
+      const question = messages[messages.length - 1].content;
+      const facts = await loadTableFacts(actor, cycle.directorateId);
+      const memoItemIds = state.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds));
+      // процессор: выборка из таблицы («у кого», «что просрочено», «не подано», «удалённые») и журнал — сразу точным списком
+      const tableText = b?.localDevice === "cpu" && facts ? tableAnswer({ ...facts, question, memoItemIds, budget: 0 }) : null;
+      if (tableText) return NextResponse.json({ local: { kind: "text", text: tableText } }, { headers });
       // процессор: вопрос про документы — сразу список с путями и ссылками
-      if (b?.localDevice === "cpu" && isDocsQuestion(messages[messages.length - 1].content) && task !== "search") return NextResponse.json({ local: { kind: "text", text: docsAnswer(messages[messages.length - 1].content, docs), docs: docRefs(docs) } }, { headers });
+      if (b?.localDevice === "cpu" && isDocsQuestion(question) && task !== "search") return NextResponse.json({ local: { kind: "text", text: docsAnswer(question, docs), docs: docRefs(docs) } }, { headers });
       if (b?.localDevice === "cpu" && task === "search" && found) return NextResponse.json({ local: { kind: "text", text: hitsAnswer(found, found.scope) } }, { headers });
       // на процессоре типовые вопросы — мгновенный разбор кодом (lib/local-quick.ts)
       const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "compiler", memos: localMemos, question: messages[messages.length - 1].content }) : null;
@@ -71,7 +80,11 @@ async function POSTHandler(request: NextRequest) {
         contextChars: lb.contextChars,
         historyChars: lb.historyChars,
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
-        hits: found && (task === "search" || found.hits.length) ? hitsBlock(found, Math.round(lb.contextChars * 0.6), found.scope) : undefined,
+        // таблица (итоги, выборка по вопросу, карточки) — с правилом; из поиска — только найденное в справках
+        hits: [
+          facts ? `${TABLE_RULE}\n${tableContext({ ...facts, question, memoItemIds, budget: Math.round(lb.contextChars * 0.45) }).text}` : "",
+          found && (task === "search" || found.hits.length) ? hitsBlock(facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found, Math.round(lb.contextChars * 0.15), found.scope) : "",
+        ].filter(Boolean).join("\n\n") || undefined,
         docs,
       });
       return NextResponse.json({ local: { ...local, docs: docRefs(docs) } }, { headers });
@@ -91,17 +104,28 @@ async function POSTHandler(request: NextRequest) {
     const state = await loadMemo(cycle);
     const docs = memoDocs(state);
     const docsText = docsBlock(docs, 4000);
-    const ctx = memoAssistContext(state.doc, state.title, { number: cycle.number, meetingDate: cycle.meetingDate, deadline: cycle.deadline }, docs);
+    // вся таблица дирекции (с удалёнными), итоги и точная выборка по вопросу — программой (lib/ai-table.ts)
+    const facts = await loadTableFacts(actor, cycle.directorateId);
+    const question = messages[messages.length - 1].content;
+    const memoItemIds = state.doc.sections.flatMap((s) => s.bullets.flatMap((b) => b.itemIds));
+    const labels = facts ? labelItems(facts.items) : null;
+    const ctx = memoAssistContext(state.doc, state.title, { number: cycle.number, meetingDate: cycle.meetingDate, deadline: cycle.deadline }, docs, labels ? (id) => labels.get(id) : undefined);
     const { task, found } = await searchFor(actor, messages, state);
+    // таблица уже целиком в контексте — из поиска берём только найденное в справках (архив, черновик)
+    const memoFound = found && facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found;
     let used = chain as Parameters<typeof modelLabel>[0];
-    const stream = await withAiFallback(chain, ctx.text.length, async (c) => {
+    const make = async (c: Parameters<typeof aiBudget>[0] & Parameters<typeof streamText>[0]) => {
       used = c;
       const budget = aiBudget(c);
-      const hits = found && (task === "search" || found.hits.length) ? hitsBlock(found, Math.round(budget.contextChars * (task === "search" ? 0.5 : 0.3)), found.scope) : "";
-      // документы — отдельно и целиком: при сжатии справки под окно их не должно отрезать
-      const memoText = ctx.text.slice(0, Math.max(2000, budget.contextChars - hits.length - docsText.length));
-      return streamText(c, { system: memoAssistSystem(docsText ? `${memoText}\n\n${docsText}` : memoText, hits || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
-    }, preroute);
+      const table = facts ? tableContext({ ...facts, question, memoItemIds, budget: Math.round(budget.contextChars * 0.5) }).text : "";
+      const hits = memoFound && (task === "search" || memoFound.hits.length) ? hitsBlock(memoFound, Math.round(budget.contextChars * 0.15), memoFound.scope) : "";
+      // документы и таблица — отдельно и целиком: при сжатии справки под окно их не должно отрезать
+      const memoText = ctx.text.slice(0, Math.max(2000, budget.contextChars - hits.length - docsText.length - table.length));
+      return streamText(c, { system: memoAssistSystem(docsText ? `${memoText}\n\n${docsText}` : memoText, hits || undefined, table || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
+    };
+    const first = await withAiFallback(chain, ctx.text.length, make, preroute);
+    // мусор в начале ответа («personas, personas…») — отбрасываем и спрашиваем ещё раз (запасную модель, если есть)
+    const stream = await guardStream(first, () => withAiFallback(chain.fallback ?? chain, ctx.text.length, make, false));
     return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-AI-Model": encodeURIComponent(modelLabel(used)), ...docsHeader(docs) } });
   } catch (e) {
     return aiErrorResponse(e);
