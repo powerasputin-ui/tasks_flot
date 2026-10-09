@@ -11,7 +11,7 @@ import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion, type AiDoc } from "@/lib/ai-docs";
 import { quickAnswer } from "@/lib/local-quick";
-import { TABLE_RULE, hasConditions, itemRefs, itemsHeader, labelItems, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
+import { TABLE_RULE, directAnswer, directResponse, hasConditions, itemRefs, itemsHeader, labelItems, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
 import { loadTableFacts } from "@/lib/ai-table-load";
 import { guardStream } from "@/lib/ai-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -64,7 +64,7 @@ async function POSTHandler(request: NextRequest) {
       const facts = await loadTableFacts(actor, cycle.directorateId);
       const memoItemIds = state.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds));
       // процессор: выборка из таблицы («у кого», «что просрочено», «не подано», «удалённые») и журнал — сразу точным списком
-      const tableText = b?.localDevice === "cpu" && facts ? tableAnswer({ ...facts, question, memoItemIds, budget: 0 }) : null;
+      const tableText = facts ? (b?.localDevice === "cpu" ? tableAnswer : directAnswer)({ ...facts, question, memoItemIds, budget: 0, memoBullets: bulletNumbers(state.doc) }) : null;
       if (tableText && facts) return NextResponse.json({ local: { kind: "text", text: tableText, items: itemRefs({ ...facts, question, memoItemIds }) } }, { headers });
       // процессор: вопрос про документы — сразу список с путями и ссылками
       if (b?.localDevice === "cpu" && isDocsQuestion(question) && task !== "search") return NextResponse.json({ local: { kind: "text", text: docsAnswer(question, docs), docs: docRefs(docs) } }, { headers });
@@ -114,6 +114,9 @@ async function POSTHandler(request: NextRequest) {
     // таблица уже целиком в контексте — из поиска берём только найденное в справках (архив, черновик)
     // в вопросе точные условия (статус, ответственный…) — ответ из выборки таблицы; поиск похожих слов только сбивает модель (экзамен, R2)
     const precise = !!facts && hasConditions(parseTableQuestion(question, facts.dict));
+    // «какие / у кого / сколько / кто подавал» — точный ответ программы без модели (модель путает метки и людей)
+    const direct = facts ? directAnswer({ ...facts, question, memoItemIds, budget: 0, memoBullets: bulletNumbers(state.doc) }) : null;
+    if (direct) return directResponse(direct, facts ? itemRefs({ ...facts, question, memoItemIds }) : []);
     const memoFound = precise ? null : found && facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found;
     let used = chain as Parameters<typeof modelLabel>[0];
     const make = async (c: Parameters<typeof aiBudget>[0] & Parameters<typeof streamText>[0]) => {
@@ -153,6 +156,19 @@ function memoDocs(state: { doc: Parameters<typeof memoAssistContext>[0]; sources
 /** Метки [Д1]… → ссылки в чате: id позиции и файла (без путей — заголовок короткий). */
 function docsHeader(docs: AiDoc[]): Record<string, string> {
   return docs.length ? { "X-AI-Docs": encodeURIComponent(JSON.stringify(docRefs(docs))) } : {};
+}
+
+/** Номера видимых пунктов справки у позиций (как [n] в контексте модели): «в справке: пункт [3]». */
+function bulletNumbers(doc: Parameters<typeof memoAssistContext>[0]): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  let n = 0;
+  for (const s of doc.sections)
+    for (const b of s.bullets) {
+      if (b.hidden || !b.text.trim()) continue;
+      n++;
+      for (const id of b.itemIds) out.set(id, [...(out.get(id) ?? []), n]);
+    }
+  return out;
 }
 
 export const POST = withApiErrors(POSTHandler);

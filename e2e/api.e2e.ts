@@ -1162,10 +1162,13 @@ describe("справка директора", () => {
     // движок фактов: таблица целиком, итоги и точная выборка (процессор — сразу списком, видеокарта — в запросе модели)
     const nq = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Какие позиции ещё не поданы в справку?" }], engine: "local", localDevice: "cpu" });
     expect(nq.data.local.kind).toBe("text");
-    expect(nq.data.local.text).toMatch(/^По таблице \(не поданы в справку\)/);
+    expect(nq.data.local.text).toMatch(/^Точная выборка по таблице \(не поданы в справку\)/);
+    // вопрос-список — точный ответ программы и на видеокарте; вопрос «на подумать» — модели, с таблицей и итогами
     const ng = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Какие позиции ещё не поданы в справку?" }], engine: "local" });
-    expect(ng.data.local.system).toContain("ИТОГИ ПО ТАБЛИЦЕ");
-    expect(ng.data.local.system).toContain("ВЫБОРКА ПО ВОПРОСУ");
+    expect(ng.data.local.kind).toBe("text");
+    const think = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Что горит и где нужно вмешательство руководства?" }], engine: "local" });
+    expect(think.data.local.kind).toBe("stream");
+    expect(think.data.local.system).toContain("ИТОГИ ПО ТАБЛИЦЕ");
     // ЗГД таблицу не видит — его поиск только по справкам
     const zs = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { messages: [{ role: "user", content: "Найди якорницу" }], engine: "local", localDevice: "cpu" } });
     expect(JSON.stringify(zs.data)).not.toContain("Якорница");

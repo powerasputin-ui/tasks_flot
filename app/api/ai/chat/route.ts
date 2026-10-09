@@ -7,7 +7,7 @@ import { buildLocalPrompt, routeTask } from "@/lib/local-ai-prompt";
 import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion } from "@/lib/ai-docs";
-import { TABLE_RULE, hasConditions, itemRefs, itemsHeader, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
+import { TABLE_RULE, directAnswer, directResponse, hasConditions, itemRefs, itemsHeader, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
 import { loadTableFacts } from "@/lib/ai-table-load";
 import { guardStream } from "@/lib/ai-guard";
 import { canViewItems } from "@/lib/permissions";
@@ -54,8 +54,11 @@ async function POSTHandler(request: NextRequest) {
     const memoHits = (f: NonNullable<typeof found>) => (facts ? { ...f, hits: f.hits.filter((h) => h.kind === "memo") } : f);
     // в вопросе точные условия — отвечаем выборкой таблицы, без поиска похожих слов (он сбивает модель)
     const precise = !!facts && hasConditions(parseTableQuestion(question, facts.dict));
-    if (!cfg && b?.localDevice === "cpu" && facts && !(requested && memos.length === 0)) {
-      const t = tableAnswer({ ...facts, question, memoItemIds, budget: 0 });
+    // «какие / у кого / сколько / кто подавал» — точный ответ программы без модели (облако; у процессора — ниже)
+    const direct = cfg && facts && !(requested && memos.length === 0) ? directAnswer({ ...facts, question, memoItemIds, budget: 0 }) : null;
+    if (direct && facts) return directResponse(direct, itemRefs({ ...facts, question, memoItemIds }));
+    if (!cfg && facts && !(requested && memos.length === 0)) {
+      const t = (b?.localDevice === "cpu" ? tableAnswer : directAnswer)({ ...facts, question, memoItemIds, budget: 0 });
       if (t) return NextResponse.json({ local: { kind: "text", text: t, items: itemRefs({ ...facts, question, memoItemIds }) } }, { headers: { "Cache-Control": "no-store" } });
     }
     // открыли конкретные справки, а доступных среди них нет — отвечать не по чему (свою таблицу вместо чужой справки не подсовываем)

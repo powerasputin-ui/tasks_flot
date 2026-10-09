@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyQuery, cardLine, itemRefs, journalBlock, labelItems, parseTableQuestion, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
+import { applyQuery, cardLine, directAnswer, isListQuestion, itemRefs, journalBlock, labelItems, parseTableQuestion, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
 import { memoAssistContext } from "@/lib/memo-assist";
 import { guardStream, looksGarbage } from "@/lib/ai-guard";
 
@@ -76,6 +76,9 @@ describe("движок фактов: что видит модель", () => {
     expect(wantsJournal("Что изменилось за последнюю неделю?")).toBe(true);
     expect(wantsJournal("Кто сегодня подавал позиции?")).toBe(true);
     expect(wantsJournal("Какие задачи у Майкова?")).toBe(false);
+    // «справку» содержит «правк» — это не вопрос про правки
+    expect(wantsJournal("Какие позиции ещё не поданы в справку?")).toBe(false);
+    expect(wantsJournal("Кто правил пункт?")).toBe(true);
   });
   it("в окне: сначала выборка и позиции справки; не влезло — сказано, что учтено в итогах", () => {
     const t = tableContext({ items, events: [], question: "Что просрочено?", dict, memoItemIds: [], budget: 100000, today: TODAY });
@@ -87,8 +90,39 @@ describe("движок фактов: что видит модель", () => {
   });
   it("без модели (процессор): точный список выборки", () => {
     const a = tableAnswer({ items, events: [], question: "Какие задачи у Сухова?", dict, memoItemIds: [], budget: 0, today: TODAY })!;
-    expect(a).toMatch(/^По таблице \(ответственный Сухов В\.А\.\) — 2:/);
+    expect(a).toMatch(/^Точная выборка по таблице \(ответственный Сухов В\.А\.\): 2 из 5 действующих позиций\./);
     expect(tableAnswer({ items, events: [], question: "Перепиши пункт 2", dict, memoItemIds: [], budget: 0, today: TODAY })).toBeNull();
+  });
+});
+
+describe("прямые ответы программы (облако тоже)", () => {
+  const base = { items, events: [] as FactEvent[], dict, memoItemIds: [], budget: 0, today: TODAY };
+  it("вопрос-список с условиями — точный список с пунктом справки; «на подумать» — модели", () => {
+    const a = directAnswer({ ...base, question: "Какие позиции сейчас в статусе «В работе»?", memoBullets: new Map([[items[2].id, [3]]]) })!;
+    expect(a).toContain("3 из 5 действующих позиций");
+    expect(a).toContain("«Hai Qiang 18: ТКП ожидается» — Козлов А.С.; В работе; срок 07.10.2026 (просрочен на 2 дн.); подана; в справке: пункт [3]");
+    expect(directAnswer({ ...base, question: "Сколько позиций в треке «Кабелеукладчик» и кто по ним ответственный?" })).toContain("По ответственным: Сухов В.А. — 2; Козлов А.С. — 1");
+    expect(directAnswer({ ...base, question: "Что горит и где нужно вмешательство?" })).toBeNull();
+    expect(directAnswer({ ...base, question: "Перепиши пункт про Hai Qiang короче" })).toBeNull();
+    expect(isListQuestion("Что у нас в сегменте «Строительный флот»?")).toBe(true);
+    expect(isListQuestion("Почему сорван срок?")).toBe(false);
+  });
+  it("журнал: «кто сегодня подавал» — по людям, без повторов; период и человек", () => {
+    const now = new Date(Date.UTC(2026, 9, 9, 12));
+    const ev = (itemId: string, h: number, who: string, action: string, after: string | null = null): FactEvent => ({ itemId, at: new Date(Date.UTC(2026, 9, 9, h)), who, action, field: null, before: null, after });
+    const events = [
+      ev(items[0].id, 6, "Майков Т.Г.", "OPER_FLAG_CHANGE", "true"),
+      ev(items[1].id, 6, "Майков Т.Г.", "OPER_FLAG_CHANGE", "true"),
+      ev(items[0].id, 7, "Майков Т.Г.", "OPER_FLAG_CHANGE", "true"),
+      ev(items[3].id, 8, "Сухов В.А.", "OPER_FLAG_CHANGE", "true"),
+      { ...ev(items[2].id, 9, "Майков Т.Г.", "CREATE"), at: new Date(Date.UTC(2026, 9, 1)) },
+    ];
+    const a = directAnswer({ ...base, events, question: "Кто сегодня подавал позиции в справку?", now })!;
+    expect(a).toMatch(/^По журналу правок сегодня \(подал в справку\):/);
+    expect(a).toContain("Майков Т.Г.:\n  подал в справку — 2:");
+    expect(a).toContain("Сухов В.А.:\n  подал в справку — 1:");
+    expect(directAnswer({ ...base, events, question: "Что создал Майков за неделю?", now })).toMatch(/изменений нет|никто не/);
+    expect(directAnswer({ ...base, events, question: "Что изменилось за последнюю неделю?", now })).toContain("По журналу правок за 7 дней:");
   });
 });
 

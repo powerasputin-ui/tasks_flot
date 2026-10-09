@@ -239,7 +239,8 @@ export function journalBlock(events: FactEvent[], labels: Map<string, string>, m
   return [`ЖУРНАЛ ПРАВОК за 14 дней (новые сверху; всего событий ${events.length}${events.length > maxLines ? `, показаны последние ${maxLines}` : ""}):`, ...lines].join("\n");
 }
 
-const JOURNAL_Q = /(изменил|изменен|изменён|поменял|менял|правил|правк|создал|кто добавил|кто завел|кто завёл|подавал|подал|отозвал|удалил|журнал|истори|за недел|за последн|сегодня|вчера)/;
+// «правк» / «правил» — отдельным словом: «справку» их тоже содержит
+const JOURNAL_Q = /(изменил|изменен|изменён|поменял|менял|(?<![а-я])правил|(?<![а-я])правк|создал|кто добавил|кто завел|кто завёл|подавал|подал|отозвал|удалил|журнал|истори|за недел|за последн|сегодня|вчера)/;
 export const wantsJournal = (question: string) => JOURNAL_Q.test(n(question));
 
 /**
@@ -277,23 +278,111 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
   return { text, labels, query, matched, shown };
 }
 
+// ---------- прямые ответы программы ----------
+// Экзамен: даже с полными данными модель путает метки и теряет людей в журнале. Вопросы «какие / у кого / сколько /
+// есть ли» и «кто подавал / что изменилось» — это точный фильтр, отвечает программа (100 % верно); модель — там, где
+// нужно думать (что горит, формулировки, сравнение).
+
+/** Вопрос-список: «какие…», «что у…/в…/по…», «у каких», «у кого», «сколько», «есть ли», «покажи», «кто отвечает». */
+export function isListQuestion(question: string): boolean {
+  return /^(какие|какая|какой|каких|что (у|в|по|просроч|не подан|сейчас|ещ)|у как|у кого|сколько|есть ли|покажи|перечисли|список|кто (отвечает|ответствен))/.test(n(question).replace(/^(а|и|скажи|подскажи|пожалуйста)[ ,]+/, ""));
+}
+
+export type JournalQuery = { from: number; label: string; actions?: string[]; who?: string };
+
+/** Период, действие и человек в вопросе про журнал. null — вопрос не про журнал. */
+export function parseJournalQuestion(question: string, people: string[], now = new Date()): JournalQuery | null {
+  if (!wantsJournal(question)) return null;
+  const q = n(question);
+  const today = todayMsk(now) - 3 * 3600 * 1000; // полночь по Москве в UTC
+  let from = now.getTime() - 14 * DAY;
+  let label = "за 14 дней";
+  if (/сегодня/.test(q)) [from, label] = [today, "сегодня"];
+  else if (/вчера/.test(q)) [from, label] = [today - DAY, "со вчерашнего дня"];
+  else if (/(недел|7 дней|семь дней)/.test(q)) [from, label] = [now.getTime() - 7 * DAY, "за 7 дней"];
+  let actions: string[] | undefined;
+  if (/(подавал|подал|подан|отправлял|отправил)/.test(q)) actions = ["OPER_FLAG_CHANGE:true"];
+  else if (/отозвал/.test(q)) actions = ["OPER_FLAG_CHANGE:false"];
+  else if (/(создал|добавил|завел|завёл)/.test(q)) actions = ["CREATE"];
+  else if (/удалил/.test(q)) actions = ["ARCHIVE"];
+  else if (/статус/.test(q)) actions = ["STATUS_CHANGE"];
+  else if (/срок/.test(q)) actions = ["DEADLINE_CHANGE"];
+  const who = people.find((p) => mentionsPerson(question, p));
+  return { from, label, actions, who };
+}
+
+const evKey = (e: FactEvent) => (e.action === "OPER_FLAG_CHANGE" ? `OPER_FLAG_CHANGE:${e.after}` : e.action);
+const short = (t: string, len = 110) => (t.length > len ? `${t.slice(0, len)}…` : t);
+
+/** Ответ по журналу: по людям, кто что сделал за период (позиции без повторов). */
+export function journalAnswer(events: FactEvent[], items: FactItem[], labels: Map<string, string>, jq: JournalQuery): string {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const list = events.filter((e) => e.at.getTime() >= jq.from && (!jq.actions || jq.actions.includes(evKey(e))) && (!jq.who || e.who === jq.who));
+  const what = jq.actions ? (ACTION[jq.actions[0].split(":")[0]] ?? (() => "изменения"))({ action: jq.actions[0].split(":")[0], after: jq.actions[0].split(":")[1] ?? null } as FactEvent) : "изменения";
+  if (!list.length) return `По журналу правок ${jq.label}${jq.who ? ` у ${jq.who}` : ""}: ${jq.actions ? `никто не ${what.replace(/^(\S+)/, "$1")}` : "изменений нет"}.`;
+  const people = new Map<string, FactEvent[]>();
+  for (const e of list) people.set(e.who ?? "?", [...(people.get(e.who ?? "?") ?? []), e]);
+  const out = [`По журналу правок ${jq.label}${jq.actions ? ` (${what})` : ""}:`];
+  for (const [who, evs] of [...people.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    const groups = new Map<string, Set<string>>();
+    for (const e of evs) {
+      const act = (ACTION[e.action] ?? (() => e.action))(e).replace(/:.*$/, "");
+      groups.set(act, (groups.get(act) ?? new Set()).add(e.itemId));
+    }
+    out.push(`${who}:`);
+    for (const [act, ids] of groups) out.push(`  ${act} — ${ids.size}: ${[...ids].map((id) => `[${labels.get(id) ?? "?"}] «${short(byId.get(id)?.title ?? "?", 70)}»`).join("; ")}`);
+  }
+  return out.join("\n");
+}
+
+/** Строка позиции для человека: название, ответственный, статус, срок, подача, пункт справки. */
+function personLine(i: FactItem, label: string, today: number, memoNo?: number[]): string {
+  const dl = i.deadline ? `срок ${ru(i.deadline)}${isOverdue(i, today) ? ` (просрочен на ${Math.round((today - dayOf(i.deadline)) / DAY)} дн.)` : ""}` : "срок не указан";
+  return `[${label}] ${i.archived ? "УДАЛЕНА — " : ""}«${short(i.title)}» — ${i.owner ?? "ответственный не указан"}; ${i.status ?? "статус не указан"}; ${dl}; ${i.submitted ? "подана" : "не подана"}${memoNo?.length ? `; в справке: пункт ${memoNo.map((x) => `[${x}]`).join(", ")}` : ""}`;
+}
+
 /**
- * Ответ без модели (локальная модель на процессоре): точная выборка по вопросу карточками и/или журнал правок.
- * null — в вопросе нет ни условий выборки, ни вопроса про изменения: нужна модель.
+ * Прямой ответ программы — для облака и локальной модели. Вопрос-выборка с точными условиями → точный список;
+ * вопрос про журнал → кто что сделал. null — вопрос «на подумать», отвечает модель.
  */
-export function tableAnswer(opts: Parameters<typeof tableContext>[0]): string | null {
-  const today = opts.today ?? todayMsk();
+export function directAnswer(opts: Parameters<typeof tableContext>[0] & { memoBullets?: Map<string, number[]>; now?: Date }): string | null {
+  const today = opts.today ?? todayMsk(opts.now);
+  const labels = labelItems(opts.items);
+  const people = [...new Set([...opts.dict.owners, ...opts.items.map((i) => i.author).filter((x): x is string => !!x), ...opts.events.map((e) => e.who).filter((x): x is string => !!x)])];
+  const jq = parseJournalQuestion(opts.question, people, opts.now);
+  if (jq && (jq.actions || /(что|какие)\s.*(изменил|изменен)/.test(n(opts.question)))) return journalAnswer(opts.events, opts.items, labels, jq);
+  const query = parseTableQuestion(opts.question, opts.dict);
+  if (!hasConditions(query) || !isListQuestion(opts.question)) return null;
+  const matched = applyQuery(opts.items, query, today);
+  const active = opts.items.filter((i) => !i.archived).length;
+  const out = [`Точная выборка по таблице (${describeQuery(query)}): ${matched.length ? `${matched.length} из ${active} действующих позиций` : "таких позиций нет"}${query.archived ? "" : ""}.`];
+  out.push(...matched.map((i, k) => `${k + 1}. ${personLine(i, labels.get(i.id)!, today, opts.memoBullets?.get(i.id))}`));
+  if (matched.length > 1 && /(ответствен|у кого|кто)/.test(n(opts.question))) out.push(`По ответственным: ${countBy(matched, (i) => i.owner)}.`);
+  return out.join("\n");
+}
+
+/** Прямой ответ программы в том же виде, что ответ модели (текст потоком + метки [Т…] для ссылок). */
+export function directResponse(text: string, refs: AiItemRef[]): Response {
+  return new Response(text, {
+    headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-AI-Model": encodeURIComponent("Точный ответ по таблице (без ИИ)"), ...itemsHeader(refs) },
+  });
+}
+
+/** Ответ без модели для локальной модели на процессоре: прямой ответ, а если вопрос общий — выборка/журнал, если есть. */
+export function tableAnswer(opts: Parameters<typeof directAnswer>[0]): string | null {
+  const direct = directAnswer(opts);
+  if (direct) return direct;
+  const today = opts.today ?? todayMsk(opts.now);
   const labels = labelItems(opts.items);
   const query = parseTableQuestion(opts.question, opts.dict);
-  const journal = wantsJournal(opts.question);
-  if (!hasConditions(query) && !journal) return null;
+  if (!hasConditions(query) && !wantsJournal(opts.question)) return null;
   const out: string[] = [];
   if (hasConditions(query)) {
     const matched = applyQuery(opts.items, query, today);
     out.push(matched.length ? `По таблице (${describeQuery(query)}) — ${matched.length}:` : `По таблице (${describeQuery(query)}) — таких позиций нет.`);
-    out.push(...matched.map((i) => cardLine(i, labels.get(i.id)!, today, 160)));
+    out.push(...matched.map((i) => personLine(i, labels.get(i.id)!, today, opts.memoBullets?.get(i.id))));
   }
-  if (journal) out.push("", journalBlock(opts.events, labels, 30));
+  if (wantsJournal(opts.question)) out.push("", journalBlock(opts.events, labels, 30));
   return out.join("\n").trim();
 }
 
