@@ -129,6 +129,9 @@ function build(cfg: AiConfig, req: Req, stream: boolean): { url: string; init: R
         ...(req.json ? { response_format: { type: "json_object" } } : {}),
         // у gpt-oss рассуждения расходуют лимит ответа (и бесплатные токены) — просим коротко
         ...(/gpt-oss/i.test(cfg.model) ? { reasoning_effort: "low" } : {}),
+        // наши модели по умолчанию: при температуре 1.0 gpt-oss «срывается» в слова из двух алфавитов («múltiрочные»);
+        // свои ключи (o1, gpt-5…) не трогаем — часть моделей отвергает температуру ≠ 1
+        ...(/gpt-oss|nemotron/i.test(cfg.model) ? { temperature: 0.3 } : {}),
         // Nemotron без «размышлений» отвечает в 2–3 раза быстрее и не съедает лимит ответа рассуждениями (проверено на сводке)
         ...(/nemotron/i.test(cfg.model) ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       }),
