@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { canViewVersion } from "@/lib/memo-versions";
 import { listDirectorates } from "@/lib/directorates";
-import { parseMemoDoc } from "@/lib/memo";
+import { parseMemoDoc, splitTitleDate } from "@/lib/memo";
 import { effectiveDate, type VersionSource } from "@/lib/memo-archive";
 import { AiError, aiBudget, decryptKey, normalizeBaseUrl, providerLabel, type AiConfig, type AiProvider, type MemoForAi } from "@/lib/ai";
 import type { Actor } from "@/lib/permissions";
@@ -166,7 +166,8 @@ export async function loadMemosForAi(actor: Actor, ids: unknown): Promise<MemoFo
       id: v.id,
       directorate: names.get(v.directorateId) ?? "Дирекция",
       title: v.title,
-      date: effectiveDate(v).toLocaleDateString("ru-RU"),
+      // дата совещания; если поле пустое, а дата вписана в заголовок («… к ОС 07.10.2026») — она, как в самой справке
+      date: v.meetingDate ? effectiveDate(v).toLocaleDateString("ru-RU") : splitTitleDate(v.title).date || effectiveDate(v).toLocaleDateString("ru-RU"),
       revision: v.revision,
       doc: parseMemoDoc(v.doc) ?? { sections: [] },
       sources: (Array.isArray(v.sources) ? v.sources : []) as unknown as VersionSource[],

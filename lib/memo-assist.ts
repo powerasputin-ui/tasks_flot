@@ -1,4 +1,4 @@
-import type { MemoDoc } from "@/lib/memo";
+import { splitTitleDate, type MemoDoc } from "@/lib/memo";
 import { SEARCH_RULE } from "@/lib/ai-search";
 import { DOCS_RULE, docMarks, type AiDoc } from "@/lib/ai-docs";
 
@@ -38,12 +38,21 @@ export function rewriteSystem(style: RewriteStyle): string {
 export type MemoMeta = { number?: number; meetingDate?: Date | string | null; deadline?: Date | string | null };
 const ruDay = (d: Date | string) => new Date(d).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
 
+/**
+ * Дата справки так, как её видит человек: поле «Оперативное совещание», а если оно пустое — дата из заголовка
+ * («… к ОС 07.10.2026»): справка показывает её справа сверху, и директор часто вписывает её прямо в заголовок.
+ */
+export function memoDateText(title: string, meetingDate?: Date | string | null): string {
+  if (meetingDate) return ruDay(meetingDate);
+  return splitTitleDate(title).date || "не указана";
+}
+
 export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = []): { text: string; count: number } {
   // дата справки (оперативного совещания) в документе стоит отдельно от заголовка — без неё модель не ответит «когда»
   const lines: string[] = [
     `Справка: ${title}`,
     ...(meta.number ? [`Оперативка №${meta.number}`] : []),
-    `Дата справки (оперативного совещания): ${meta.meetingDate ? ruDay(meta.meetingDate) : "не указана"}`,
+    `Дата справки (оперативного совещания): ${memoDateText(title, meta.meetingDate)}`,
     ...(meta.deadline ? [`Срок подачи строк в справку: ${ruDay(meta.deadline)}`] : []),
   ];
   let n = 0;

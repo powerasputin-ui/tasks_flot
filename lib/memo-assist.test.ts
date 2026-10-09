@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanVariant, memoAssistContext, memoAssistSystem, newNumbers, rewriteSystem } from "@/lib/memo-assist";
+import { cleanVariant, memoAssistContext, memoAssistSystem, memoDateText, newNumbers, rewriteSystem } from "@/lib/memo-assist";
 
 describe("Оперативщик: правила для модели", () => {
   it("переписать пункт: стиль и запрет выдумывать факты", () => {
@@ -32,6 +32,10 @@ describe("Оперативщик: правила для модели", () => {
     expect(dated.text).toContain("Оперативка №41");
     expect(dated.text).toContain("Дата справки (оперативного совещания): 07.10.2026");
     expect(memoAssistSystem(dated.text)).toContain("не переспрашивай");
+    // поле даты пустое, а дата вписана в заголовок — берём её (так её показывает и сама справка)
+    expect(memoDateText("Статус текущих задач — Дирекция флота к ОС 07.10.2026", null)).toBe("07.10.2026");
+    expect(memoDateText("Справка без даты", null)).toBe("не указана");
+    expect(memoAssistContext(doc, "Статус текущих задач к ОС 07.10.2026").text).toContain("Дата справки (оперативного совещания): 07.10.2026");
   });
 });
 

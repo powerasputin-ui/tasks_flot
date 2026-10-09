@@ -4,7 +4,7 @@ import { requireActor } from "@/lib/session";
 import { AiError, aiBudget, localBudget, complete, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
 import { aiErrorResponse, chainForEngine, isLocalEngine, loadEffectiveAiConfig, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
 import { canEditMemo, loadMemo } from "@/lib/memo-load";
-import { cleanVariant, memoAssistContext, memoAssistSystem, newNumbers, rewriteSystem, type RewriteStyle } from "@/lib/memo-assist";
+import { cleanVariant, memoAssistContext, memoAssistSystem, memoDateText, newNumbers, rewriteSystem, type RewriteStyle } from "@/lib/memo-assist";
 import { withApiErrors } from "@/lib/api-guard";
 import { buildLocalPrompt, localRewriteMessages, routeTask } from "@/lib/local-ai-prompt";
 import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
@@ -54,7 +54,7 @@ async function POSTHandler(request: NextRequest) {
         return NextResponse.json({ local: { kind: "rewrite", system, messages: localRewriteMessages(text), maxTokens: 260, original: text, sampling: { temp: 0.2, top_p: 0.9, min_p: 0.05, penalty_repeat: 1.1, penalty_last_n: 128 } } }, { headers });
       }
       const state = await loadMemo(cycle);
-      const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources, date: cycle.meetingDate ? new Date(cycle.meetingDate).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" }) : undefined }];
+      const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources, date: memoDateText(state.title, cycle.meetingDate) }];
       const { task, found } = await searchFor(actor, messages, state);
       const docs = memoDocs(state);
       // процессор: вопрос про документы — сразу список с путями и ссылками

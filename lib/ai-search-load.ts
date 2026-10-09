@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { canViewVersion } from "@/lib/memo-versions";
 import { listDirectorates } from "@/lib/directorates";
-import { parseMemoDoc, type MemoDoc } from "@/lib/memo";
+import { parseMemoDoc, splitTitleDate, type MemoDoc } from "@/lib/memo";
 import { effectiveDate } from "@/lib/memo-archive";
 import { canViewItems, type Actor } from "@/lib/permissions";
 import { loadTableRows, searchHaystack } from "@/lib/table-view";
@@ -49,7 +49,7 @@ export async function aiSearch(actor: Actor, question: string, opts: { draft?: {
     if (!canViewVersion(actor, v)) continue;
     const doc = parseMemoDoc(v.doc);
     if (!doc) continue;
-    memos.push({ id: v.id, directorate: names.get(v.directorateId) ?? "", title: v.title, date: effectiveDate(v).toLocaleDateString("ru-RU"), doc });
+    memos.push({ id: v.id, directorate: names.get(v.directorateId) ?? "", title: v.title, date: v.meetingDate ? effectiveDate(v).toLocaleDateString("ru-RU") : splitTitleDate(v.title).date || effectiveDate(v).toLocaleDateString("ru-RU"), doc });
     if (memos.length >= MEMO_DEPTH) break;
   }
   const found = searchAll(question, items, memos, opts.limit ?? 12);
