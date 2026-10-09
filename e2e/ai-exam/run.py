@@ -94,7 +94,9 @@ def score(q: dict, exp: dict, answer: str, items: list[dict]) -> dict:
         extra = [i for i in items if i["id"] not in exp_ids and mentioned(i, answer, items)]
         res["recall"] = f"{len(hit)}/{len(exp_ids)}"
         add("полнота", len(hit) == len(exp_ids), "не названы: " + "; ".join(f"«{i['title'][:50]}»" for i in exp["items"] if i not in hit) if len(hit) < len(exp_ids) else "")
-        add("лишнее", not extra, "лишние: " + "; ".join(f"«{i['title'][:50]}»" for i in extra) if extra else "")
+        # лишнее считаем только по меткам (по похожим словам — ложные срабатывания) и если вопрос это допускает
+        if LABELS and re.search(r"\[[ТT]\d+\]", answer) and q["check"].get("extra", True):
+            add("лишнее", not extra, "лишние: " + "; ".join(f"«{i['title'][:50]}»" for i in extra) if extra else "")
     if exp.get("no_data"):
         add("честно «нет данных»", bool(HONEST.search(norm(answer))))
     if "count" in exp:

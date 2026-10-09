@@ -165,6 +165,20 @@ def expected(q: dict, d: Data) -> dict:
         v = d.last_version
         bs = [b for s in v["doc"]["sections"] for b in s["bullets"] if not b.get("hidden") and c["contains"].lower() in (s["title"] + b["text"]).lower()]
         return {"items": [d.by_id[x] for b in bs for x in b["itemIds"] if x in d.by_id], "note": f"справка «{v['title']}»: " + "; ".join(b["text"][:80] for b in bs)}
+    if t == "signals":
+        # «что горит» — то же правило, что в приложении, но своим кодом: просрочено; срок ≤ 3 дн.;
+        # ждём чужого (ожида/ждём/подрядчик/…) без срока или после срока; нет ни срока, ни статуса; не подана при сроке ≤ 7 дн.
+        import re
+        wait = re.compile(r"(ожида|жд[её]м|ждут|подрядчик|верф|финансир|бюджет|тендер|согласовани|разрешени|экспертиз|решени[ея] (гд|пао|руковод))")
+        hot = []
+        for i in d.items:
+            if i["archived"] or i["status"] in CLOSED:
+                continue
+            days = (i["deadline"] - today).days if i["deadline"] else None
+            text = (i["title"] + " " + i["comment"]).lower().replace("ё", "е")
+            if (days is not None and days <= 3) or (wait.search(text) and (days is None or days < 0)) or (not i["deadline"] and not i["status"]) or (not i["submitted"] and days is not None and 0 <= days <= 7):
+                hot.append(i)
+        return {"items": hot, "note": "правило «горит» по умолчанию"}
     if t == "manual":
         return {"manual": True, "note": c.get("note") or c.get("rule", "")}
     raise ValueError(t)

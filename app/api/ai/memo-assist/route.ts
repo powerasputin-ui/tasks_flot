@@ -109,7 +109,7 @@ async function POSTHandler(request: NextRequest) {
     const question = messages[messages.length - 1].content;
     const memoItemIds = state.doc.sections.flatMap((s) => s.bullets.flatMap((b) => b.itemIds));
     const labels = facts ? labelItems(facts.items) : null;
-    const ctx = memoAssistContext(state.doc, state.title, { number: cycle.number, meetingDate: cycle.meetingDate, deadline: cycle.deadline }, docs, labels ? (id) => labels.get(id) : undefined);
+    const ctx = memoAssistContext(state.doc, state.title, { number: cycle.number, meetingDate: cycle.meetingDate, deadline: cycle.deadline }, docs, labels ? (id) => labels.get(id) : undefined, state.flags);
     const { task, found } = await searchFor(actor, messages, state);
     // таблица уже целиком в контексте — из поиска берём только найденное в справках (архив, черновик)
     // в вопросе точные условия (статус, ответственный…) — ответ из выборки таблицы; поиск похожих слов только сбивает модель (экзамен, R2)

@@ -48,7 +48,7 @@ export function memoDateText(title: string, meetingDate?: Date | string | null):
   return splitTitleDate(title).date || "не заполнена (поле «Оперативное совещание» в справке пустое)";
 }
 
-export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = [], itemLabel?: (id: string) => string | undefined): { text: string; count: number } {
+export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = [], itemLabel?: (id: string) => string | undefined, flags?: Record<string, { sourceChanged: boolean; sourceMissing: false | string }>): { text: string; count: number } {
   // дата справки (оперативного совещания) в документе стоит отдельно от заголовка — без неё модель не ответит «когда»
   const lines: string[] = [
     `Справка: ${title}`,
@@ -65,7 +65,10 @@ export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = 
       const d = docMarks(b.itemIds, docs);
       // ← [Т5]: из какой позиции таблицы пункт; «текст правил» — кто вручную менял формулировку пункта в справке
       const src = itemLabel ? b.itemIds.map(itemLabel).filter(Boolean).map((l) => `[${l}]`).join(", ") : "";
-      const marks = [d, b.changedBy ? `текст пункта в справке правил: ${b.changedBy}` : "", b.fresh ? "новая подача" : ""].filter(Boolean).join("; ");
+      const f = flags?.[b.id];
+      // расхождение справки и таблицы: строку в таблице поменяли после того, как пункт собран/принят
+      const diff = f?.sourceChanged ? "строка в таблице изменилась после сборки пункта — сверить" : f?.sourceMissing === "unsubmitted" ? "строку отозвали из справки" : f?.sourceMissing === "archived" ? "позицию удалили из таблицы" : "";
+      const marks = [d, b.changedBy ? `текст пункта в справке правил: ${b.changedBy}` : "", b.fresh ? "новая подача" : "", diff].filter(Boolean).join("; ");
       lines.push(`[${++n}] ${b.text.trim()}${src ? ` ← ${src}` : ""}${marks ? ` {${marks}}` : ""}`);
     }
   }

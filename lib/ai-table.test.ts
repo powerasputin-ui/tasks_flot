@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyQuery, cardLine, directAnswer, isListQuestion, itemRefs, journalBlock, labelItems, parseTableQuestion, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
+import { applyQuery, cardLine, directAnswer, isListQuestion, itemRefs, journalBlock, labelItems, parseTableQuestion, signals, signalsBlock, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
 import { memoAssistContext } from "@/lib/memo-assist";
 import { guardStream, looksGarbage } from "@/lib/ai-guard";
 
@@ -145,6 +145,31 @@ describe("ссылки [Т…] и итоги по справке", () => {
     const ctx = memoAssistContext({ sections: [{ id: "s", title: "Раздел", kind: "section", bullets: [b("i1", "Первый", { fresh: true }), b("i2", "Второй", { changedBy: "Сухов В.А." }), b("i3", "Скрытый", { hidden: true })] }] }, "Справка", {}, [], (id) => ({ i1: "Т1", i2: "Т2" })[id]);
     expect(ctx.text).toContain("пунктов 2 в 1 разделах («Раздел» — 2); новые подачи (добавлены автоматически) — 1: [1]; текст пункта правили вручную — [2] — Сухов В.А.");
     expect(ctx.text).toContain("[2] Второй ← [Т2] {текст пункта в справке правил: Сухов В.А.}");
+  });
+});
+
+describe("«что горит»: сигналы по правилу программы", () => {
+  it("просрочено, срок на носу, ждём чужого без срока, нет ни срока ни статуса; закрытые и удалённые — нет", () => {
+    const extra = [
+      ...items,
+      item({ title: "В БКК направлены запросы; ожидается обратная связь", owner: "Майков Т.Г.", status: "В работе", deadline: d("2026-10-11") }),
+      item({ title: "Ожидаем расчёты от инвестиционного отдела", owner: "Майков Т.Г.", status: "В работе" }),
+    ];
+    const s = signals(extra, TODAY);
+    const by = (t: string) => s.find((x) => x.item.title.startsWith(t))?.reasons.join("; ");
+    expect(s[0].item.title).toMatch(/^Hai Qiang/); // просрочка — первой
+    expect(by("Hai Qiang")).toContain("просрочено на 2 дн.");
+    expect(by("В БКК")).toContain("срок через 2 дн.");
+    expect(by("Ожидаем расчёты")).toContain("ждём чужого решения/результата («ожида»), срока нет");
+    expect(by("ШК типов")).toContain("нет ни срока, ни статуса");
+    expect(by("Материалы ГПФ")).toBeUndefined(); // «Завершено»
+    expect(by("тест")).toBeUndefined(); // удалена
+    expect(signalsBlock(s, labelItems(extra))).toMatch(/^СИГНАЛЫ «ГОРИТ»/);
+  });
+  it("пункт справки, у которого строка в таблице изменилась, помечен", () => {
+    const b = { id: "b1", text: "Пункт", itemIds: ["x"], origin: "auto" as const, edited: false, hidden: false, sourceHash: "" };
+    const t = memoAssistContext({ sections: [{ id: "s", title: "Р", kind: "section", bullets: [b] }] }, "Справка", {}, [], undefined, { b1: { sourceChanged: true, sourceMissing: false } }).text;
+    expect(t).toContain("{строка в таблице изменилась после сборки пункта — сверить}");
   });
 });
 

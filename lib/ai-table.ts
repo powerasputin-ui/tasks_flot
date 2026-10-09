@@ -198,6 +198,46 @@ function countBy(list: FactItem[], key: (i: FactItem) => string | null): string 
 }
 
 /** Итоги по всей таблице — числа и списки, которые модель должна брать готовыми. */
+// ---------- «что горит»: сигналы по правилу (считает программа) ----------
+// Правило по умолчанию (пользователь может поменять): 1) просрочено; 2) срок через 3 дня и меньше; 3) ждём чужого
+// решения/результата, а срок прошёл или его нет; 4) нет ни срока, ни статуса; 5) не подана, а срок в ближайшие 7 дней.
+
+const WAITING = /(ожида|жд[её]м|ждут|подрядчик|верф|финансир|бюджет|тендер|согласовани|разрешени|экспертиз|решени[ея] (гд|пао|руковод))/;
+const HOT_Q = /(горит|горящ|вмешат|риск|проблем|узк|срочн|эскал|тревож|под угроз|красн|на что обратить)/;
+export const wantsSignals = (question: string) => HOT_Q.test(n(question));
+
+export type Signal = { item: FactItem; reasons: string[]; weight: number };
+
+export function signals(items: FactItem[], today: number): Signal[] {
+  const out: Signal[] = [];
+  for (const i of items) {
+    if (i.archived || closed(i)) continue;
+    const reasons: string[] = [];
+    let weight = 0;
+    const add = (reason: string, w: number) => {
+      reasons.push(reason);
+      weight += w;
+    };
+    const days = i.deadline ? Math.round((dayOf(i.deadline) - today) / DAY) : null;
+    if (days !== null && days < 0) add(`просрочено на ${-days} дн.`, 4 + Math.min(3, Math.floor(-days / 7)));
+    else if (days !== null && days <= 3) add(days === 0 ? "срок сегодня" : `срок через ${days} дн.`, 3);
+    const wait = WAITING.exec(n(`${i.title} ${i.comment ?? ""}`));
+    if (wait && (days === null || days < 0)) add(`ждём чужого решения/результата («${wait[0]}»)${days === null ? ", срока нет" : ""}`, 2);
+    if (!i.deadline && !i.status) add("нет ни срока, ни статуса", 2);
+    if (!i.submitted && days !== null && days >= 0 && days <= 7) add("не подана в справку, а срок близко", 1);
+    if (reasons.length) out.push({ item: i, reasons, weight });
+  }
+  return out.sort((a, b) => b.weight - a.weight);
+}
+
+export function signalsBlock(sig: Signal[], labels: Map<string, string>): string {
+  if (!sig.length) return "СИГНАЛЫ «ГОРИТ» (по правилу программы): нет — просрочек, сроков на носу, зависших ожиданий и позиций без срока и статуса нет.";
+  return [
+    "СИГНАЛЫ «ГОРИТ» (посчитано программой по правилу: просрочено; срок ≤ 3 дн.; ждём чужого решения без срока или после срока; нет ни срока, ни статуса; не подана при сроке ≤ 7 дн.), сначала самое серьёзное:",
+    ...sig.map((s) => `[${labels.get(s.item.id)}] ${s.reasons.join("; ")} — ответственный: ${s.item.owner ?? "не указан"}`),
+  ].join("\n");
+}
+
 export function summaryBlock(items: FactItem[], labels: Map<string, string>, today: number): string {
   const act = items.filter((i) => !i.archived);
   const del = items.filter((i) => i.archived);
@@ -255,7 +295,11 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
   const parts: string[] = [summaryBlock(opts.items, labels, today)];
   if (hasConditions(query)) parts.push(`ВЫБОРКА ПО ВОПРОСУ (точный фильтр программы по всей таблице; условия: ${describeQuery(query)}): найдено ${matched.length} — ${refs(matched, labels)}.`);
   const journal = wantsJournal(opts.question) ? journalBlock(opts.events, labels) : "";
-  const order = [...matched, ...opts.items.filter((i) => opts.memoItemIds.includes(i.id)), ...opts.items];
+  const sig = signals(opts.items, today);
+  parts.push(signalsBlock(sig, labels));
+  // на «что горит» карточки сигнальных позиций — первыми (чтобы не отрезало окном)
+  const hot = wantsSignals(opts.question) ? sig.map((s) => s.item) : [];
+  const order = [...matched, ...hot, ...opts.items.filter((i) => opts.memoItemIds.includes(i.id)), ...opts.items];
   const seen = new Set<string>();
   const cards: string[] = [];
   const shown: FactItem[] = [];
@@ -274,7 +318,7 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
     used += line.length + 1;
   }
   const head = `ТАБЛИЦА ДИРЕКЦИИ — карточки позиций (задач), включая удалённые${skipped ? `; не показаны ${skipped} позиций — они учтены в ИТОГАХ` : ""}:`;
-  const text = [parts[0], ...(parts[1] ? [parts[1]] : []), "", head, ...cards, ...(journal ? ["", journal] : [])].join("\n");
+  const text = [...parts, "", head, ...cards, ...(journal ? ["", journal] : [])].join("\n");
   return { text, labels, query, matched, shown };
 }
 
@@ -437,5 +481,7 @@ export const TABLE_RULE = [
   "Списки и числа (сколько, какие, у кого, что просрочено, что не подано) — ТОЛЬКО из «ИТОГОВ» и «ВЫБОРКИ ПО ВОПРОСУ»: они посчитаны программой по всей таблице и полные. Сам не пересчитывай и ничего не добавляй.",
   "Человек в вопросе («что у Майкова») — ответственный за позицию. «Кто создал», «кто менял», «кто подавал», «что изменилось» — из полей «создал»/«последним менял» и «ЖУРНАЛА ПРАВОК».",
   "Если нужного поля нет или оно «не указано» — так и скажи. Никогда не утверждай того, чего нет в данных.",
+  "«Что горит», «где вмешаться», «риски» — назови ВСЕ позиции из «СИГНАЛОВ «ГОРИТ»» в их порядке, с причиной и ответственным, и для каждой — что сделать (запросить новый срок, поторопить, принять решение, уточнить статус). Свои дополнительные наблюдения по тексту давай отдельно, с пометкой «Вывод:».",
+  "Пометка у пункта справки «строка в таблице изменилась после сборки» — расхождение справки и таблицы: на вопрос о расхождениях назови такие пункты и в чём разница.",
   "Каждую позицию в ответе называй словами, а метку ставь рядом: «[Т7] расчёты БКК по консолидации — Майков, В работе, срок 09.10». Одни метки без названий не пиши: человек их не расшифрует. Удалённые помечай «удалена».",
 ].join("\n");
