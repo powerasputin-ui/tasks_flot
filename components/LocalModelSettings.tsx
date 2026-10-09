@@ -8,10 +8,10 @@ const ENGINE_KEY = "ai-engine";
 
 /** Какую модель скачать — по компьютеру. Все — .gguf до ~3 ГБ (больше в память браузера не помещается). */
 const MODELS: Array<{ pc: string; name: string; file: string; size: string; url: string }> = [
-  { pc: "Игровой ноутбук с видеокартой NVIDIA (Legion и т. п.)", name: "Qwen3-4B-Instruct-2507", file: "Q5_K_M", size: "2,7 ГБ", url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF" },
-  { pc: "Ноутбук с отдельной видеокартой попроще", name: "Qwen3-4B-Instruct-2507", file: "Q4_K_M", size: "2,3 ГБ", url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF" },
-  { pc: "Офисный ноутбук без видеокарты", name: "Qwen2.5-1.5B-Instruct", file: "q4_k_m", size: "1,0 ГБ", url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF" },
-  { pc: "Слабый компьютер (самая быстрая, но простая)", name: "Qwen2.5-0.5B-Instruct", file: "q4_k_m", size: "0,5 ГБ", url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF" },
+  { pc: "Ноутбук с видеокартой NVIDIA (Legion и т. п.)", name: "Qwen3-4B-Instruct-2507", file: "Q4_K_M", size: "2,3 ГБ", url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF" },
+  { pc: "Офисный ноутбук (i7, 16 ГБ) — рекомендую", name: "Qwen3-1.7B", file: "Q4_K_M", size: "1,0 ГБ", url: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF" },
+  { pc: "Офисный ноутбук — быстрее, но проще", name: "Qwen2.5-1.5B-Instruct", file: "q4_k_m", size: "1,0 ГБ", url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF" },
+  { pc: "Самый слабый компьютер, для пробы", name: "Qwen2.5-0.5B-Instruct", file: "q4_k_m", size: "0,5 ГБ", url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF" },
 ];
 
 const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1).replace(".", ",")} ГБ`;
@@ -152,7 +152,7 @@ export function LocalModelSettings() {
 
       {onCpu && result?.ok && (
         <p className="rounded-md bg-status-amber/10 px-3 py-2 text-[12px] leading-snug text-on-surface">
-          Считает процессор: переписать пункт — нормально, а вопросы по справке модель читает медленно (до минуты-двух), поэтому видит только её сжатую выжимку. Быстро и по всей справке — на ноутбуке с отдельной видеокартой.
+          Считает процессор. Быстрые кнопки чата (слабые места, сроки, вопросы директору, проверка формулировок) отвечают мгновенно — справку разбирает программа. «Переписать пункт» — около минуты. Свой вопрос модель читает медленно (несколько минут) и видит только выжимку справки. Полный разбор моделью — на ноутбуке с видеокартой.
         </p>
       )}
       {!canRememberFile() && <p className="text-[11px] leading-snug text-status-amber">Этот браузер не запоминает файл — после перезагрузки страницы его нужно выбрать снова. В Edge и Chrome запоминается.</p>}

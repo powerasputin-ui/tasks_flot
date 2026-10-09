@@ -320,8 +320,14 @@ export const LOCAL_BUDGET: AiBudget = { small: true, contextChars: 10000, histor
  * Та же модель на процессоре: в браузере она читает запрос не быстрее, чем пишет (замерено: ~20–30 токенов/с у модели 0,5B,
  * у 3–4B — в разы медленнее). Длинная справка — это минуты до первого слова, поэтому даём ей сжатую выжимку.
  */
-export const LOCAL_BUDGET_CPU: AiBudget = { small: true, contextChars: 3000, historyChars: 1500, chatOut: 600, consolidateOut: 0 };
-export const localBudget = (device: unknown): AiBudget => (device === "cpu" ? LOCAL_BUDGET_CPU : LOCAL_BUDGET);
+export const LOCAL_BUDGET_CPU: AiBudget = { small: true, contextChars: 1500, historyChars: 800, chatOut: 400, consolidateOut: 0 };
+/** Бюджет под устройство и окно модели (крупным моделям браузер даёт окно меньше — см. ctxForSize в lib/local-ai.ts). */
+export const localBudget = (device: unknown, ctx?: unknown): AiBudget => {
+  if (device === "cpu") return LOCAL_BUDGET_CPU;
+  if (ctx === 4096) return { ...LOCAL_BUDGET, contextChars: 4000, historyChars: 1200 };
+  if (ctx === 6144) return { ...LOCAL_BUDGET, contextChars: 7000, historyChars: 2000 };
+  return LOCAL_BUDGET;
+};
 
 export function buildContext(memos: MemoForAi[], limit = CONTEXT_LIMIT): string {
   return buildContextInfo(memos, limit).text;

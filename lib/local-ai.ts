@@ -9,12 +9,15 @@ import { cleanVariant, newNumbers } from "@/lib/memo-assist";
 
 export type LocalModelMeta = { name: string; size: number; files: number };
 export type LocalPrompt = {
-  kind: "stream" | "rewrite";
+  /** «text» — готовый ответ сервера без модели (мгновенный разбор на процессоре, lib/local-quick.ts). */
+  kind: "stream" | "rewrite" | "text";
+  text?: string;
   system: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
   maxTokens: number;
   trimmed?: false | "compact" | "cut";
   original?: string; // для «rewrite»: исходный пункт — проверить, не появились ли новые цифры
+  sampling?: { temp: number; top_p: number; min_p: number; penalty_repeat: number; penalty_last_n: number };
 };
 
 const META_KEY = "operativka.localModel.v1";
@@ -23,6 +26,16 @@ const DB = "operativka-local-ai";
 const STORE = "handles";
 /** Окно модели в токенах. 8 тыс. хватает на сжатую справку + вопрос + ответ и не съедает память слабого ПК. */
 export const LOCAL_CTX = 8192;
+
+/**
+ * Окно под размер модели: веса + кэш внимания должны уместиться в 4 ГБ памяти страницы. Кэш у 4B-модели на 8 тыс.
+ * токенов ≈ 1,1 ГБ — с весами 2,3 ГБ это на грани, поэтому для крупных моделей окно меньше (сервер ужимает справку так же).
+ */
+export function ctxForSize(bytes: number): number {
+  if (bytes > 2.5 * 1024 ** 3) return 4096;
+  if (bytes > 1.8 * 1024 ** 3) return 6144;
+  return LOCAL_CTX;
+}
 /** Больше ~3 ГБ в память страницы браузера не помещается (у WebAssembly потолок 4 ГБ на всё). */
 export const LOCAL_MAX_BYTES = 3.3 * 1024 ** 3;
 const CHANGE = "local-model-change";
@@ -259,7 +272,7 @@ async function getEngine(onStatus?: (s: string | null) => void): Promise<Wllama>
       let w = create();
       const pref = devicePref();
       const useGpu = pref === "gpu" || (pref === "auto" && (await gpuWorthIt()));
-      const base = { n_ctx: LOCAL_CTX, default_template_kwargs: { enable_thinking: false }, reasoning: false };
+      const base = { n_ctx: ctxForSize(files.reduce((s, f) => s + f.size, 0)), default_template_kwargs: { enable_thinking: false }, reasoning: false };
       try {
         await w.loadModel(files, useGpu ? base : { ...base, n_gpu_layers: 0 });
       } catch (e) {
@@ -290,32 +303,114 @@ async function getEngine(onStatus?: (s: string | null) => void): Promise<Wllama>
 
 const enc = new TextEncoder();
 
-/** Сгенерировать ответ по готовому запросу сервера; текст идёт потоком. */
+/** Иероглифы, кана, хангыль — маленькие Qwen иногда вставляют их посреди русского текста. */
+const CJK = /[\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]/g;
+
+/** Русский ли текст: среди букв ≥ 60 % кириллицы (латиница бывает в названиях судов и аббревиатурах). */
+export function looksRussian(text: string): boolean {
+  const letters = text.match(/[A-Za-zА-Яа-яЁё]/g) ?? [];
+  if (letters.length < 12) return true;
+  return letters.filter((c) => /[А-Яа-яЁё]/.test(c)).length / letters.length >= 0.6;
+}
+
+/** Модель пошла по кругу: одна и та же фраза (от 20 знаков) уже трижды. */
+export function isLooping(text: string): boolean {
+  const seen = new Map<string, number>();
+  for (const raw of text.split(/[.!?\n]+/)) {
+    const k = raw.trim().toLowerCase();
+    if (k.length < 20) continue;
+    const c = (seen.get(k) ?? 0) + 1;
+    if (c >= 3) return true;
+    seen.set(k, c);
+  }
+  return false;
+}
+
+const NUM = /\d+(?:[.,]\d+)*/g;
+/** Числа ответа, которых нет в запросе (справке): номера пунктов [n] и нумерацию списка не считаем. */
+export function unknownNumbers(answer: string, prompt: string): string[] {
+  const norm = (x: string) => x.replace(",", ".");
+  const known = new Set((prompt.match(NUM) ?? []).map(norm));
+  const clean = answer.replace(/\[\d+\]/g, " ").replace(/^\s*\d+[.)]\s/gm, " ");
+  return [...new Set((clean.match(NUM) ?? []).map(norm))].filter((n) => n.replace(/\D/g, "").length >= 2 && !known.has(n));
+}
+
+/**
+ * Сгенерировать ответ по готовому запросу сервера; текст идёт потоком. Страховки для маленькой модели:
+ * начало ответа (80 знаков) придерживаем — если оно не по-русски, переспрашиваем один раз с напоминанием;
+ * иероглифы вырезаем; повтор одной фразы останавливает ответ; числа, которых нет в справке, — пометкой в конце.
+ */
 export async function localStream(p: LocalPrompt, signal: AbortSignal | undefined, onStatus?: (s: string | null) => void): Promise<ReadableStream<Uint8Array>> {
   const w = await getEngine(onStatus);
   onStatus?.(null);
-  const messages = [{ role: "system" as const, content: p.system }, ...p.messages];
+  const base = [{ role: "system" as const, content: p.system }, ...p.messages];
+  const promptText = base.map((m) => m.content).join("\n");
+  const sampling = p.sampling ?? { temp: 0.35, top_p: 0.9, min_p: 0.05, penalty_repeat: 1.1, penalty_last_n: 128 };
   return new ReadableStream<Uint8Array>({
     async start(ctrl) {
-      let think = false; // модели с рассуждениями: «<think>…</think>» человеку не показываем
+      let answer = "";
+      const run = async (attempt: number): Promise<"ok" | "retry"> => {
+        const stop = new AbortController();
+        const onOuter = () => stop.abort();
+        signal?.addEventListener("abort", onOuter);
+        let think = false; // модели с рассуждениями: «<think>…</think>» человеку не показываем
+        let head = "";
+        let open = false; // начало уже показали
+        let verdict: "ok" | "retry" = "ok";
+        const messages = attempt === 0 ? base : [...base.slice(0, -1), { ...base[base.length - 1], content: `${base[base.length - 1].content}\n\nВажно: пиши ответ только на русском языке.` }];
+        try {
+          await w.createChatCompletion({
+            messages,
+            max_tokens: p.maxTokens,
+            ...sampling,
+            temperature: attempt === 0 ? sampling.temp : 0.15,
+            stream: true,
+            abortSignal: stop.signal,
+            chat_template_kwargs: { enable_thinking: false },
+            onData: (chunk) => {
+              let t = chunk.choices[0]?.delta?.content ?? "";
+              if (!t || stop.signal.aborted) return;
+              if (think || t.includes("<think>")) {
+                think = !t.includes("</think>");
+                t = think ? "" : t.slice(t.indexOf("</think>") + 8);
+              }
+              t = t.replace(CJK, "");
+              if (!t) return;
+              if (!open) {
+                head += t;
+                if (head.length < 80) return;
+                if (attempt === 0 && !looksRussian(head)) {
+                  verdict = "retry";
+                  stop.abort();
+                  return;
+                }
+                open = true;
+                answer += head;
+                ctrl.enqueue(enc.encode(head));
+                return;
+              }
+              answer += t;
+              ctrl.enqueue(enc.encode(t));
+              if (isLooping(answer)) stop.abort();
+            },
+          });
+        } catch (e) {
+          if (!stop.signal.aborted) throw e;
+        } finally {
+          signal?.removeEventListener("abort", onOuter);
+        }
+        if (signal?.aborted) return "ok";
+        if (!open && head) {
+          if (attempt === 0 && !looksRussian(head)) return "retry";
+          answer += head;
+          ctrl.enqueue(enc.encode(head));
+        }
+        return verdict;
+      };
       try {
-        await w.createChatCompletion({
-          messages,
-          max_tokens: p.maxTokens,
-          temperature: 0.4,
-          stream: true,
-          abortSignal: signal,
-          chat_template_kwargs: { enable_thinking: false },
-          onData: (chunk) => {
-            let t = chunk.choices[0]?.delta?.content ?? "";
-            if (!t) return;
-            if (think || t.includes("<think>")) {
-              think = !t.includes("</think>");
-              t = think ? "" : t.slice(t.indexOf("</think>") + 8);
-            }
-            if (t) ctrl.enqueue(enc.encode(t));
-          },
-        });
+        if ((await run(0)) === "retry" && !signal?.aborted) await run(1);
+        const odd = p.kind === "stream" ? unknownNumbers(answer, promptText) : [];
+        if (odd.length && !signal?.aborted) ctrl.enqueue(enc.encode(`\n\nПроверьте: ${odd.slice(0, 5).join(", ")} — этих чисел нет в справке, модель могла ошибиться.`));
         ctrl.close();
       } catch (e) {
         if ((e as Error).name === "AbortError" || signal?.aborted) ctrl.close();
@@ -365,11 +460,12 @@ export async function aiRequest(url: string, body: Record<string, unknown>, opts
   } catch (e) {
     return errorResponse((e as Error).message);
   }
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, engine: "local", localDevice: await plannedDevice() }), signal: opts.signal });
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, engine: "local", localDevice: await plannedDevice(), localCtx: ctxForSize(localModelMeta()?.size ?? 0) }), signal: opts.signal });
   if (!r.ok) return r;
   const d = (await r.json().catch(() => null)) as { local?: LocalPrompt } | null;
   if (!d?.local) return errorResponse("Сервер не подготовил запрос для локальной модели.");
   const p = d.local;
+  if (p.kind === "text") return new Response(p.text ?? "", { headers: { "Content-Type": "text/plain; charset=utf-8", "X-AI-Model": encodeURIComponent("Мгновенный разбор по данным таблицы") } });
   const label = encodeURIComponent(`Локальная · ${localModelMeta()?.name ?? "модель"}`);
   try {
     const stream = await localStream(p, opts.signal, opts.onStatus);

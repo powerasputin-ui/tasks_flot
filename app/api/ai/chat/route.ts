@@ -3,6 +3,8 @@ import { requireActor } from "@/lib/session";
 import { AiError, aiBudget, localBudget, buildContextInfo, chatSystem, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
 import { aiErrorResponse, canUseAi, chainForEngine, isLocalEngine, loadEffectiveAiConfig, loadLatestMemoIds, loadMemosForAi, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
+import { buildLocalPrompt } from "@/lib/local-ai-prompt";
+import { quickAnswer } from "@/lib/local-quick";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 const MAX_MESSAGES = 20;
@@ -14,7 +16,7 @@ async function POSTHandler(request: NextRequest) {
   if (!canUseAi(actor)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const limited = await enforceRateLimit(`ai-chat:${actor.id}`, 40, 600000, "вопросов помощнику");
   if (limited) return limited;
-  const b = (await request.json().catch(() => null)) as { versionIds?: unknown; messages?: unknown; engine?: unknown; localDevice?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { versionIds?: unknown; messages?: unknown; engine?: unknown; localDevice?: unknown; localCtx?: unknown } | null;
   const messages: ChatMessage[] = (Array.isArray(b?.messages) ? (b!.messages as Array<{ role?: string; content?: unknown }>) : [])
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .slice(-MAX_MESSAGES)
@@ -28,13 +30,23 @@ async function POSTHandler(request: NextRequest) {
     const memos = await loadMemosForAi(actor, requested ? b?.versionIds : await loadLatestMemoIds(actor));
     if (memos.length === 0) return NextResponse.json({ error: "NO_CONTEXT", message: "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
     if (!cfg) {
-      // локальная модель: тот же запрос, что ушёл бы в облако, но ужатый под её окно — считает браузер этого человека
-      const lb = localBudget(b?.localDevice);
-      const ctx = buildContextInfo(memos, lb.contextChars);
-      return NextResponse.json(
-        { local: { kind: "stream", system: chatSystem(ctx.text), messages: fitHistory(messages, lb.historyChars), maxTokens: lb.chatOut, trimmed: ctx.trimmed } },
-        { headers: { "Cache-Control": "no-store" } },
-      );
+      // локальная модель (маленькая): сроки, пустые формулировки, дубли считает сервер, модель формулирует выводы
+      // (lib/local-ai-prompt.ts); ответ считает браузер этого человека, справки в облако не уходят
+      const lb = localBudget(b?.localDevice, b?.localCtx);
+      const localMemos = memos.map((m) => ({ directorate: m.directorate, title: m.title, doc: m.doc, sources: m.sources }));
+      // на процессоре типовые вопросы — мгновенный разбор кодом (модель читала бы справку минутами), см. lib/local-quick.ts
+      const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "zgd", memos: localMemos, question: messages[messages.length - 1].content }) : null;
+      if (quick) return NextResponse.json({ local: { kind: "text", text: quick } }, { headers: { "Cache-Control": "no-store" } });
+      const local = buildLocalPrompt({
+        audience: "zgd",
+        memos: localMemos,
+        compact: b?.localDevice === "cpu",
+        messages,
+        contextChars: lb.contextChars,
+        historyChars: lb.historyChars,
+        outScale: b?.localDevice === "cpu" ? 0.75 : 1,
+      });
+      return NextResponse.json({ local }, { headers: { "Cache-Control": "no-store" } });
     }
     const fullLength = buildContextInfo(memos).text.length;
     const { chain, preroute } = chainForEngine(cfg, parseEngine(b?.engine));

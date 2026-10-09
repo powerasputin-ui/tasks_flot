@@ -1124,12 +1124,19 @@ describe("справка директора", () => {
     expect((await ask(director, { cycleId, mode: "rewrite", text: "Текст", engine: "local" })).status).toBe(404);
     const rw = await ask(directorB, { cycleId, mode: "rewrite", text: "Сделано 3 рейса.", style: "shorter", engine: "local" });
     expect(rw.status).toBe(200);
-    expect(rw.data.local).toMatchObject({ kind: "rewrite", original: "Сделано 3 рейса.", messages: [{ role: "user", content: "Сделано 3 рейса." }] });
+    expect(rw.data.local).toMatchObject({ kind: "rewrite", original: "Сделано 3 рейса." });
+    expect(rw.data.local.messages.at(-1).content).toContain("Пункт: Сделано 3 рейса.");
+    expect(rw.data.local.system).toContain("только на русском");
+    // процессор: типовой вопрос — мгновенный разбор кодом, без модели
+    const qc = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Проверь справку: где формулировки слабые" }], engine: "local", localDevice: "cpu" });
+    expect(qc.status).toBe(200);
+    expect(qc.data.local.kind).toBe("text");
+    expect(qc.data.local.text.length).toBeGreaterThan(10);
     const lc = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Что главное?" }], engine: "local" });
     expect(lc.status).toBe(200);
     expect(lc.data.local.kind).toBe("stream");
     expect(lc.data.local.system.length).toBeGreaterThan(100);
-    expect(lc.data.local.messages.at(-1).content).toBe("Что главное?");
+    expect(lc.data.local.messages.at(-1).content).toMatch(/^Что главное\?\n\nЗадача: [\s\S]*Отвечай по-русски\.$/);
   });
 
   it("новая подача сама встаёт в собранную справку (с меткой «новая подача»), правки директора не трогаются", async () => {
@@ -1415,6 +1422,10 @@ describe("отправка справки ЗГД, архив, возврат", (
     expect(local.status).toBe(200);
     expect(local.data.local.kind).toBe("stream");
     expect(local.data.local.system).toContain(word);
+    expect(local.data.local.system).toContain("РАЗБОР");
+    const quick = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "Сроки: что просрочено?" }], engine: "local", localDevice: "cpu" } });
+    expect(quick.data.local.kind).toBe("text");
+    expect(quick.data.local.text).toContain("Просрочено:");
     expect((await call(headB, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }], engine: "local" } })).status).toBe(403);
     const merged = await call(management, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } });
     expect(merged.data.aiUsed).toBe(false);

@@ -6,6 +6,8 @@ import { aiErrorResponse, chainForEngine, isLocalEngine, loadEffectiveAiConfig, 
 import { canEditMemo, loadMemo } from "@/lib/memo-load";
 import { cleanVariant, memoAssistContext, memoAssistSystem, newNumbers, rewriteSystem, type RewriteStyle } from "@/lib/memo-assist";
 import { withApiErrors } from "@/lib/api-guard";
+import { buildLocalPrompt, localRewriteMessages } from "@/lib/local-ai-prompt";
+import { quickAnswer } from "@/lib/local-quick";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 const MAX_TEXT = 6000;
@@ -19,7 +21,7 @@ const MAX_MESSAGE_LEN = 4000;
  */
 async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
-  const b = (await request.json().catch(() => null)) as { cycleId?: unknown; mode?: unknown; text?: unknown; style?: unknown; messages?: unknown; engine?: unknown; localDevice?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { cycleId?: unknown; mode?: unknown; text?: unknown; style?: unknown; messages?: unknown; engine?: unknown; localDevice?: unknown; localCtx?: unknown } | null;
   const cycleId = typeof b?.cycleId === "string" ? b.cycleId : "";
   const cycle = cycleId ? await prisma.cycle.findUnique({ where: { id: cycleId } }) : null;
   if (!cycle || !canEditMemo(actor, cycle)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
@@ -42,18 +44,28 @@ async function POSTHandler(request: NextRequest) {
     if (isLocalEngine(b?.engine)) {
       // локальная модель: отдаём готовый запрос, ответ считает браузер (lib/local-ai.ts); справка в облако не уходит
       const headers = { "Cache-Control": "no-store" };
-      const lb = localBudget(b?.localDevice);
+      const lb = localBudget(b?.localDevice, b?.localCtx);
       if (mode === "rewrite") {
         const style: RewriteStyle = b?.style === "shorter" || b?.style === "formal" ? b.style : "improve";
-        return NextResponse.json({ local: { kind: "rewrite", system: rewriteSystem(style), messages: [{ role: "user", content: text }], maxTokens: lb.chatOut, original: text } }, { headers });
+        const system = `${rewriteSystem(style)}
+Отвечай только на русском языке.`;
+        return NextResponse.json({ local: { kind: "rewrite", system, messages: localRewriteMessages(text), maxTokens: 260, original: text, sampling: { temp: 0.2, top_p: 0.9, min_p: 0.05, penalty_repeat: 1.1, penalty_last_n: 128 } } }, { headers });
       }
       const state = await loadMemo(cycle);
-      const ctx = memoAssistContext(state.doc, state.title);
-      const cut = ctx.text.length > lb.contextChars;
-      return NextResponse.json(
-        { local: { kind: "stream", system: memoAssistSystem(ctx.text.slice(0, lb.contextChars)), messages: fitHistory(messages, lb.historyChars), maxTokens: lb.chatOut, trimmed: cut ? "cut" : false } },
-        { headers },
-      );
+      const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources }];
+      // на процессоре типовые вопросы — мгновенный разбор кодом (lib/local-quick.ts)
+      const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "compiler", memos: localMemos, question: messages[messages.length - 1].content }) : null;
+      if (quick) return NextResponse.json({ local: { kind: "text", text: quick } }, { headers });
+      const local = buildLocalPrompt({
+        audience: "compiler",
+        memos: localMemos,
+        compact: b?.localDevice === "cpu",
+        messages,
+        contextChars: lb.contextChars,
+        historyChars: lb.historyChars,
+        outScale: b?.localDevice === "cpu" ? 0.75 : 1,
+      });
+      return NextResponse.json({ local }, { headers });
     }
     const cfg = await loadEffectiveAiConfig(actor.id);
     if (!cfg) throw new AiError("NOT_CONFIGURED", "ИИ не подключён: попросите администратора подключить его для всех или вставьте свой ключ в настройках ИИ.");
