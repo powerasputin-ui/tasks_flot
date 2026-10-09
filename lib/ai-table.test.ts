@@ -106,6 +106,13 @@ describe("прямые ответы программы (облако тоже)",
     expect(directAnswer({ ...base, question: "Перепиши пункт про Hai Qiang короче" })).toBeNull();
     expect(isListQuestion("Что у нас в сегменте «Строительный флот»?")).toBe(true);
     expect(isListQuestion("Почему сорван срок?")).toBe(false);
+    expect(isListQuestion("Сколько стоит покупка Tidebon 801?")).toBe(false); // стоимость — не список (экзамен, N1)
+  });
+  it("«кто отвечает за …» — по предмету в названиях, сначала где предмет в начале", () => {
+    const extra = [...items, item({ title: "Командировка: осмотр Hai Qiang 18 и деккеров", owner: "Сухов В.А.", status: "В работе" })];
+    const a = directAnswer({ ...base, items: extra, question: "Кто отвечает за позицию по судну Hai Qiang 18?" })!;
+    expect(a).toMatch(/^Позиции, где упоминается предмет вопроса \(2\):\n\[Т\d+\] «Hai Qiang 18: ТКП ожидается» — ответственный: Козлов А\.С\./);
+    expect(directAnswer({ ...base, question: "Кто отвечает за дирижабль?" })).toBeNull();
   });
   it("журнал: «кто сегодня подавал» — по людям, без повторов; период и человек", () => {
     const now = new Date(Date.UTC(2026, 9, 9, 12));

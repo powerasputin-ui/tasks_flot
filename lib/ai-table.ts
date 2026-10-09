@@ -285,7 +285,36 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
 
 /** Вопрос-список: «какие…», «что у…/в…/по…», «у каких», «у кого», «сколько», «есть ли», «покажи», «кто отвечает». */
 export function isListQuestion(question: string): boolean {
-  return /^(какие|какая|какой|каких|что (у|в|по|просроч|не подан|сейчас|ещ)|у как|у кого|сколько|есть ли|покажи|перечисли|список|кто (отвечает|ответствен))/.test(n(question).replace(/^(а|и|скажи|подскажи|пожалуйста)[ ,]+/, ""));
+  const q = n(question).replace(/^(а|и|скажи|подскажи|пожалуйста)[ ,]+/, "");
+  // «сколько стоит», «почему», «как …» — не список: такое программа не считает, отвечает модель (экзамен, N1)
+  if (/(сколько сто|стоимост|цена|цену|сумм|бюджет|почему|зачем|как (так|быть|лучше|сделать))/.test(q)) return false;
+  return /^(какие|какая|какой|каких|что (у|в|по|просроч|не подан|сейчас|ещ)|у как|у кого|сколько|есть ли|покажи|перечисли|список|кто (отвечает|ответствен))/.test(q);
+}
+
+const STOP_WHO = new Set(["кто", "отвечает", "ответственный", "ответственная", "ответственен", "позицию", "позиция", "позиции", "задачу", "задача", "задаче", "судну", "судно", "судна", "по", "за", "про", "у", "нас", "в", "на", "и"]);
+
+/**
+ * «Кто отвечает за …» без точных условий: позиции, в названии которых есть предмет вопроса (основы слов),
+ * лучшие по числу совпадений, — с ответственным и автором. null — не такой вопрос или ничего не нашлось.
+ */
+export function whoAnswer(question: string, items: FactItem[], labels: Map<string, string>, today: number): string | null {
+  const q = n(question);
+  if (!/^кто (отвечает|ответствен|ведет|ведёт|занимается)/.test(q)) return null;
+  const subj = words(question).filter((w) => !STOP_WHO.has(w)).map(stem);
+  if (!subj.length) return null;
+  const scored = items
+    .filter((i) => !i.archived)
+    .map((i) => {
+      const ws = words(i.title).map(stem);
+      return { i, s: subj.filter((w) => ws.includes(w)).length, first: n(i.title).indexOf(subj[0]) };
+    })
+    .filter((x) => x.s > 0);
+  if (!scored.length) return null;
+  const best = Math.max(...scored.map((x) => x.s));
+  // сначала позиции, где предмет — в начале названия («По судну Hai Qiang 18…»), а не упомянут попутно
+  const top = scored.filter((x) => x.s === best).sort((a, b) => (a.first < 0 ? 1e9 : a.first) - (b.first < 0 ? 1e9 : b.first));
+  const lines = top.map(({ i }) => `[${labels.get(i.id)}] «${short(i.title)}» — ответственный: ${i.owner ?? "не указан"}${i.author && i.author !== i.owner ? `; создал: ${i.author}` : ""}; ${i.status ?? "статус не указан"}; ${i.deadline ? `срок ${ru(i.deadline)}` : "срок не указан"}`);
+  return top.length === 1 ? `Ответственный — ${top[0].i.owner ?? "не указан"}.\n${lines[0]}` : `Позиции, где упоминается предмет вопроса (${top.length}):\n${lines.join("\n")}`;
 }
 
 export type JournalQuery = { from: number; label: string; actions?: string[]; who?: string };
@@ -352,6 +381,12 @@ export function directAnswer(opts: Parameters<typeof tableContext>[0] & { memoBu
   const jq = parseJournalQuestion(opts.question, people, opts.now);
   if (jq && (jq.actions || /(что|какие)\s.*(изменил|изменен)/.test(n(opts.question)))) return journalAnswer(opts.events, opts.items, labels, jq);
   const query = parseTableQuestion(opts.question, opts.dict);
+  // «кто отвечает за …» — без условий по полям, ищем предмет в названиях (экзамен, W2: модель ответила «не указан»)
+  const onlyOwner = Object.keys(query).every((k) => k === "owner");
+  if (onlyOwner && !query.owner) {
+    const who = whoAnswer(opts.question, opts.items, labels, today);
+    if (who) return who;
+  }
   if (!hasConditions(query) || !isListQuestion(opts.question)) return null;
   const matched = applyQuery(opts.items, query, today);
   const active = opts.items.filter((i) => !i.archived).length;

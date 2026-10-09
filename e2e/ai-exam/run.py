@@ -59,6 +59,9 @@ def mentioned(item: dict, answer: str, all_items: list[dict]) -> bool:
     # метка позиции в ответе ([Т7]) — тоже упоминание: чат показывает её ссылкой на позицию
     if any(f"[{l}]" in answer for l, i in LABELS.items() if i == item["id"]):
         return True
+    # ответ ссылается на позиции метками — значит, упомянуты ровно они (похожие слова в соседних названиях не в счёт)
+    if LABELS and re.search(r"\[[ТT]\d+\]", answer):
+        return False
     a = norm(answer)
     keys = item_keys(item, all_items)
     if not keys:  # короткое название («ыы», «тест») — ищем целиком в кавычках
