@@ -2,6 +2,8 @@
 
 import { fetchFirstByteRetry } from "@/lib/fetch-retry";
 import { aiRequest } from "@/lib/local-ai";
+import { AiText, readDocsHeader } from "@/components/AiText";
+import type { AiDocRef } from "@/lib/ai-docs";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Check, ChevronDown, Plus, RefreshCw, Send, Settings2, Sparkles, Square, X } from "lucide-react";
@@ -131,7 +133,7 @@ export function RewritePanel({ cycleId, text, anchor, onReplace, onClose }: { cy
   );
 }
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; docs?: AiDocRef[] };
 const BALL = 56;
 const POS_KEY = "operativka.operativshchik.pos.v1";
 const QUICK = ["Проверь справку: где формулировки слабые", "Приведи пункты к одному стилю", "Что в справке будет непонятно руководству?"];
@@ -190,6 +192,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
         setMessages(history);
         return;
       }
+      const docs = readDocsHeader(r); // метки [Д1]… в ответе — ссылки на документы
       const reader = r.body.getReader();
       const dec = new TextDecoder();
       let acc = "";
@@ -197,7 +200,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
         const { done, value } = await reader.read();
         if (done) break;
         acc += dec.decode(value, { stream: true });
-        setMessages([...history, { role: "assistant", content: acc }]);
+        setMessages([...history, { role: "assistant", content: acc, docs }]);
       }
       if (!acc.trim()) {
         setError("ИИ вернул пустой ответ.");
@@ -270,7 +273,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
             {messages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
                 <div className={`max-w-[92%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-relaxed [overflow-wrap:anywhere] ${m.role === "user" ? "bg-primary text-white" : "bg-surface-low text-on-surface"}`}>
-                  {m.content || (busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : "")}
+                  {(m.content && (m.role === "assistant" ? <AiText text={m.content} docs={m.docs} /> : m.content)) || (busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : "")}
                 </div>
               </div>
             ))}

@@ -6,6 +6,7 @@ import { effectiveDate } from "@/lib/memo-archive";
 import { canViewItems, type Actor } from "@/lib/permissions";
 import { loadTableRows, searchHaystack } from "@/lib/table-view";
 import { searchAll, type SearchItem, type SearchMemo } from "@/lib/ai-search";
+import { normalizeText } from "@/lib/search";
 
 /** Сколько последних справок просматривает поиск ИИ (архив растёт — старые хуже помогают, а читать их дорого). */
 const MEMO_DEPTH = 80;
@@ -38,7 +39,9 @@ export async function aiSearch(actor: Actor, question: string, opts: { draft?: {
     deadline: r.deadline,
     cost: r.cost,
     archived: r.archived,
-    haystack: `${searchHaystack(r)}${r.archived ? " удалена" : ""}`,
+    files: r.files.map((f) => ({ name: f.name, path: f.path })),
+    // названия прикреплённых файлов тоже ищутся: «найди презентацию …»
+    haystack: `${searchHaystack(r)}${r.files.length ? ` ${normalizeText(r.files.map((f) => f.name).join(" "))}` : ""}${r.archived ? " удалена" : ""}`,
   }));
   const memos: SearchMemo[] = [];
   if (opts.draft) memos.push({ id: "draft", directorate: "", title: opts.draft.title, date: "", doc: opts.draft.doc, draft: true });

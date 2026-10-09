@@ -7,6 +7,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { visibleSections, type MemoDoc } from "@/lib/memo";
 import { SEARCH_RULE } from "@/lib/ai-search";
+import { DOCS_RULE } from "@/lib/ai-docs";
 import type { VersionSource } from "@/lib/memo-archive";
 import type { Consolidated, ConsolidatedItem, ConsolidatedTopic } from "@/lib/ai-shared";
 
@@ -420,6 +421,7 @@ export function chatSystem(context: string, lead?: "director", hits?: string): s
     ANALYSIS,
     "На конкретный вопрос отвечай прямо. Если просят выжимку или общий взгляд — дай главное и затем блок «На что обратить внимание» по пунктам проверки выше (только то, что действительно нашёл).",
     ...(hits ? [SEARCH_RULE] : []),
+    ...(context.includes("ДОКУМЕНТЫ, прикреплённые") ? [DOCS_RULE] : []),
     `Сегодня: ${today()}.`,
     "",
     context,

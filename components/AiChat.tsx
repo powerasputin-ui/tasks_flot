@@ -8,8 +8,10 @@ import { Popover } from "@/components/ui/Popover";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { AiModelPicker, useAiEngine } from "@/components/AiModelPicker";
 import { aiRequest } from "@/lib/local-ai";
+import { AiText, readDocsHeader } from "@/components/AiText";
+import type { AiDocRef } from "@/lib/ai-docs";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; docs?: AiDocRef[] };
 
 const QUICK = [
   "Выжимка: главное и на что обратить внимание",
@@ -84,6 +86,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
       setAnsweredBy(m ? { model: decodeURIComponent(m), switched: r.headers.get("X-AI-Switched") === "1" } : null);
       const t = r.headers.get("X-AI-Context");
       setTrimmed(t === "compact" || t === "cut" ? t : null);
+      const docs = readDocsHeader(r); // метки [Д1]… в ответе — ссылки на документы
       const reader = r.body.getReader();
       const dec = new TextDecoder();
       let acc = "";
@@ -91,7 +94,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
         const { done, value } = await reader.read();
         if (done) break;
         acc += dec.decode(value, { stream: true });
-        setMessages([...history, { role: "assistant", content: acc }]);
+        setMessages([...history, { role: "assistant", content: acc, docs }]);
       }
       if (!acc.trim()) {
         setError("ИИ вернул пустой ответ.");
@@ -144,7 +147,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
               {messages.map((m, i) => (
                 <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
                   <div className={`max-w-[92%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${m.role === "user" ? "bg-primary text-white" : "bg-surface-low text-on-surface"}`}>
-                    {m.content ? (m.role === "assistant" ? <LightMarkdown text={m.content} /> : m.content) : busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : ""}
+                    {m.content ? (m.role === "assistant" ? <LightMarkdown text={m.content} docs={m.docs} /> : m.content) : busy && i === messages.length - 1 ? <span className="text-on-surface-variant">Думаю…</span> : ""}
                   </div>
                 </div>
               ))}
@@ -220,7 +223,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
  * Модели (особенно Groq) иногда пишут Markdown, хотя их просят простой текст: **жирное** показываем жирным,
  * строки-заголовки «# …» — жирной строкой, остальное как есть (переносы строк сохраняются).
  */
-function LightMarkdown({ text }: { text: string }) {
+function LightMarkdown({ text, docs }: { text: string; docs?: AiDocRef[] }) {
   return (
     <>
       {text.split("\n").map((line, i, all) => {
@@ -229,7 +232,7 @@ function LightMarkdown({ text }: { text: string }) {
         const parts = clean.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
         return (
           <span key={i}>
-            {heading ? <strong>{clean.replace(/\*\*/g, "")}</strong> : parts.map((p, j) => (/^\*\*[^*]+\*\*$/.test(p) ? <strong key={j}>{p.slice(2, -2)}</strong> : <span key={j}>{p}</span>))}
+            {heading ? <strong>{clean.replace(/\*\*/g, "")}</strong> : parts.map((p, j) => (/^\*\*[^*]+\*\*$/.test(p) ? <strong key={j}>{p.slice(2, -2)}</strong> : <AiText key={j} text={p} docs={docs} />))}
             {i < all.length - 1 && "\n"}
           </span>
         );

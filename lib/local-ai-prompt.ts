@@ -1,6 +1,7 @@
 import { visibleSections, type MemoDoc } from "@/lib/memo";
 import { PROTECTED_STATUSES } from "@/lib/statuses";
 import { isSearchQuestion } from "@/lib/ai-search";
+import { DOCS_RULE, docMarks, docsBlock, type AiDoc } from "@/lib/ai-docs";
 
 /**
  * Подсказки для маленькой локальной модели (1–4 млрд параметров, окно 8 тыс. токенов, см. lib/local-ai.ts).
@@ -108,6 +109,8 @@ export type BulletFacts = {
   status?: string;
   owner?: string;
   similarTo?: number;
+  /** Позиции-источники пункта — по ним находятся прикреплённые документы. */
+  itemIds?: string[];
 };
 
 /** Пометки к каждому пункту — то, что модель сама надёжно не посчитает. */
@@ -129,6 +132,7 @@ export function analyzeMemos(memos: LocalMemo[], today = mskToday()): BulletFact
         out.push({
           n: out.length + 1,
           memo: mi,
+          itemIds: b.itemIds,
           section: s.title || "Прочие направления",
           text,
           overdue: late ? { date: ru(late.x.deadline!), days: Math.round((today - late.day) / DAY) } : undefined,
@@ -159,7 +163,7 @@ export function analyzeMemos(memos: LocalMemo[], today = mskToday()): BulletFact
 }
 
 /** Пометки у пункта в фигурных скобках — коротко. */
-function marks(f: BulletFacts, audience: Audience): string {
+function marks(f: BulletFacts, audience: Audience, docs: AiDoc[] = []): string {
   const m: string[] = [];
   if (f.overdue) m.push(`срок ${f.overdue.date} — просрочен на ${f.overdue.days} дн.`);
   else if (f.soon) m.push(f.soon.days === 0 ? `срок сегодня (${f.soon.date})` : `срок ${f.soon.date} — через ${f.soon.days} дн.`);
@@ -174,6 +178,8 @@ function marks(f: BulletFacts, audience: Audience): string {
   if (audience === "compiler" && f.fresh) m.push("новая подача");
   if (f.status) m.push(`статус: ${f.status}`);
   if (f.owner && audience === "zgd") m.push(`отв.: ${f.owner}`);
+  const d = docMarks(f.itemIds ?? [], docs);
+  if (d) m.push(d);
   return m.length ? ` {${m.join("; ")}}` : "";
 }
 
@@ -310,7 +316,7 @@ const RULES_SHORT = "Отвечай только на русском языке.
  * Пункты в окне. Сначала всё целиком; не влезает — неважные для задачи сокращаются до начала фразы, потом убираются
  * (в РАЗБОРЕ они всё равно учтены); важные остаются целиком дольше всех, самые важные (просрочки и т. п.) — последними.
  */
-function renderBullets(facts: BulletFacts[], memos: LocalMemo[], audience: Audience, scoreOf: (f: BulletFacts) => number, budget: number): { text: string; trimmed: false | "compact" | "cut" } {
+function renderBullets(facts: BulletFacts[], memos: LocalMemo[], audience: Audience, scoreOf: (f: BulletFacts) => number, budget: number, docs: AiDoc[] = []): { text: string; trimmed: false | "compact" | "cut" } {
   const render = (cut: (f: BulletFacts) => number | null) => {
     const lines: string[] = [];
     let memo = -1;
@@ -332,7 +338,7 @@ function renderBullets(facts: BulletFacts[], memos: LocalMemo[], audience: Audie
         lines.push(`Раздел: ${section}`);
       }
       const t = f.text.length > limit ? `${f.text.slice(0, limit).trimEnd()}…` : f.text;
-      lines.push(`[${f.n}] ${t}${marks(f, audience)}`);
+      lines.push(`[${f.n}] ${t}${marks(f, audience, docs)}`);
     }
     if (skipped) lines.push(`(ещё ${skipped} пунктов не показаны — они учтены в РАЗБОРЕ)`);
     return lines.join("\n").trim();
@@ -367,7 +373,7 @@ function renderBullets(facts: BulletFacts[], memos: LocalMemo[], audience: Audie
 const DIRECTOR_INTRO = "Ты — помощник директора дирекции. Читаешь отправленные справки его дирекции о ходе задач (флот, суда, ремонты, договоры, закупки) и помогаешь увидеть, что важно, где риск и что спросит руководство.";
 const DIRECTOR_QUESTIONS = "Составь 3–7 вопросов, которые руководство (ЗГД) скорее всего задаст по пунктам с пометками (просрочки, нет результата, нет срока, зависимости), и коротко — что подготовить к ответу. Каждый вопрос — со ссылкой [n].";
 
-export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[]; messages: LocalMessage[]; contextChars: number; historyChars: number; outScale?: number; today?: number; compact?: boolean; lead?: "director"; hits?: string }): LocalPromptOut {
+export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[]; messages: LocalMessage[]; contextChars: number; historyChars: number; outScale?: number; today?: number; compact?: boolean; lead?: "director"; hits?: string; docs?: AiDoc[] }): LocalPromptOut {
   const today = opts.today ?? mskToday();
   const question = opts.messages[opts.messages.length - 1]?.content ?? "";
   const { task, bullet } = routeTask(question, opts.audience);
@@ -379,10 +385,13 @@ export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[];
   const head = opts.compact && (t === "free" || t === "bullet") ? "" : overview(facts, opts.memos, opts.audience, today);
   // найденное поиском (таблица, архив, удалённые) — до 60 % окна; для чистого поиска справка остаётся фоном
   const hits = opts.hits ? opts.hits.slice(0, Math.round(opts.contextChars * (t === "search" ? 0.7 : 0.4))) : "";
-  const body = renderBullets(facts, opts.memos, opts.audience, (f) => score(t, f, qWords, valid), Math.max(600, opts.contextChars - head.length - hits.length));
+  // документы пунктов: пометка [Д1] у пункта + блок с названиями и путями (содержимое файлов модели не видно)
+  const docs = opts.docs ?? [];
+  const docsText = docs.length ? docsBlock(docs, Math.round(opts.contextChars * 0.25)) : "";
+  const body = renderBullets(facts, opts.memos, opts.audience, (f) => score(t, f, qWords, valid), Math.max(600, opts.contextChars - head.length - hits.length - docsText.length), docs);
   const m0 = opts.memos[0];
   const title = opts.memos.length === 1 ? `СПРАВКА: ${m0.title}${m0.directorate ? ` (${m0.directorate})` : ""}${m0.date ? `, дата справки ${m0.date}` : ""}` : `СПРАВКИ ДИРЕКЦИЙ: ${opts.memos.map((m) => `${m.directorate}${m.date ? ` от ${m.date}` : ""}`).join("; ")}`;
-  const system = [opts.lead === "director" && opts.audience === "zgd" ? DIRECTOR_INTRO : SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text, hits ? "" : null, hits || null].filter((x) => x !== null).join("\n");
+  const system = [opts.lead === "director" && opts.audience === "zgd" ? DIRECTOR_INTRO : SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text, docsText ? "" : null, docsText || null, docsText ? DOCS_RULE : null, hits ? "" : null, hits || null].filter((x) => x !== null).join("\n");
 
   // история: последние 2 обмена, длинные ответы — коротко (модель их уже писала)
   const prior = opts.messages.slice(0, -1).slice(-4);

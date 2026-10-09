@@ -1,5 +1,6 @@
 import type { MemoDoc } from "@/lib/memo";
 import { SEARCH_RULE } from "@/lib/ai-search";
+import { DOCS_RULE, docMarks, type AiDoc } from "@/lib/ai-docs";
 
 /**
  * «Оперативщик» — ИИ-помощник того, кто составляет справку (директор, админ, составитель).
@@ -37,7 +38,7 @@ export function rewriteSystem(style: RewriteStyle): string {
 export type MemoMeta = { number?: number; meetingDate?: Date | string | null; deadline?: Date | string | null };
 const ruDay = (d: Date | string) => new Date(d).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
 
-export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}): { text: string; count: number } {
+export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = []): { text: string; count: number } {
   // дата справки (оперативного совещания) в документе стоит отдельно от заголовка — без неё модель не ответит «когда»
   const lines: string[] = [
     `Справка: ${title}`,
@@ -50,8 +51,12 @@ export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = 
     const bullets = s.bullets.filter((b) => !b.hidden && b.text.trim());
     if (bullets.length === 0) continue;
     lines.push("", `Раздел: ${s.title || "Прочие направления"}`);
-    for (const b of bullets) lines.push(`[${++n}] ${b.text.trim()}`);
+    for (const b of bullets) {
+      const d = docMarks(b.itemIds, docs);
+      lines.push(`[${++n}] ${b.text.trim()}${d ? ` {${d}}` : ""}`);
+    }
   }
+  // сам блок «ДОКУМЕНТЫ» (названия и пути) маршрут добавляет отдельно, чтобы его не отрезало при сжатии справки под окно
   return { text: lines.join("\n"), count: n };
 }
 
@@ -65,6 +70,7 @@ export function memoAssistSystem(context: string, hits?: string): string {
     GUARDS,
     "Отвечай по-русски, коротко и по делу; простой текст, нумерованные пункты, без таблиц и без звёздочек/решёток (Markdown не отображается).",
     ...(hits ? [SEARCH_RULE] : []),
+    ...(context.includes("ДОКУМЕНТЫ, прикреплённые") ? [DOCS_RULE] : []),
     `Сегодня: ${new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })}.`,
     "",
     context,

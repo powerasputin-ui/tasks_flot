@@ -1147,6 +1147,18 @@ describe("справка директора", () => {
     expect(sg.data.local.task).toBe("search");
     expect(sg.data.local.system).toContain("НАЙДЕНО ПОИСКОМ");
     expect(sg.data.local.system).toContain("Якорница");
+    // документы пунктов: поданная позиция с файлом попадает в справку — Оперативщик знает название, путь и даёт ссылку [Д1]
+    const withDoc = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} Презентация Tidebon`, operFlag: true, comment: "Презентация вынесена на руководство.", files: [{ path: "\\\\10.10.51.51\\флот\\MPSV Tidebon v1.3.pptx" }] } });
+    expect(withDoc.status).toBe(201);
+    created.items.push(withDoc.data.row.id);
+    const dq = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Где лежит презентация по Tidebon?" }], engine: "local", localDevice: "cpu" });
+    expect(dq.data.local.kind).toBe("text");
+    expect(dq.data.local.text).toMatch(/\[Д\d+\] «MPSV Tidebon v1\.3\.pptx»/);
+    expect(dq.data.local.text).toContain("\\\\10.10.51.51\\флот\\MPSV Tidebon v1.3.pptx");
+    expect(dq.data.local.docs.some((d: { i: string }) => d.i === withDoc.data.row.id)).toBe(true);
+    const dg = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Где лежит презентация по Tidebon?" }], engine: "local" });
+    expect(dg.data.local.system).toContain("ДОКУМЕНТЫ, прикреплённые");
+    expect(dg.data.local.system).toContain("MPSV Tidebon v1.3.pptx");
     // ЗГД таблицу не видит — его поиск только по справкам
     const zs = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { messages: [{ role: "user", content: "Найди якорницу" }], engine: "local", localDevice: "cpu" } });
     expect(JSON.stringify(zs.data)).not.toContain("Якорница");

@@ -68,6 +68,8 @@ export type SearchItem = {
   statusName: string | null;
   deadline: Date | string | null;
   cost?: string | null;
+  /** Прикреплённые документы (ссылки на общий диск): название и путь — модель их называет, содержимое не видит. */
+  files?: Array<{ name: string; path: string }>;
   archived: boolean;
   haystack: string;
 };
@@ -137,7 +139,8 @@ export function hitLine(h: Hit, i: { t: number; s: number }, textLimit = 220): s
       it.deadline ? `срок: ${ru(it.deadline)}` : "срок не указан",
       it.cost ? `оценка: ${it.cost}` : null,
     ].filter(Boolean);
-    return `[Т${++i.t}] ${it.archived ? "УДАЛЕНА — " : ""}позиция «${cut(it.name, 140)}» — ${parts.join("; ")}${it.comment ? `. Комментарий: ${cut(it.comment, textLimit)}` : ""}`;
+    const files = it.files?.length ? `. Документы: ${it.files.slice(0, 3).map((f) => `«${f.name}» (${cut(f.path, 160)})`).join("; ")}` : "";
+    return `[Т${++i.t}] ${it.archived ? "УДАЛЕНА — " : ""}позиция «${cut(it.name, 140)}» — ${parts.join("; ")}${it.comment ? `. Комментарий: ${cut(it.comment, textLimit)}` : ""}${files}`;
   }
   return `[С${++i.s}] ${h.memo.draft ? "черновик текущей справки" : `справка «${cut(h.memo.title, 80)}» от ${h.memo.date}`}${h.memo.directorate ? ` (${h.memo.directorate})` : ""}, раздел «${h.section}»: ${cut(h.text, textLimit)}`;
 }
