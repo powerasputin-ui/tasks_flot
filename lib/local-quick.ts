@@ -77,7 +77,7 @@ function intervene(facts: BulletFacts[]): string {
   return "Где стоит вмешаться:\n" + list.slice(0, 6).map((f, i) => `${i + 1}. ${quote(f)} — ${problems(f).join("; ")}. Что сделать: ${action(f)}${owner(f)}.`).join("\n") + more(list, 6);
 }
 
-function questions(facts: BulletFacts[]): string {
+function questions(facts: BulletFacts[], lead?: "director"): string {
   const ranked = byRisk(facts);
   // дубль уже спрошенного пункта не повторяем
   const list = ranked.filter((f) => !f.similarTo || !ranked.some((o) => o.n === f.similarTo)).slice(0, 7);
@@ -91,7 +91,7 @@ function questions(facts: BulletFacts[]): string {
     if (f.noDeadline) return `Какой срок по ${t}?`;
     return `Не дублирует ли ${t} пункт [${f.similarTo}]?`;
   };
-  return "Вопросы директору:\n" + list.map((f, i) => `${i + 1}. [${f.n}] ${q(f)}`).join("\n");
+  return (lead === "director" ? "Что могут спросить по справке (подготовьте ответы):\n" : "Вопросы директору:\n") + list.map((f, i) => `${i + 1}. [${f.n}] ${q(f)}`).join("\n");
 }
 
 function summary(facts: BulletFacts[], memos: LocalMemo[]): string {
@@ -143,7 +143,7 @@ function leaders(facts: BulletFacts[]): string {
 /**
  * Готовый ответ без модели, если вопрос — из типовых. null — вопрос свободный (или про конкретный пункт / стиль): нужен ИИ.
  */
-export function quickAnswer(opts: { audience: Audience; memos: LocalMemo[]; question: string; today?: number }): string | null {
+export function quickAnswer(opts: { audience: Audience; memos: LocalMemo[]; question: string; today?: number; lead?: "director" }): string | null {
   const { task } = routeTask(opts.question, opts.audience);
   const facts = analyzeMemos(opts.memos, opts.today ?? mskToday());
   if (!facts.length) return "В справке пока нет пунктов.";
@@ -155,7 +155,7 @@ export function quickAnswer(opts: { audience: Audience; memos: LocalMemo[]; ques
     case "intervene":
       return intervene(facts);
     case "questions":
-      return questions(facts);
+      return questions(facts, opts.lead);
     case "summary":
       return summary(facts, opts.memos);
     case "weak":

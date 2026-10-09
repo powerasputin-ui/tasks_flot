@@ -355,7 +355,11 @@ function renderBullets(facts: BulletFacts[], memos: LocalMemo[], audience: Audie
  * Запрос к локальной модели. budget — сколько символов справки влезет (видеокарта/процессор, см. lib/ai.ts),
  * история — последние 2 обмена (окно маленькое).
  */
-export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[]; messages: LocalMessage[]; contextChars: number; historyChars: number; outScale?: number; today?: number; compact?: boolean }): LocalPromptOut {
+/** Директор смотрит свои отправленные справки тем же чатом, что и ЗГД, — но помощник работает на него. */
+const DIRECTOR_INTRO = "Ты — помощник директора дирекции. Читаешь отправленные справки его дирекции о ходе задач (флот, суда, ремонты, договоры, закупки) и помогаешь увидеть, что важно, где риск и что спросит руководство.";
+const DIRECTOR_QUESTIONS = "Составь 3–7 вопросов, которые руководство (ЗГД) скорее всего задаст по пунктам с пометками (просрочки, нет результата, нет срока, зависимости), и коротко — что подготовить к ответу. Каждый вопрос — со ссылкой [n].";
+
+export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[]; messages: LocalMessage[]; contextChars: number; historyChars: number; outScale?: number; today?: number; compact?: boolean; lead?: "director" }): LocalPromptOut {
   const today = opts.today ?? mskToday();
   const question = opts.messages[opts.messages.length - 1]?.content ?? "";
   const { task, bullet } = routeTask(question, opts.audience);
@@ -367,7 +371,7 @@ export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[];
   const head = opts.compact && (t === "free" || t === "bullet") ? "" : overview(facts, opts.memos, opts.audience, today);
   const body = renderBullets(facts, opts.memos, opts.audience, (f) => score(t, f, qWords, valid), Math.max(600, opts.contextChars - head.length));
   const title = opts.memos.length === 1 ? `СПРАВКА: ${opts.memos[0].title}${opts.memos[0].directorate ? ` (${opts.memos[0].directorate})` : ""}` : "СПРАВКИ ДИРЕКЦИЙ";
-  const system = [SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text].filter((x) => x !== null).join("\n");
+  const system = [opts.lead === "director" && opts.audience === "zgd" ? DIRECTOR_INTRO : SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text].filter((x) => x !== null).join("\n");
 
   // история: последние 2 обмена, длинные ответы — коротко (модель их уже писала)
   const prior = opts.messages.slice(0, -1).slice(-4);
@@ -382,7 +386,7 @@ export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[];
   while (history.length && history[0].role !== "user") history.shift();
 
   const focus = t === "bullet" && valid ? `\nПункт [${valid}]: ${facts.find((f) => f.n === valid)!.text}` : "";
-  const user = `${question}${focus}\n\nЗадача: ${taskText(t, opts.audience)}\nОтвечай по-русски.`;
+  const user = `${question}${focus}\n\nЗадача: ${opts.lead === "director" && t === "questions" ? DIRECTOR_QUESTIONS : taskText(t, opts.audience)}\nОтвечай по-русски.`;
   const maxTokens = Math.round(OUT_TOKENS[t] * (opts.outScale ?? 1));
   return { kind: "stream", system, messages: [...history, { role: "user", content: user }], maxTokens, sampling: SAMPLING, trimmed: body.trimmed, task: t };
 }

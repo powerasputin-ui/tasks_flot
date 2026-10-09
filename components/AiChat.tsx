@@ -23,7 +23,9 @@ const QUICK = [
  * Чат-помощник ЗГД внизу страницы, как в ChatGPT: отвечает по открытой справке (или по справкам, отмеченным в «Сводке»).
  * Тексты справок с браузера не уходят: отправляются только id справок и вопросы, остальное собирает сервер.
  */
-export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds: string[]; scopeLabel: string; disabledReason?: string }) {
+export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: { versionIds: string[]; scopeLabel: string; disabledReason?: string; forDirector?: boolean }) {
+  // директору — его вопрос «что спросит руководство», а не «вопросы директору»
+  const quick = forDirector ? [...QUICK.slice(0, -1), "Какие вопросы мне зададут по справке?"] : QUICK;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -132,7 +134,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
               {messages.length === 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {QUICK.map((q) => (
+                  {quick.map((q) => (
                     <button key={q} onClick={() => void ask(q)} disabled={!hasContext} className="rounded-full border border-outline-variant px-3 py-1 text-[12px] text-on-surface hover:bg-surface-high disabled:opacity-50">
                       {q}
                     </button>

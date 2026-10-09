@@ -22,6 +22,8 @@ async function POSTHandler(request: NextRequest) {
     .slice(-MAX_MESSAGES)
     .map((m) => ({ role: m.role as ChatMessage["role"], content: (m.content as string).slice(0, MAX_MESSAGE_LEN) }));
   if (messages.length === 0 || messages[messages.length - 1].role !== "user") return NextResponse.json({ error: "INVALID_INPUT", message: "Введите вопрос." }, { status: 400 });
+  // директор спрашивает о своих справках — помощник работает на него, а не на ЗГД
+  const lead = actor.role === "DIRECTOR" ? ("director" as const) : undefined;
   try {
     const local = isLocalEngine(b?.engine);
     const cfg = local ? null : await loadEffectiveAiConfig(actor.id);
@@ -35,7 +37,7 @@ async function POSTHandler(request: NextRequest) {
       const lb = localBudget(b?.localDevice, b?.localCtx);
       const localMemos = memos.map((m) => ({ directorate: m.directorate, title: m.title, doc: m.doc, sources: m.sources }));
       // на процессоре типовые вопросы — мгновенный разбор кодом (модель читала бы справку минутами), см. lib/local-quick.ts
-      const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "zgd", memos: localMemos, question: messages[messages.length - 1].content }) : null;
+      const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "zgd", memos: localMemos, question: messages[messages.length - 1].content, lead }) : null;
       if (quick) return NextResponse.json({ local: { kind: "text", text: quick } }, { headers: { "Cache-Control": "no-store" } });
       const local = buildLocalPrompt({
         audience: "zgd",
@@ -45,6 +47,7 @@ async function POSTHandler(request: NextRequest) {
         contextChars: lb.contextChars,
         historyChars: lb.historyChars,
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
+        lead,
       });
       return NextResponse.json({ local }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -55,7 +58,7 @@ async function POSTHandler(request: NextRequest) {
       used = c;
       const budget = aiBudget(c);
       const ctx = buildContextInfo(memos, budget.contextChars);
-      const st = await streamText(c, { system: chatSystem(ctx.text), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
+      const st = await streamText(c, { system: chatSystem(ctx.text, lead), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
       return { stream: st, trimmed: ctx.trimmed };
     }, preroute);
     // ИИ видел справки не целиком — чат покажет это человеку

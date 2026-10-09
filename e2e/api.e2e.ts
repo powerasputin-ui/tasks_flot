@@ -1403,13 +1403,21 @@ describe("отправка справки ЗГД, архив, возврат", (
 
   it("ИИ у ЗГД: настройки только у ЗГД, ключ не возвращается, чат и сводка берут справки по id только доступные", async () => {
     const put = (who: Actor, body: unknown) => call(who, aiSettings.PUT, "/api/ai/settings", { method: "PUT", body });
-    // не ЗГД — нельзя ничего
-    for (const who of [directorB, headB, director]) {
-      expect((await call(who, aiSettings.GET, "/api/ai/settings")).status).toBe(403);
-      expect((await put(who, { provider: "openai", apiKey: "k" })).status).toBe(403);
-      expect((await call(who, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }] } })).status).toBe(403);
+    // руководитель направления — нельзя ничего
+    expect((await call(headB, aiSettings.GET, "/api/ai/settings")).status).toBe(403);
+    expect((await put(headB, { provider: "openai", apiKey: "k" })).status).toBe(403);
+    expect((await call(headB, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }] } })).status).toBe(403);
+    // директор: свой «ИИ-помощник», но только по справкам своей дирекции; сводка дирекций — только у ЗГД
+    for (const who of [directorB, director]) {
+      expect((await call(who, aiSettings.GET, "/api/ai/settings")).status).toBe(200);
       expect((await call(who, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } })).status).toBe(403);
     }
+    const foreign = await call(director, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }], engine: "local" } });
+    expect(foreign.status).toBe(400); // чужая справка не видна
+    const own = await call(directorB, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "Какие вопросы мне зададут по справке?" }], engine: "local" } });
+    expect(own.status).toBe(200);
+    expect(own.data.local.system).toContain("помощник директора");
+    expect(own.data.local.messages.at(-1).content).toContain("руководство (ЗГД) скорее всего задаст");
     // админ подключает ИИ себе так же, как ЗГД, но сводка из нескольких дирекций — только у ЗГД
     expect((await call(curator, aiSettings.GET, "/api/ai/settings")).status).toBe(200);
     expect((await call(curator, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } })).status).toBe(403);

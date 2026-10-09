@@ -12,9 +12,10 @@ export function isExecutive(actor: { role: string }): boolean {
   return actor.role === "EXECUTIVE";
 }
 
-/** ИИ-помощником (подключение и чат по справкам) пользуются ЗГД и админ; сводка из нескольких дирекций — только ЗГД. */
+/** ИИ-помощником (подключение и чат по справкам) пользуются ЗГД, админ и директор; сводка из нескольких дирекций — только ЗГД. */
 export function canUseAi(actor: { role: string }): boolean {
-  return actor.role === "EXECUTIVE" || actor.role === "ADMIN";
+  // директор — по справкам своей дирекции (видимость справок проверяет loadMemosForAi → canViewVersion)
+  return actor.role === "EXECUTIVE" || actor.role === "ADMIN" || actor.role === "DIRECTOR";
 }
 
 export async function loadAiConfig(userId: string): Promise<AiConfig | null> {

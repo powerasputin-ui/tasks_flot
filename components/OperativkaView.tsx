@@ -138,8 +138,8 @@ export function OperativkaView() {
   const previewUser = usePreviewAs();
   const isCurator = !!role && isDirectorial(role) && !previewUser;
   const isManagement = role === "EXECUTIVE";
-  // ИИ-помощник по справкам: ЗГД и админ (у админа — по справкам своей дирекции); сводка из нескольких дирекций — только у ЗГД
-  const aiUser = isManagement || role === "ADMIN";
+  // ИИ-помощник по справкам: ЗГД, админ и директор (у админа и директора — по справкам своей дирекции); сводка из нескольких дирекций — только у ЗГД
+  const aiUser = isManagement || role === "ADMIN" || role === "DIRECTOR";
   const sentTotal = summary.reduce((s, p) => s + p.sent, 0);
   const missing = summary.filter((p) => p.sent === 0);
 
@@ -340,7 +340,8 @@ export function OperativkaView() {
       {aiUser && tab === "finals" && (
         <AiChat
           versionIds={memoId ? [memoId] : isManagement && archiveMode === "summary" ? summaryIds : []}
-          scopeLabel={memoId ? "открытая справка" : archiveMode === "summary" ? `справок в сводке: ${summaryIds.length}` : "последние справки дирекций"}
+          scopeLabel={memoId ? "открытая справка" : archiveMode === "summary" ? `справок в сводке: ${summaryIds.length}` : isManagement ? "последние справки дирекций" : "последняя справка дирекции"}
+          forDirector={role === "DIRECTOR"}
         />
       )}
     </div>
