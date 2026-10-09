@@ -68,7 +68,9 @@ export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = 
       const f = flags?.[b.id];
       // расхождение справки и таблицы: строку в таблице поменяли после того, как пункт собран/принят
       const diff = f?.sourceChanged ? "строка в таблице изменилась после сборки пункта — сверить" : f?.sourceMissing === "unsubmitted" ? "строку отозвали из справки" : f?.sourceMissing === "archived" ? "позицию удалили из таблицы" : "";
-      const marks = [d, b.changedBy ? `текст пункта в справке правил: ${b.changedBy}` : "", b.fresh ? "новая подача" : "", diff].filter(Boolean).join("; ");
+      // правленный вручную пункт — прямо говорим, что он отличается от строки таблицы (экзамен, R1: модель решила, что «совпадает»)
+      const edited = b.edited || b.changedBy ? `текст пункта отредактирован вручную${b.changedBy ? ` (${b.changedBy})` : ""} и отличается от строки в таблице` : "";
+      const marks = [d, edited, b.fresh ? "новая подача" : "", diff].filter(Boolean).join("; ");
       lines.push(`[${++n}] ${b.text.trim()}${src ? ` ← ${src}` : ""}${marks ? ` {${marks}}` : ""}`);
     }
   }
