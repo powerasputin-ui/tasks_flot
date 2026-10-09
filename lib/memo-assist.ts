@@ -1,4 +1,5 @@
 import type { MemoDoc } from "@/lib/memo";
+import { SEARCH_RULE } from "@/lib/ai-search";
 
 /**
  * «Оперативщик» — ИИ-помощник того, кто составляет справку (директор, админ, составитель).
@@ -45,7 +46,7 @@ export function memoAssistContext(doc: MemoDoc, title: string): { text: string; 
   return { text: lines.join("\n"), count: n };
 }
 
-export function memoAssistSystem(context: string): string {
+export function memoAssistSystem(context: string, hits?: string): string {
   return [
     "Ты «Оперативщик» — помощник того, кто составляет справку для руководства. Помогаешь сделать пункты понятными, логичными и единообразными.",
     "Что проверять: пустые формулировки без результата («ведётся работа», «прорабатывается»); нет срока или следующего шага; длинные и запутанные фразы; разный стиль пунктов; повторы.",
@@ -53,8 +54,10 @@ export function memoAssistSystem(context: string): string {
     "Чего в пункте не хватает (срока, результата, ответственного) — не выдумывай, а подскажи, что стоит уточнить у автора строки. Даже как пример не подставляй конкретные даты, суммы и имена — пиши «укажите срок», «укажите ответственного».",
     GUARDS,
     "Отвечай по-русски, коротко и по делу; простой текст, нумерованные пункты, без таблиц и без звёздочек/решёток (Markdown не отображается).",
+    ...(hits ? [SEARCH_RULE] : []),
     "",
     context,
+    ...(hits ? ["", hits] : []),
   ].join("\n");
 }
 

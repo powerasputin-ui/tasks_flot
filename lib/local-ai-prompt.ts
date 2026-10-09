@@ -1,5 +1,6 @@
 import { visibleSections, type MemoDoc } from "@/lib/memo";
 import { PROTECTED_STATUSES } from "@/lib/statuses";
+import { isSearchQuestion } from "@/lib/ai-search";
 
 /**
  * Подсказки для маленькой локальной модели (1–4 млрд параметров, окно 8 тыс. токенов, см. lib/local-ai.ts).
@@ -39,7 +40,7 @@ export type LocalPromptOut = {
 };
 
 export type Audience = "zgd" | "compiler";
-export type Task = "summary" | "risks" | "deadlines" | "intervene" | "questions" | "weak" | "style" | "leaders" | "bullet" | "free";
+export type Task = "summary" | "risks" | "deadlines" | "intervene" | "questions" | "weak" | "style" | "leaders" | "bullet" | "search" | "free";
 
 const DAY = 86400000;
 const SAMPLING: LocalSampling = { temp: 0.3, top_p: 0.9, min_p: 0.05, penalty_repeat: 1.12, penalty_last_n: 192 };
@@ -207,6 +208,8 @@ export function routeTask(question: string, audience: Audience): { task: Task; b
   const q = question.toLowerCase();
   const num = /(?:пункт\w*|п\.)\s*\[?(\d{1,3})\]?|\[(\d{1,3})\]/.exec(q);
   if (num) return { task: "bullet", bullet: Number(num[1] ?? num[2]) };
+  // «найди…», «есть ли…», «кто отвечает за…», «срок по…» — поиск по таблице и архиву (lib/ai-search.ts)
+  if (isSearchQuestion(question)) return { task: "search" };
   if (audience === "compiler") {
     if (/стил|единообраз|одному виду|одинаков/.test(q)) return { task: "style" };
     if (/руковод|непонятн|понятн|начальств|згд/.test(q)) return { task: "leaders" };
@@ -238,6 +241,8 @@ function score(task: Task, f: BulletFacts, qWords: Set<string>, bullet?: number)
     case "style":
     case "summary":
       return 1 + risk;
+    case "search":
+      return 0; // для поиска справка — фон, главное в блоке «НАЙДЕНО ПОИСКОМ»
     case "free": {
       const t = f.text.toLowerCase();
       return [...qWords].filter((w) => t.includes(w)).length;
@@ -252,7 +257,8 @@ const ZGD_TASK: Record<Task, string> = {
   intervene: "Где руководителю стоит вмешаться, даже если помощи не просили: просрочки, зависимости от чужих решений и подрядчиков, пункты без движения. Формат: «[n] — почему — что сделать (запросить, поторопить, принять решение)». Не больше 6 строк.",
   questions: "Составь 3–7 конкретных вопросов директору дирекции по пунктам с пометками (просрочки, нет результата, нет срока, зависимости). Каждый вопрос — со ссылкой [n].",
   bullet: "Разбери этот пункт: что сделано, чего не хватает (результат, срок, ответственный, следующий шаг), есть ли риск. Ссылайся на [n].",
-  free: "Ответь на вопрос по справке. Если ответа в справке нет — так и напиши: «В справке этого нет». Ссылайся на пункты [n].",
+  search: "Ответь на вопрос по блоку «НАЙДЕНО ПОИСКОМ». Перечисли подходящие находки со ссылками [Т1] (позиции таблицы) и [С1] (пункты справок); у позиций назови статус, ответственного и срок; удалённые помечай словом «удалена». Неподходящие находки пропусти. Если подходящего нет — так и напиши: «Не нашёл». Ничего не додумывай.",
+  free: "Ответь на вопрос по справке и блоку «НАЙДЕНО ПОИСКОМ», если он есть. Если ответа нет — так и напиши: «В справке этого нет». Ссылайся на пункты [n], [Т1], [С1].",
   weak: "",
   style: "",
   leaders: "",
@@ -268,7 +274,8 @@ const COMPILER_TASK: Record<Task, string> = {
   deadlines: "Проверь сроки по пометкам: какие пункты просрочены, у каких нет срока. Для каждого [n] — что написать в пункте (например, «укажите новый срок»), без выдуманных дат.",
   intervene: "",
   questions: "",
-  free: "Ответь на вопрос по справке. Если ответа в справке нет — так и напиши. Ссылайся на пункты [n]. Новых фактов не добавляй.",
+  search: "Ответь на вопрос по блоку «НАЙДЕНО ПОИСКОМ». Перечисли подходящие находки со ссылками [Т1] (позиции таблицы) и [С1] (пункты справок); у позиций назови статус, ответственного и срок; удалённые помечай словом «удалена». Неподходящие находки пропусти. Если подходящего нет — так и напиши: «Не нашёл». Ничего не додумывай.",
+  free: "Ответь на вопрос по справке и блоку «НАЙДЕНО ПОИСКОМ», если он есть. Если ответа нет — так и напиши. Ссылайся на [n], [Т1], [С1]. Новых фактов не добавляй.",
 };
 
 function taskText(task: Task, audience: Audience): string {
@@ -276,7 +283,7 @@ function taskText(task: Task, audience: Audience): string {
   return t || (audience === "zgd" ? ZGD_TASK.free : COMPILER_TASK.weak);
 }
 
-const OUT_TOKENS: Record<Task, number> = { summary: 450, risks: 500, deadlines: 400, intervene: 450, questions: 380, weak: 600, style: 600, leaders: 450, bullet: 350, free: 400 };
+const OUT_TOKENS: Record<Task, number> = { summary: 450, risks: 500, deadlines: 400, intervene: 450, questions: 380, weak: 600, style: 600, leaders: 450, bullet: 350, search: 450, free: 400 };
 
 // ---------- сборка запроса ----------
 
@@ -359,7 +366,7 @@ function renderBullets(facts: BulletFacts[], memos: LocalMemo[], audience: Audie
 const DIRECTOR_INTRO = "Ты — помощник директора дирекции. Читаешь отправленные справки его дирекции о ходе задач (флот, суда, ремонты, договоры, закупки) и помогаешь увидеть, что важно, где риск и что спросит руководство.";
 const DIRECTOR_QUESTIONS = "Составь 3–7 вопросов, которые руководство (ЗГД) скорее всего задаст по пунктам с пометками (просрочки, нет результата, нет срока, зависимости), и коротко — что подготовить к ответу. Каждый вопрос — со ссылкой [n].";
 
-export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[]; messages: LocalMessage[]; contextChars: number; historyChars: number; outScale?: number; today?: number; compact?: boolean; lead?: "director" }): LocalPromptOut {
+export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[]; messages: LocalMessage[]; contextChars: number; historyChars: number; outScale?: number; today?: number; compact?: boolean; lead?: "director"; hits?: string }): LocalPromptOut {
   const today = opts.today ?? mskToday();
   const question = opts.messages[opts.messages.length - 1]?.content ?? "";
   const { task, bullet } = routeTask(question, opts.audience);
@@ -369,9 +376,11 @@ export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[];
   const qWords = words(question);
   // на процессоре каждый токен запроса — это время до ответа: короткие правила, а для свободного вопроса — без общего разбора
   const head = opts.compact && (t === "free" || t === "bullet") ? "" : overview(facts, opts.memos, opts.audience, today);
-  const body = renderBullets(facts, opts.memos, opts.audience, (f) => score(t, f, qWords, valid), Math.max(600, opts.contextChars - head.length));
+  // найденное поиском (таблица, архив, удалённые) — до 60 % окна; для чистого поиска справка остаётся фоном
+  const hits = opts.hits ? opts.hits.slice(0, Math.round(opts.contextChars * (t === "search" ? 0.7 : 0.4))) : "";
+  const body = renderBullets(facts, opts.memos, opts.audience, (f) => score(t, f, qWords, valid), Math.max(600, opts.contextChars - head.length - hits.length));
   const title = opts.memos.length === 1 ? `СПРАВКА: ${opts.memos[0].title}${opts.memos[0].directorate ? ` (${opts.memos[0].directorate})` : ""}` : "СПРАВКИ ДИРЕКЦИЙ";
-  const system = [opts.lead === "director" && opts.audience === "zgd" ? DIRECTOR_INTRO : SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text].filter((x) => x !== null).join("\n");
+  const system = [opts.lead === "director" && opts.audience === "zgd" ? DIRECTOR_INTRO : SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text, hits ? "" : null, hits || null].filter((x) => x !== null).join("\n");
 
   // история: последние 2 обмена, длинные ответы — коротко (модель их уже писала)
   const prior = opts.messages.slice(0, -1).slice(-4);

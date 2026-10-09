@@ -255,6 +255,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
           <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
             <div className="rounded-2xl bg-surface-low px-3 py-2 text-[13px] leading-relaxed text-on-surface">
               Привет, я твой Оперативщик! Помогу сделать справку понятной и ровной: подскажу слабые формулировки, приведу пункты к одному стилю.
+              Ещё могу найти: «найди ремонт насоса», «кто отвечает за …», «что было по … в прошлых справках» — ищу в таблице (и в удалённых) и в архиве справок.
               Чтобы переписать один пункт — наведите на него и нажмите <Sparkles size={12} className="inline" /> или правую кнопку.
             </div>
             {messages.length === 0 && (

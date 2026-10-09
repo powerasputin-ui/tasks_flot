@@ -109,7 +109,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
   }
 
   const hasContext = !disabledReason; // без открытой справки сервер берёт последние справки дирекций
-  const placeholder = disabledReason ? disabledReason : configured === false ? "ИИ не подключён: попросите администратора или подключите в настройках (шестерёнка справа)" : `Спросите про: ${scopeLabel}`;
+  const placeholder = disabledReason ? disabledReason : configured === false ? "ИИ не подключён: попросите администратора или подключите в настройках (шестерёнка справа)" : `Спросите про: ${scopeLabel} — или «найди …» по таблице и архиву`;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-3 max-md:bottom-[calc(3.6rem+env(safe-area-inset-bottom))] max-md:px-2 max-md:pb-2">

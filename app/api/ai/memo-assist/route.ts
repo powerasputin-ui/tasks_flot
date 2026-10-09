@@ -6,7 +6,9 @@ import { aiErrorResponse, chainForEngine, isLocalEngine, loadEffectiveAiConfig, 
 import { canEditMemo, loadMemo } from "@/lib/memo-load";
 import { cleanVariant, memoAssistContext, memoAssistSystem, newNumbers, rewriteSystem, type RewriteStyle } from "@/lib/memo-assist";
 import { withApiErrors } from "@/lib/api-guard";
-import { buildLocalPrompt, localRewriteMessages } from "@/lib/local-ai-prompt";
+import { buildLocalPrompt, localRewriteMessages, routeTask } from "@/lib/local-ai-prompt";
+import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
+import { aiSearch } from "@/lib/ai-search-load";
 import { quickAnswer } from "@/lib/local-quick";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -53,6 +55,8 @@ async function POSTHandler(request: NextRequest) {
       }
       const state = await loadMemo(cycle);
       const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources }];
+      const { task, found } = await searchFor(actor, messages, state);
+      if (b?.localDevice === "cpu" && task === "search" && found) return NextResponse.json({ local: { kind: "text", text: hitsAnswer(found, found.scope) } }, { headers });
       // на процессоре типовые вопросы — мгновенный разбор кодом (lib/local-quick.ts)
       const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "compiler", memos: localMemos, question: messages[messages.length - 1].content }) : null;
       if (quick) return NextResponse.json({ local: { kind: "text", text: quick } }, { headers });
@@ -64,6 +68,7 @@ async function POSTHandler(request: NextRequest) {
         contextChars: lb.contextChars,
         historyChars: lb.historyChars,
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
+        hits: found && (task === "search" || found.hits.length) ? hitsBlock(found, Math.round(lb.contextChars * 0.6), found.scope) : undefined,
       });
       return NextResponse.json({ local }, { headers });
     }
@@ -81,16 +86,29 @@ async function POSTHandler(request: NextRequest) {
 
     const state = await loadMemo(cycle);
     const ctx = memoAssistContext(state.doc, state.title);
+    const { task, found } = await searchFor(actor, messages, state);
     let used = chain as Parameters<typeof modelLabel>[0];
     const stream = await withAiFallback(chain, ctx.text.length, async (c) => {
       used = c;
       const budget = aiBudget(c);
-      return streamText(c, { system: memoAssistSystem(ctx.text.slice(0, budget.contextChars)), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
+      const hits = found && (task === "search" || found.hits.length) ? hitsBlock(found, Math.round(budget.contextChars * (task === "search" ? 0.5 : 0.3)), found.scope) : "";
+      return streamText(c, { system: memoAssistSystem(ctx.text.slice(0, Math.max(2000, budget.contextChars - hits.length)), hits || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
     }, preroute);
     return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-AI-Model": encodeURIComponent(modelLabel(used)) } });
   } catch (e) {
     return aiErrorResponse(e);
   }
+}
+
+/**
+ * «Оперативщик» ещё и поиск: «найди…», «есть ли в таблице…», «что было по … в прошлых справках» — по таблице дирекции
+ * (с удалёнными позициями), отправленным справкам и текущему черновику; свободный вопрос тоже получает находки.
+ */
+async function searchFor(actor: Parameters<typeof aiSearch>[0], messages: ChatMessage[], state: { title: string; doc: Parameters<typeof memoAssistContext>[0] }) {
+  const question = messages[messages.length - 1].content;
+  const task = routeTask(question, "compiler").task;
+  const found = task === "search" || task === "free" ? await aiSearch(actor, question, { draft: { title: state.title, doc: state.doc } }) : null;
+  return { task, found };
 }
 
 export const POST = withApiErrors(POSTHandler);

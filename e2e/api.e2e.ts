@@ -1136,6 +1136,20 @@ describe("справка директора", () => {
     expect(lc.status).toBe(200);
     expect(lc.data.local.kind).toBe("stream");
     expect(lc.data.local.system.length).toBeGreaterThan(100);
+    // поиск: удалённая позиция таблицы находится по слову из названия (в любой форме)
+    const gone = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} Буксировка баржи Якорница` } });
+    created.items.push(gone.data.row.id);
+    expect((await call(headB, item.DELETE, `/api/items/${gone.data.row.id}`, { method: "DELETE", id: gone.data.row.id })).status).toBe(200);
+    const sr = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Найди, что было по якорнице" }], engine: "local", localDevice: "cpu" });
+    expect(sr.data.local.kind).toBe("text");
+    expect(sr.data.local.text).toMatch(/\[Т1\] УДАЛЕНА — позиция «.*Якорница»/);
+    const sg = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Найди, что было по якорнице" }], engine: "local" });
+    expect(sg.data.local.task).toBe("search");
+    expect(sg.data.local.system).toContain("НАЙДЕНО ПОИСКОМ");
+    expect(sg.data.local.system).toContain("Якорница");
+    // ЗГД таблицу не видит — его поиск только по справкам
+    const zs = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { messages: [{ role: "user", content: "Найди якорницу" }], engine: "local", localDevice: "cpu" } });
+    expect(JSON.stringify(zs.data)).not.toContain("Якорница");
     expect(lc.data.local.messages.at(-1).content).toMatch(/^Что главное\?\n\nЗадача: [\s\S]*Отвечай по-русски\.$/);
   });
 

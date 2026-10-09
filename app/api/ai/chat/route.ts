@@ -3,7 +3,9 @@ import { requireActor } from "@/lib/session";
 import { AiError, aiBudget, localBudget, buildContextInfo, chatSystem, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
 import { aiErrorResponse, canUseAi, chainForEngine, isLocalEngine, loadEffectiveAiConfig, loadLatestMemoIds, loadMemosForAi, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
-import { buildLocalPrompt } from "@/lib/local-ai-prompt";
+import { buildLocalPrompt, routeTask } from "@/lib/local-ai-prompt";
+import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
+import { aiSearch } from "@/lib/ai-search-load";
 import { quickAnswer } from "@/lib/local-quick";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -30,13 +32,20 @@ async function POSTHandler(request: NextRequest) {
     if (!local && !cfg) throw new AiError("NOT_CONFIGURED", "ИИ не подключён: попросите администратора подключить его для всех или вставьте свой ключ в настройках ИИ.");
     const requested = Array.isArray(b?.versionIds) && b!.versionIds.length > 0;
     const memos = await loadMemosForAi(actor, requested ? b?.versionIds : await loadLatestMemoIds(actor));
-    if (memos.length === 0) return NextResponse.json({ error: "NO_CONTEXT", message: "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
+    // помощник ещё и поиск: «найди…», «есть ли…», «кто отвечает за…» — по таблице (с удалёнными) и архиву справок;
+    // свободный вопрос тоже получает находки — вдруг он про то, чего нет в открытой справке (lib/ai-search.ts)
+    const question = messages[messages.length - 1].content;
+    const task = routeTask(question, "zgd").task;
+    const found = task === "search" || task === "free" ? await aiSearch(actor, question) : null;
+    const withHits = !!found && (task === "search" || found.hits.length > 0);
+    if (memos.length === 0 && !(found && found.hits.length)) return NextResponse.json({ error: "NO_CONTEXT", message: task === "search" ? "Ничего не нашлось — ни в таблице, ни в справках." : "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
     if (!cfg) {
       // локальная модель (маленькая): сроки, пустые формулировки, дубли считает сервер, модель формулирует выводы
       // (lib/local-ai-prompt.ts); ответ считает браузер этого человека, справки в облако не уходят
       const lb = localBudget(b?.localDevice, b?.localCtx);
       const localMemos = memos.map((m) => ({ directorate: m.directorate, title: m.title, doc: m.doc, sources: m.sources }));
       // на процессоре типовые вопросы — мгновенный разбор кодом (модель читала бы справку минутами), см. lib/local-quick.ts
+      if (b?.localDevice === "cpu" && task === "search" && found) return NextResponse.json({ local: { kind: "text", text: hitsAnswer(found, found.scope) } }, { headers: { "Cache-Control": "no-store" } });
       const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "zgd", memos: localMemos, question: messages[messages.length - 1].content, lead }) : null;
       if (quick) return NextResponse.json({ local: { kind: "text", text: quick } }, { headers: { "Cache-Control": "no-store" } });
       const local = buildLocalPrompt({
@@ -48,6 +57,7 @@ async function POSTHandler(request: NextRequest) {
         historyChars: lb.historyChars,
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
         lead,
+        hits: withHits && found ? hitsBlock(found, Math.round(lb.contextChars * 0.6), found.scope) : undefined,
       });
       return NextResponse.json({ local }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -57,8 +67,10 @@ async function POSTHandler(request: NextRequest) {
     const { stream, trimmed } = await withAiFallback(chain, fullLength, async (c) => {
       used = c;
       const budget = aiBudget(c);
-      const ctx = buildContextInfo(memos, budget.contextChars);
-      const st = await streamText(c, { system: chatSystem(ctx.text, lead), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
+      // найденное поиском — до трети окна (у бесплатного Groq окно маленькое), остальное — справки
+      const hits = withHits && found ? hitsBlock(found, Math.round(budget.contextChars * (task === "search" ? 0.5 : 0.3)), found.scope) : "";
+      const ctx = buildContextInfo(memos, Math.max(2000, budget.contextChars - hits.length));
+      const st = await streamText(c, { system: chatSystem(ctx.text, lead, hits || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
       return { stream: st, trimmed: ctx.trimmed };
     }, preroute);
     // ИИ видел справки не целиком — чат покажет это человеку
