@@ -297,7 +297,7 @@ const STOP_WHO = new Set(["кто", "отвечает", "ответственн�
  * «Кто отвечает за …» без точных условий: позиции, в названии которых есть предмет вопроса (основы слов),
  * лучшие по числу совпадений, — с ответственным и автором. null — не такой вопрос или ничего не нашлось.
  */
-export function whoAnswer(question: string, items: FactItem[], labels: Map<string, string>, today: number): string | null {
+export function whoAnswer(question: string, items: FactItem[], labels: Map<string, string>): string | null {
   const q = n(question);
   if (!/^кто (отвечает|ответствен|ведет|ведёт|занимается)/.test(q)) return null;
   const subj = words(question).filter((w) => !STOP_WHO.has(w)).map(stem);
@@ -384,7 +384,7 @@ export function directAnswer(opts: Parameters<typeof tableContext>[0] & { memoBu
   // «кто отвечает за …» — без условий по полям, ищем предмет в названиях (экзамен, W2: модель ответила «не указан»)
   const onlyOwner = Object.keys(query).every((k) => k === "owner");
   if (onlyOwner && !query.owner) {
-    const who = whoAnswer(opts.question, opts.items, labels, today);
+    const who = whoAnswer(opts.question, opts.items, labels);
     if (who) return who;
   }
   if (!hasConditions(query) || !isListQuestion(opts.question)) return null;
