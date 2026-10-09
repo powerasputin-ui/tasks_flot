@@ -34,8 +34,17 @@ export function rewriteSystem(style: RewriteStyle): string {
 }
 
 /** Пункты черновика с номерами [n] — контекст чата Оперативщика. */
-export function memoAssistContext(doc: MemoDoc, title: string): { text: string; count: number } {
-  const lines: string[] = [`Справка: ${title}`];
+export type MemoMeta = { number?: number; meetingDate?: Date | string | null; deadline?: Date | string | null };
+const ruDay = (d: Date | string) => new Date(d).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
+
+export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}): { text: string; count: number } {
+  // дата справки (оперативного совещания) в документе стоит отдельно от заголовка — без неё модель не ответит «когда»
+  const lines: string[] = [
+    `Справка: ${title}`,
+    ...(meta.number ? [`Оперативка №${meta.number}`] : []),
+    `Дата справки (оперативного совещания): ${meta.meetingDate ? ruDay(meta.meetingDate) : "не указана"}`,
+    ...(meta.deadline ? [`Срок подачи строк в справку: ${ruDay(meta.deadline)}`] : []),
+  ];
   let n = 0;
   for (const s of doc.sections) {
     const bullets = s.bullets.filter((b) => !b.hidden && b.text.trim());
@@ -50,11 +59,13 @@ export function memoAssistSystem(context: string, hits?: string): string {
   return [
     "Ты «Оперативщик» — помощник того, кто составляет справку для руководства. Помогаешь сделать пункты понятными, логичными и единообразными.",
     "Что проверять: пустые формулировки без результата («ведётся работа», «прорабатывается»); нет срока или следующего шага; длинные и запутанные фразы; разный стиль пунктов; повторы.",
+    "На прямой вопрос о содержании справки (дата справки, когда что сделано, кто, сколько) отвечай сразу фактом из справки со ссылкой на пункт [n] — не переспрашивай и не повторяй вопрос. Если такого факта в справке нет — так и скажи.",
     "Когда предлагаешь новую формулировку пункта — указывай его номер [n] и давай готовый текст отдельной строкой, начиная с «Вариант:».",
     "Чего в пункте не хватает (срока, результата, ответственного) — не выдумывай, а подскажи, что стоит уточнить у автора строки. Даже как пример не подставляй конкретные даты, суммы и имена — пиши «укажите срок», «укажите ответственного».",
     GUARDS,
     "Отвечай по-русски, коротко и по делу; простой текст, нумерованные пункты, без таблиц и без звёздочек/решёток (Markdown не отображается).",
     ...(hits ? [SEARCH_RULE] : []),
+    `Сегодня: ${new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })}.`,
     "",
     context,
     ...(hits ? ["", hits] : []),

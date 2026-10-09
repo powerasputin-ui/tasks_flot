@@ -54,7 +54,7 @@ async function POSTHandler(request: NextRequest) {
         return NextResponse.json({ local: { kind: "rewrite", system, messages: localRewriteMessages(text), maxTokens: 260, original: text, sampling: { temp: 0.2, top_p: 0.9, min_p: 0.05, penalty_repeat: 1.1, penalty_last_n: 128 } } }, { headers });
       }
       const state = await loadMemo(cycle);
-      const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources }];
+      const localMemos = [{ directorate: "", title: state.title, doc: state.doc, sources: state.sources, date: cycle.meetingDate ? new Date(cycle.meetingDate).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" }) : undefined }];
       const { task, found } = await searchFor(actor, messages, state);
       if (b?.localDevice === "cpu" && task === "search" && found) return NextResponse.json({ local: { kind: "text", text: hitsAnswer(found, found.scope) } }, { headers });
       // на процессоре типовые вопросы — мгновенный разбор кодом (lib/local-quick.ts)
@@ -85,7 +85,7 @@ async function POSTHandler(request: NextRequest) {
     }
 
     const state = await loadMemo(cycle);
-    const ctx = memoAssistContext(state.doc, state.title);
+    const ctx = memoAssistContext(state.doc, state.title, { number: cycle.number, meetingDate: cycle.meetingDate, deadline: cycle.deadline });
     const { task, found } = await searchFor(actor, messages, state);
     let used = chain as Parameters<typeof modelLabel>[0];
     const stream = await withAiFallback(chain, ctx.text.length, async (c) => {

@@ -26,7 +26,8 @@ export type LocalSource = {
   deadline: string | Date | null;
   attractivenessName?: string | null;
 };
-export type LocalMemo = { directorate: string; title: string; doc: MemoDoc; sources: LocalSource[] };
+/** date — дата справки (совещания): в документе она отдельно от заголовка, а люди о ней спрашивают. */
+export type LocalMemo = { directorate: string; title: string; doc: MemoDoc; sources: LocalSource[]; date?: string };
 export type LocalMessage = { role: "user" | "assistant"; content: string };
 export type LocalSampling = { temp: number; top_p: number; min_p: number; penalty_repeat: number; penalty_last_n: number };
 export type LocalPromptOut = {
@@ -379,7 +380,8 @@ export function buildLocalPrompt(opts: { audience: Audience; memos: LocalMemo[];
   // найденное поиском (таблица, архив, удалённые) — до 60 % окна; для чистого поиска справка остаётся фоном
   const hits = opts.hits ? opts.hits.slice(0, Math.round(opts.contextChars * (t === "search" ? 0.7 : 0.4))) : "";
   const body = renderBullets(facts, opts.memos, opts.audience, (f) => score(t, f, qWords, valid), Math.max(600, opts.contextChars - head.length - hits.length));
-  const title = opts.memos.length === 1 ? `СПРАВКА: ${opts.memos[0].title}${opts.memos[0].directorate ? ` (${opts.memos[0].directorate})` : ""}` : "СПРАВКИ ДИРЕКЦИЙ";
+  const m0 = opts.memos[0];
+  const title = opts.memos.length === 1 ? `СПРАВКА: ${m0.title}${m0.directorate ? ` (${m0.directorate})` : ""}${m0.date ? `, дата справки ${m0.date}` : ""}` : `СПРАВКИ ДИРЕКЦИЙ: ${opts.memos.map((m) => `${m.directorate}${m.date ? ` от ${m.date}` : ""}`).join("; ")}`;
   const system = [opts.lead === "director" && opts.audience === "zgd" ? DIRECTOR_INTRO : SYSTEM[opts.audience], opts.compact ? RULES_SHORT : RULES, "", head, head ? "" : null, title, body.text, hits ? "" : null, hits || null].filter((x) => x !== null).join("\n");
 
   // история: последние 2 обмена, длинные ответы — коротко (модель их уже писала)

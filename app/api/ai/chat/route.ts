@@ -43,7 +43,7 @@ async function POSTHandler(request: NextRequest) {
       // локальная модель (маленькая): сроки, пустые формулировки, дубли считает сервер, модель формулирует выводы
       // (lib/local-ai-prompt.ts); ответ считает браузер этого человека, справки в облако не уходят
       const lb = localBudget(b?.localDevice, b?.localCtx);
-      const localMemos = memos.map((m) => ({ directorate: m.directorate, title: m.title, doc: m.doc, sources: m.sources }));
+      const localMemos = memos.map((m) => ({ directorate: m.directorate, title: m.title, doc: m.doc, sources: m.sources, date: m.date }));
       // на процессоре типовые вопросы — мгновенный разбор кодом (модель читала бы справку минутами), см. lib/local-quick.ts
       if (b?.localDevice === "cpu" && task === "search" && found) return NextResponse.json({ local: { kind: "text", text: hitsAnswer(found, found.scope) } }, { headers: { "Cache-Control": "no-store" } });
       const quick = b?.localDevice === "cpu" ? quickAnswer({ audience: "zgd", memos: localMemos, question: messages[messages.length - 1].content, lead }) : null;

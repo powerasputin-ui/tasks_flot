@@ -27,6 +27,11 @@ describe("Оперативщик: правила для модели", () => {
     expect(ctx.text).toContain("[2] Договор подписан");
     expect(ctx.text).not.toContain("скрытый");
     expect(memoAssistSystem(ctx.text)).toContain("Оперативщик");
+    // дата справки стоит в документе отдельно от заголовка — модель должна её видеть
+    const dated = memoAssistContext(doc, "Справка", { number: 41, meetingDate: "2026-10-07T00:00:00.000Z" });
+    expect(dated.text).toContain("Оперативка №41");
+    expect(dated.text).toContain("Дата справки (оперативного совещания): 07.10.2026");
+    expect(memoAssistSystem(dated.text)).toContain("не переспрашивай");
   });
 });
 
