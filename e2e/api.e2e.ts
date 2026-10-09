@@ -1305,6 +1305,23 @@ describe("составитель справки и решение «в спра�
     expect((await call(compiler, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain } })).status).toBe(400);
   });
 
+  it("своя строка директора (он ответственный): «в справку» сразу подаёт её; чужую неподанную — нельзя", async () => {
+    const own = await call(directorB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} своя директора`, responsibleId: directorB.id, comment: "Своя." } });
+    expect(own.status).toBe(201);
+    created.items.push(own.data.row.id);
+    expect(own.data.row.operFlag).toBe(false);
+    const on = await call(directorB, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: own.data.row.id, include: true } });
+    expect(on.status).toBe(200);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: own.data.row.id } })).operFlag).toBe(true);
+    expect((await call(directorB, inclusion.GET, "/api/memo/inclusion")).data.included).toContain(own.data.row.id);
+    // строка руководителя, которую он не подал, — по-прежнему нет
+    const foreign = await call(directorB, memoInclude.POST, `/api/cycles/${cycleId}/memo/include`, { method: "POST", id: cycleId, body: { itemId: itemPlain, include: true } });
+    expect(foreign.status).toBe(409);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemPlain } })).operFlag).toBe(false);
+    // не мешать подсчётам «кто подал» в следующих проверках
+    await prisma.operationalItem.update({ where: { id: own.data.row.id }, data: { archivedAt: new Date() } });
+  });
+
   it("снять флаг: руководитель снова обычный (доступ к справке пропадает)", async () => {
     expect((await call(curator, user.PATCH, `/api/users/${headB.id}`, { method: "PATCH", id: headB.id, body: { memoEditor: false } })).status).toBe(200);
     expect((await call(headB, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId })).status).toBe(404);

@@ -394,8 +394,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     const res = await fetch(`/api/cycles/${memo.cycleId}/memo/include`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: row.id, include }) });
     if (!res.ok) {
       setMemo(prev);
-      setError(res.status === 409 ? "Справку сейчас правят в другом окне. Повторите." : "Не удалось изменить справку.");
+      const d = await res.json().catch(() => null);
+      setError(d?.message ?? (res.status === 409 ? "Справку сейчас правят в другом окне. Повторите." : "Не удалось изменить справку."));
+      return;
     }
+    // своя неподанная строка подана сервером вместе с включением — обновляем её отметку
+    if (include && !row.operFlag) revalidate();
   }
 
   // Ссылка вида /table?item=<id> (например, из справки директора «Открыть в таблице») сразу открывает эту позицию
@@ -565,8 +569,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       case "memo": {
         if (!memo || row.archived) return "—";
         const isIn = memo.included.has(row.id);
-        // в справку попадает только поданное: пока руководитель не отправил строку, решать по ней нечего
-        if (!isIn && !row.operFlag) return <span className="text-[11px] text-outline" title="Руководитель ещё не отправил строку директору">не подана</span>;
+        // в справку попадает только поданное: пока руководитель не отправил строку, решать по ней нечего.
+        // Своя строка составителя (он ответственный или автор без ответственного) — подавать её некому: «Отправить» сразу подаёт и кладёт в справку
+        const ownRow = !!me && !submitsOwn && (row.ownerId === me.id || (!row.ownerId && row.createdById === me.id));
+        if (!isIn && !row.operFlag && !ownRow) return <span className="text-[11px] text-outline" title="Руководитель ещё не отправил строку директору">не подана</span>;
         const undecided = row.operFlag && !memo.known.has(row.id) && !row.archived;
         return (
           <span className="inline-flex items-center gap-1.5">

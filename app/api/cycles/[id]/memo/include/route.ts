@@ -7,6 +7,8 @@ import { setIncluded } from "@/lib/memo";
 import { withApiErrors } from "@/lib/api-guard";
 import { diffMemo, isEmptyDiff, stampChanges } from "@/lib/memo-changes";
 import { logMemoEdit } from "@/lib/memo-log";
+import { ITEM_ERROR_STATUS, updateItem } from "@/lib/items";
+import { isSubmitter } from "@/lib/permissions";
 
 // Решение «в справку / не в справку» по одной строке (из таблицы или из редактора). Тело: { itemId, include }.
 async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -18,6 +20,17 @@ async function POSTHandler(request: NextRequest, { params }: { params: Promise<{
   const body = (await request.json().catch(() => null)) as { itemId?: string; include?: boolean } | null;
   if (!body?.itemId || typeof body.include !== "boolean") return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
 
+  // Своя строка составителя (директор/админ сам ответственный, или автор строки без ответственного): подавать её
+  // некому — он и есть получатель. Поэтому «в справку» сразу и подаёт её (обычной правкой позиции, с историей).
+  if (body.include) {
+    const raw = await prisma.operationalItem.findUnique({ where: { id: body.itemId }, select: { operFlag: true, responsibleId: true, createdById: true, version: true, directorateId: true, archivedAt: true } });
+    // только тем, у кого нет своей кнопки «Отправить директору» (директор, админ без «подаёт как руководитель»)
+    const own = !isSubmitter(actor) && !!raw && raw.directorateId === cycle.directorateId && !raw.archivedAt && (raw.responsibleId === actor.id || (!raw.responsibleId && raw.createdById === actor.id));
+    if (raw && own && !raw.operFlag) {
+      const sub = await updateItem(actor, body.itemId, { operFlag: true, version: raw.version });
+      if (!sub.ok) return NextResponse.json({ error: sub.error, message: "message" in sub ? sub.message : undefined }, { status: ITEM_ERROR_STATUS[sub.error] });
+    }
+  }
   const [state, defs] = await Promise.all([loadMemo(cycle), loadSectionDefs(cycle.directorateId ?? "")]);
   const sources = await loadSources(cycle.directorateId ?? "", undefined, defs);
   const item = sources.find((s) => s.id === body.itemId);
