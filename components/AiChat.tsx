@@ -7,6 +7,7 @@ import { OperativshchikAvatar } from "@/components/Operativshchik";
 import { Popover } from "@/components/ui/Popover";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { AiModelPicker, useAiEngine } from "@/components/AiModelPicker";
+import { aiRequest } from "@/lib/local-ai";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -27,6 +28,8 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // локальная модель: «Загружаю модель…» при первом вопросе
+  const [status, setStatus] = useState<string | null>(null);
   const ai = useAiEngine();
   const [configuredOverride, setConfigured] = useState<boolean | null>(null);
   const configured = configuredOverride ?? ai.configured;
@@ -63,7 +66,11 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
     abort.current = ctl;
     try {
       // ответ ИИ начинается через секунды; не начался за 45 с — зависший экземпляр сервера, спрашиваем ещё раз
-      const r = await fetchFirstByteRetry("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds, messages: history, engine: ai.engine }), signal: ctl.signal }, 45000);
+      const r = await aiRequest("/api/ai/chat", { versionIds, messages: history }, {
+        signal: ctl.signal,
+        onStatus: setStatus,
+        cloud: () => fetchFirstByteRetry("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionIds, messages: history, engine: ai.engine }), signal: ctl.signal }, 45000),
+      });
       if (!r.ok || !r.body) {
         const d = await r.json().catch(() => null);
         if (d?.error === "NOT_CONFIGURED") setConfigured(false);
@@ -95,6 +102,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
       }
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -151,6 +159,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
                     : "У этой модели маленькое окно: справки переданы в сжатом виде (без строк-источников)."}
                 </p>
               )}
+              {status && <p className="text-[12px] text-on-surface-variant">{status}</p>}
               {error && <p className="text-[12px] text-status-red">{error}</p>}
               <div ref={bottom} />
             </div>
@@ -176,7 +185,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason }: { versionIds:
             aria-label="Вопрос помощнику"
             className="min-w-0 flex-1 bg-transparent text-[14px] text-on-surface outline-none placeholder:text-outline"
           />
-          <AiModelPicker engine={ai.engine} onChange={ai.setEngine} shared={ai.shared} own={ai.own} />
+          <AiModelPicker engine={ai.engine} onChange={ai.setEngine} shared={ai.shared} own={ai.own} local={ai.local} />
           {busy ? (
             <button type="button" onClick={() => abort.current?.abort()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-high text-on-surface" title="Остановить" aria-label="Остановить">
               <Square size={13} fill="currentColor" />

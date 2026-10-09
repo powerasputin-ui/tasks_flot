@@ -1120,6 +1120,16 @@ describe("справка директора", () => {
     expect((await ask(directorB, { cycleId, mode: "rewrite", text: "   " })).status).toBe(400);
     expect((await ask(directorB, { cycleId, mode: "chat", messages: [] })).status).toBe(400);
     expect((await ask(directorB, { cycleId, mode: "что-то" })).status).toBe(400);
+    // локальная модель: те же права, сервер отдаёт готовый запрос вместо ответа облака
+    expect((await ask(director, { cycleId, mode: "rewrite", text: "Текст", engine: "local" })).status).toBe(404);
+    const rw = await ask(directorB, { cycleId, mode: "rewrite", text: "Сделано 3 рейса.", style: "shorter", engine: "local" });
+    expect(rw.status).toBe(200);
+    expect(rw.data.local).toMatchObject({ kind: "rewrite", original: "Сделано 3 рейса.", messages: [{ role: "user", content: "Сделано 3 рейса." }] });
+    const lc = await ask(directorB, { cycleId, mode: "chat", messages: [{ role: "user", content: "Что главное?" }], engine: "local" });
+    expect(lc.status).toBe(200);
+    expect(lc.data.local.kind).toBe("stream");
+    expect(lc.data.local.system.length).toBeGreaterThan(100);
+    expect(lc.data.local.messages.at(-1).content).toBe("Что главное?");
   });
 
   it("новая подача сама встаёт в собранную справку (с меткой «новая подача»), правки директора не трогаются", async () => {
@@ -1400,6 +1410,12 @@ describe("отправка справки ЗГД, архив, возврат", (
     expect((await call(management, aiSettings.GET, "/api/ai/settings")).data.configured).toBe(false);
     const noAi = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }] } });
     expect(noAi.status).toBe(409);
+    // локальная модель работает и без облачного подключения: сервер отдаёт справку в запросе для браузера
+    const local = await call(management, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }], engine: "local" } });
+    expect(local.status).toBe(200);
+    expect(local.data.local.kind).toBe("stream");
+    expect(local.data.local.system).toContain(word);
+    expect((await call(headB, aiChat.POST, "/api/ai/chat", { method: "POST", body: { versionIds: [versionId], messages: [{ role: "user", content: "?" }], engine: "local" } })).status).toBe(403);
     const merged = await call(management, aiConsolidate.POST, "/api/ai/consolidate", { method: "POST", body: { versionIds: [versionId] } });
     expect(merged.data.aiUsed).toBe(false);
     expect(JSON.stringify(merged.data.topics)).toContain(word);

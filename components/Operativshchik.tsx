@@ -1,9 +1,11 @@
 "use client";
 
 import { fetchFirstByteRetry } from "@/lib/fetch-retry";
+import { aiRequest } from "@/lib/local-ai";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Check, ChevronDown, Plus, RefreshCw, Send, Sparkles, Square, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Plus, RefreshCw, Send, Settings2, Sparkles, Square, X } from "lucide-react";
+import { LocalModelSettings } from "@/components/LocalModelSettings";
 
 /** Анимированный шар-помощник (сжатый WebP 112×112, ~270 КБ) и его неподвижный кадр — для «уменьшить движение». */
 export function OperativshchikAvatar({ size = 56, still = false }: { size?: number; still?: boolean }) {
@@ -28,6 +30,7 @@ export function RewritePanel({ cycleId, text, anchor, onReplace, onClose }: { cy
   const [warn, setWarn] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null); // локальная модель: «Загружаю модель…»
   const ctl = useRef<AbortController | null>(null);
 
   async function run(s: Style) {
@@ -38,7 +41,11 @@ export function RewritePanel({ cycleId, text, anchor, onReplace, onClose }: { cy
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch("/api/ai/memo-assist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cycleId, mode: "rewrite", text, style: s }), signal: c.signal });
+      const r = await aiRequest("/api/ai/memo-assist", { cycleId, mode: "rewrite", text, style: s }, {
+        signal: c.signal,
+        onStatus: setStatus,
+        cloud: () => fetch("/api/ai/memo-assist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cycleId, mode: "rewrite", text, style: s }), signal: c.signal }),
+      });
       const d = await r.json().catch(() => null);
       if (!r.ok) return setError(d?.message ?? "Не удалось получить вариант. Попробуйте ещё раз.");
       setVariant(d.text);
@@ -47,6 +54,7 @@ export function RewritePanel({ cycleId, text, anchor, onReplace, onClose }: { cy
       if ((e as Error).name !== "AbortError") setError("Связь прервалась. Попробуйте ещё раз.");
     } finally {
       if (ctl.current === c) setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -86,7 +94,7 @@ export function RewritePanel({ cycleId, text, anchor, onReplace, onClose }: { cy
         <div>
           <p className="label-caps mb-1">Стало</p>
           <div className="min-h-[64px] whitespace-pre-wrap rounded-md border border-primary/40 bg-primary-soft/40 px-2.5 py-1.5 text-[13px] leading-snug text-on-surface [overflow-wrap:anywhere]">
-            {busy ? <span className="text-on-surface-variant">Думаю над формулировкой…</span> : error ? <span className="text-status-red">{error}</span> : variant}
+            {busy ? <span className="text-on-surface-variant">{status ?? "Думаю над формулировкой…"}</span> : error ? <span className="text-status-red">{error}</span> : variant}
           </div>
           {!busy && warn.length > 0 && (
             <p className="mt-1 flex items-start gap-1 text-[11px] text-status-amber">
@@ -135,6 +143,9 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null); // локальная модель: «Загружаю модель…»
+  // «Локальная модель»: директору окно «Подключение ИИ» недоступно, поэтому выбор модели — прямо здесь
+  const [settings, setSettings] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   // Шар можно перетащить, зажав левую кнопку: место запоминается в этом браузере. По умолчанию — правый нижний угол.
@@ -168,7 +179,11 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const r = await fetchFirstByteRetry("/api/ai/memo-assist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cycleId, mode: "chat", messages: history }), signal: ctl.signal }, 45000);
+      const r = await aiRequest("/api/ai/memo-assist", { cycleId, mode: "chat", messages: history }, {
+        signal: ctl.signal,
+        onStatus: setStatus,
+        cloud: () => fetchFirstByteRetry("/api/ai/memo-assist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cycleId, mode: "chat", messages: history }), signal: ctl.signal }, 45000),
+      });
       if (!r.ok || !r.body) {
         const d = await r.json().catch(() => null);
         setError(d?.message ?? "Не удалось получить ответ.");
@@ -195,6 +210,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
       }
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -223,10 +239,19 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
                 <Plus size={15} />
               </button>
             )}
+            <button onClick={() => setSettings((v) => !v)} className={`btn-icon h-7 w-7 ${settings ? "text-primary" : ""}`} title="Модель: облако или локальная на этом компьютере" aria-label="Настройки модели">
+              <Settings2 size={15} />
+            </button>
             <button onClick={() => setOpen(false)} className="btn-icon h-7 w-7" title="Свернуть" aria-label="Свернуть">
               <ChevronDown size={16} />
             </button>
           </div>
+          {settings && (
+            <div className="max-h-[60%] shrink-0 overflow-y-auto border-b border-outline-variant p-3">
+              <LocalModelSettings />
+              <p className="mt-2 text-[11px] leading-snug text-on-surface-variant">Без локальной модели Оперативщик отвечает облачной моделью, подключённой для всех.</p>
+            </div>
+          )}
           <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
             <div className="rounded-2xl bg-surface-low px-3 py-2 text-[13px] leading-relaxed text-on-surface">
               Привет, я твой Оперативщик! Помогу сделать справку понятной и ровной: подскажу слабые формулировки, приведу пункты к одному стилю.
@@ -248,6 +273,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
                 </div>
               </div>
             ))}
+            {status && <p className="text-[12px] text-on-surface-variant">{status}</p>}
             {error && <p className="text-[12px] text-status-red">{error}</p>}
             <div ref={bottom} />
           </div>

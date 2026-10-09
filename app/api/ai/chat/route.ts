@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireActor } from "@/lib/session";
-import { AiError, aiBudget, buildContextInfo, chatSystem, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
-import { aiErrorResponse, canUseAi, chainForEngine, loadEffectiveAiConfig, loadLatestMemoIds, loadMemosForAi, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
+import { AiError, aiBudget, localBudget, buildContextInfo, chatSystem, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
+import { aiErrorResponse, canUseAi, chainForEngine, isLocalEngine, loadEffectiveAiConfig, loadLatestMemoIds, loadMemosForAi, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
 import { withApiErrors } from "@/lib/api-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -14,18 +14,28 @@ async function POSTHandler(request: NextRequest) {
   if (!canUseAi(actor)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const limited = await enforceRateLimit(`ai-chat:${actor.id}`, 40, 600000, "вопросов помощнику");
   if (limited) return limited;
-  const b = (await request.json().catch(() => null)) as { versionIds?: unknown; messages?: unknown; engine?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { versionIds?: unknown; messages?: unknown; engine?: unknown; localDevice?: unknown } | null;
   const messages: ChatMessage[] = (Array.isArray(b?.messages) ? (b!.messages as Array<{ role?: string; content?: unknown }>) : [])
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .slice(-MAX_MESSAGES)
     .map((m) => ({ role: m.role as ChatMessage["role"], content: (m.content as string).slice(0, MAX_MESSAGE_LEN) }));
   if (messages.length === 0 || messages[messages.length - 1].role !== "user") return NextResponse.json({ error: "INVALID_INPUT", message: "Введите вопрос." }, { status: 400 });
   try {
-    const cfg = await loadEffectiveAiConfig(actor.id);
-    if (!cfg) throw new AiError("NOT_CONFIGURED", "ИИ не подключён: попросите администратора подключить его для всех или вставьте свой ключ в настройках ИИ.");
+    const local = isLocalEngine(b?.engine);
+    const cfg = local ? null : await loadEffectiveAiConfig(actor.id);
+    if (!local && !cfg) throw new AiError("NOT_CONFIGURED", "ИИ не подключён: попросите администратора подключить его для всех или вставьте свой ключ в настройках ИИ.");
     const requested = Array.isArray(b?.versionIds) && b!.versionIds.length > 0;
     const memos = await loadMemosForAi(actor, requested ? b?.versionIds : await loadLatestMemoIds(actor));
     if (memos.length === 0) return NextResponse.json({ error: "NO_CONTEXT", message: "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
+    if (!cfg) {
+      // локальная модель: тот же запрос, что ушёл бы в облако, но ужатый под её окно — считает браузер этого человека
+      const lb = localBudget(b?.localDevice);
+      const ctx = buildContextInfo(memos, lb.contextChars);
+      return NextResponse.json(
+        { local: { kind: "stream", system: chatSystem(ctx.text), messages: fitHistory(messages, lb.historyChars), maxTokens: lb.chatOut, trimmed: ctx.trimmed } },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const fullLength = buildContextInfo(memos).text.length;
     const { chain, preroute } = chainForEngine(cfg, parseEngine(b?.engine));
     let used = chain as Parameters<typeof modelLabel>[0];

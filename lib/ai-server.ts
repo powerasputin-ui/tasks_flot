@@ -105,6 +105,8 @@ export async function withAiFallback<T>(cfg: Chain, contextLength: number, run: 
  * С личным ключом выбора нет: работает его модель.
  */
 export type AiEngine = "auto" | "primary" | "fallback";
+/** Локальная модель в браузере: сервер не зовёт облако, а отдаёт готовый запрос (см. lib/local-ai.ts). */
+export const isLocalEngine = (v: unknown) => v === "local";
 export function parseEngine(v: unknown): AiEngine {
   return v === "primary" || v === "fallback" ? v : "auto";
 }

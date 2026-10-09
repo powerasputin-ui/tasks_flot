@@ -311,6 +311,18 @@ export function aiBudget(cfg: Pick<AiConfig, "baseUrl">): AiBudget {
   return { small: false, contextChars: CONTEXT_LIMIT, historyChars: 40000, chatOut: 6000, consolidateOut: 10000 };
 }
 
+/**
+ * Локальная модель в браузере (lib/local-ai.ts): окно 8 тыс. токенов на всё — справка, история, ответ.
+ * Русский текст у Qwen ≈ 2,5–3 символа на токен: ~10 тыс. символов справки + 3 тыс. истории + ответ ≈ 7 тыс. токенов.
+ */
+export const LOCAL_BUDGET: AiBudget = { small: true, contextChars: 10000, historyChars: 3000, chatOut: 900, consolidateOut: 0 };
+/**
+ * Та же модель на процессоре: в браузере она читает запрос не быстрее, чем пишет (замерено: ~20–30 токенов/с у модели 0,5B,
+ * у 3–4B — в разы медленнее). Длинная справка — это минуты до первого слова, поэтому даём ей сжатую выжимку.
+ */
+export const LOCAL_BUDGET_CPU: AiBudget = { small: true, contextChars: 3000, historyChars: 1500, chatOut: 600, consolidateOut: 0 };
+export const localBudget = (device: unknown): AiBudget => (device === "cpu" ? LOCAL_BUDGET_CPU : LOCAL_BUDGET);
+
 export function buildContext(memos: MemoForAi[], limit = CONTEXT_LIMIT): string {
   return buildContextInfo(memos, limit).text;
 }

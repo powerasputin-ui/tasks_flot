@@ -23,6 +23,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "^6.3.0",
+    "@wllama/wllama": "3.8.1",
     "bcryptjs": "^2.4.3",
     "date-fns": "^4.1.0",
     "docx": "9.7.2",

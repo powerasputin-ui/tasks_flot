@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { AiModelChoice } from "@/components/AiModelPicker";
+import { LocalModelSettings } from "@/components/LocalModelSettings";
 
 type Provider = "openai" | "anthropic";
 type Defaults = Record<Provider, { baseUrl: string; model: string }>;
@@ -257,6 +258,9 @@ export function AiSettingsPanel({ onChanged, close }: { onChanged: (configured: 
       </div>
         </>
       )}
+
+      {/* модель с флешки/общего диска в браузере этого компьютера — выбор хранится только здесь */}
+      <LocalModelSettings />
     </div>
   );
 }

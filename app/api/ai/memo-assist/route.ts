@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
-import { AiError, aiBudget, complete, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
-import { aiErrorResponse, chainForEngine, loadEffectiveAiConfig, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
+import { AiError, aiBudget, localBudget, complete, fitHistory, streamText, type ChatMessage } from "@/lib/ai";
+import { aiErrorResponse, chainForEngine, isLocalEngine, loadEffectiveAiConfig, modelLabel, parseEngine, withAiFallback } from "@/lib/ai-server";
 import { canEditMemo, loadMemo } from "@/lib/memo-load";
 import { cleanVariant, memoAssistContext, memoAssistSystem, newNumbers, rewriteSystem, type RewriteStyle } from "@/lib/memo-assist";
 import { withApiErrors } from "@/lib/api-guard";
@@ -19,7 +19,7 @@ const MAX_MESSAGE_LEN = 4000;
  */
 async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
-  const b = (await request.json().catch(() => null)) as { cycleId?: unknown; mode?: unknown; text?: unknown; style?: unknown; messages?: unknown; engine?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { cycleId?: unknown; mode?: unknown; text?: unknown; style?: unknown; messages?: unknown; engine?: unknown; localDevice?: unknown } | null;
   const cycleId = typeof b?.cycleId === "string" ? b.cycleId : "";
   const cycle = cycleId ? await prisma.cycle.findUnique({ where: { id: cycleId } }) : null;
   if (!cycle || !canEditMemo(actor, cycle)) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
@@ -39,6 +39,22 @@ async function POSTHandler(request: NextRequest) {
   if (limited) return limited;
 
   try {
+    if (isLocalEngine(b?.engine)) {
+      // локальная модель: отдаём готовый запрос, ответ считает браузер (lib/local-ai.ts); справка в облако не уходит
+      const headers = { "Cache-Control": "no-store" };
+      const lb = localBudget(b?.localDevice);
+      if (mode === "rewrite") {
+        const style: RewriteStyle = b?.style === "shorter" || b?.style === "formal" ? b.style : "improve";
+        return NextResponse.json({ local: { kind: "rewrite", system: rewriteSystem(style), messages: [{ role: "user", content: text }], maxTokens: lb.chatOut, original: text } }, { headers });
+      }
+      const state = await loadMemo(cycle);
+      const ctx = memoAssistContext(state.doc, state.title);
+      const cut = ctx.text.length > lb.contextChars;
+      return NextResponse.json(
+        { local: { kind: "stream", system: memoAssistSystem(ctx.text.slice(0, lb.contextChars)), messages: fitHistory(messages, lb.historyChars), maxTokens: lb.chatOut, trimmed: cut ? "cut" : false } },
+        { headers },
+      );
+    }
     const cfg = await loadEffectiveAiConfig(actor.id);
     if (!cfg) throw new AiError("NOT_CONFIGURED", "ИИ не подключён: попросите администратора подключить его для всех или вставьте свой ключ в настройках ИИ.");
     const { chain, preroute } = chainForEngine(cfg, parseEngine(b?.engine));
