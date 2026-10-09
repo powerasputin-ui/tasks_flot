@@ -143,7 +143,7 @@ describe("ссылки [Т…] и итоги по справке", () => {
   it("справка: число пунктов, новые подачи и кто правил — считает программа; пункт ← позиция", () => {
     const b = (id: string, text: string, extra: object = {}) => ({ id, text, itemIds: [id], origin: "auto" as const, edited: false, hidden: false, sourceHash: "", ...extra });
     const ctx = memoAssistContext({ sections: [{ id: "s", title: "Раздел", kind: "section", bullets: [b("i1", "Первый", { fresh: true }), b("i2", "Второй", { changedBy: "Сухов В.А." }), b("i3", "Скрытый", { hidden: true })] }] }, "Справка", {}, [], (id) => ({ i1: "Т1", i2: "Т2" })[id]);
-    expect(ctx.text).toContain("пунктов 2 в 1 разделах; новые подачи (добавлены автоматически) — 1: [1]; текст пункта правили вручную — [2] — Сухов В.А.");
+    expect(ctx.text).toContain("пунктов 2 в 1 разделах («Раздел» — 2); новые подачи (добавлены автоматически) — 1: [1]; текст пункта правили вручную — [2] — Сухов В.А.");
     expect(ctx.text).toContain("[2] Второй ← [Т2] {текст пункта в справке правил: Сухов В.А.}");
   });
 });

@@ -78,7 +78,7 @@ export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = 
   lines.splice(
     meta.deadline ? 4 : 3,
     0,
-    `ИТОГИ ПО СПРАВКЕ (посчитано программой): пунктов ${n} в ${sections.length} разделах; новые подачи (добавлены автоматически) — ${fresh.length}${fresh.length ? `: ${fresh.join(", ")}` : ""}; текст пункта правили вручную — ${edited.length ? edited.join("; ") : "никто"}.`,
+    `ИТОГИ ПО СПРАВКЕ (посчитано программой): пунктов ${n} в ${sections.length} разделах (${sections.map((s) => `«${s.title || "Прочие направления"}» — ${s.bullets.filter((b) => !b.hidden && b.text.trim()).length}`).join(", ")}); новые подачи (добавлены автоматически) — ${fresh.length}${fresh.length ? `: ${fresh.join(", ")}` : ""}; текст пункта правили вручную — ${edited.length ? edited.join("; ") : "никто"}.`,
   );
   // сам блок «ДОКУМЕНТЫ» (названия и пути) маршрут добавляет отдельно, чтобы его не отрезало при сжатии справки под окно
   return { text: lines.join("\n"), count: n };
