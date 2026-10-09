@@ -44,7 +44,7 @@ const ruDay = (d: Date | string) => new Date(d).toLocaleDateString("ru-RU", { ti
  */
 export function memoDateText(title: string, meetingDate?: Date | string | null): string {
   if (meetingDate) return ruDay(meetingDate);
-  return splitTitleDate(title).date || "не указана";
+  return splitTitleDate(title).date || "не заполнена (поле «Оперативное совещание» в справке пустое)";
 }
 
 export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = {}, docs: AiDoc[] = []): { text: string; count: number } {
