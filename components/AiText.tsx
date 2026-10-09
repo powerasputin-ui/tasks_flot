@@ -3,6 +3,7 @@
 import { FileText, Paperclip } from "lucide-react";
 import { docHref, type AiDocRef } from "@/lib/ai-docs";
 import type { AiItemRef } from "@/lib/ai-table";
+import { plainText } from "@/lib/ai-guard";
 
 function readJsonHeader<T>(r: Response, name: string): T[] | undefined {
   const raw = r.headers.get(name);
@@ -24,7 +25,9 @@ export const readItemsHeader = (r: Response) => readJsonHeader<AiItemRef>(r, "X-
  * Ответ ИИ: метки [Д1]… — ссылка на документ (ярлык на файл общего диска, как скрепка в справке),
  * [Т7]… — ссылка на позицию в таблице. Метка, которой нет в списке (модель ошиблась), остаётся текстом.
  */
-export function AiText({ text, docs, items }: { text: string; docs?: AiDocRef[]; items?: AiItemRef[] }) {
+export function AiText({ text: raw, docs, items }: { text: string; docs?: AiDocRef[]; items?: AiItemRef[] }) {
+  // узкие/неразрывные пробелы → обычные: иначе скопированный из ответа путь к файлу не откроется (локальная модель тоже)
+  const text = plainText(raw);
   // модель иногда пишет латинскую «T» вместо «Т» ([T12]) — понимаем обе
   if (!(docs?.length || items?.length) || !/\[[ДТT]\d+\]/.test(text)) return <>{text}</>;
   const parts = text.split(/(\[[ДТT]\d+\])/g);

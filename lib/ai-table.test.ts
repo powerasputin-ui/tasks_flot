@@ -159,5 +159,8 @@ describe("защита от мусорного ответа", () => {
     expect(await new Response(bad).text()).toBe("Нормальный ответ.");
     const good = await guardStream(streamOf("Всего 11 пунктов в пяти разделах."), async () => streamOf("не должен"));
     expect(await new Response(good).text()).toBe("Всего 11 пунктов в пяти разделах.");
+    // узкие неразрывные пробелы в пути к файлу (экзамен, D1) — обычными, иначе путь не откроется
+    const path = await guardStream(streamOf("Путь: \\\\10.10.51.51\\флот\\5. Развитие и приобретение\\x.pptx"), async () => streamOf(""));
+    expect(await new Response(path).text()).toBe("Путь: \\\\10.10.51.51\\флот\\5. Развитие и приобретение\\x.pptx");
   });
 });

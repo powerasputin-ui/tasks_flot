@@ -33,6 +33,17 @@ export function looksGarbage(head: string): boolean {
   return words >= 12 && Math.max(0, ...counts.values()) / words > 0.4;
 }
 
+/** Неразрывные и узкие пробелы → обычные. Модель ставит их внутри путей к файлам (экзамен, D1) — скопированный путь не открывается. */
+export const PLAIN_SPACES = /[    ]/g;
+export const plainText = (s: string) => s.replace(PLAIN_SPACES, " ");
+
+function plainSpaces(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  return stream
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new TransformStream<string, string>({ transform: (chunk, ctrl) => ctrl.enqueue(plainText(chunk)) }))
+    .pipeThrough(new TextEncoderStream());
+}
+
 /**
  * Поток ответа с проверкой начала: копим первые headChars знаков; мусор — отменяем и берём поток из retry().
  * Хорошее начало отдаётся сразу целиком, дальше поток идёт как есть.
@@ -54,9 +65,9 @@ export async function guardStream(stream: ReadableStream<Uint8Array>, retry: () 
   }
   if (head.trim() && looksGarbage(head)) {
     await reader.cancel().catch(() => undefined);
-    return retry();
+    return plainSpaces(await retry());
   }
-  return new ReadableStream<Uint8Array>({
+  return plainSpaces(new ReadableStream<Uint8Array>({
     start(ctrl) {
       for (const c of chunks) ctrl.enqueue(c);
       if (done) ctrl.close();
@@ -72,5 +83,5 @@ export async function guardStream(stream: ReadableStream<Uint8Array>, retry: () 
     cancel() {
       return reader.cancel();
     },
-  });
+  }));
 }
