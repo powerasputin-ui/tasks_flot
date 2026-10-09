@@ -135,7 +135,7 @@ function estimateLineStarts(text: string): number[] {
 
 function hasHint(b: MemoBullet, f?: BulletFlags): boolean {
   const emptyByView = !b.text.trim() && b.itemIds.length > 0 && !b.edited;
-  return !!(b.fresh || f?.sourceChanged || f?.sourceMissing || b.hidden || emptyByView || (b.origin === "manual" && b.itemIds.length === 0 && b.text.trim()) || (b.edited && b.itemIds.length > 0));
+  return !!(f?.sourceChanged || f?.sourceMissing || b.hidden || emptyByView || (b.origin === "manual" && b.itemIds.length === 0 && b.text.trim()) || (b.edited && b.itemIds.length > 0));
 }
 
 /**
@@ -1315,7 +1315,6 @@ function BulletFragment({
         {showHint && (
           <p ref={registerHint} className="flex flex-wrap items-center gap-x-3 pb-1 pt-0.5 text-[11px] text-on-surface-variant">
             {bullet.hidden && !flags?.sourceMissing && <span>скрыт — в файл не идёт</span>}
-            {bullet.fresh && <span className="font-semibold text-primary">новая подача — добавлена в справку автоматически</span>}
             {emptyByView && <span>пусто по текущему «Виду справки» — в файл не пойдёт</span>}
             {bullet.origin === "manual" && bullet.itemIds.length === 0 && <span>написан вручную</span>}
             {bullet.edited && bullet.itemIds.length > 0 && (
