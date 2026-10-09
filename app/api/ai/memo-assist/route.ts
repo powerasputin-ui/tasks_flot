@@ -11,7 +11,7 @@ import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion, type AiDoc } from "@/lib/ai-docs";
 import { quickAnswer } from "@/lib/local-quick";
-import { TABLE_RULE, labelItems, tableAnswer, tableContext } from "@/lib/ai-table";
+import { TABLE_RULE, itemRefs, itemsHeader, labelItems, tableAnswer, tableContext } from "@/lib/ai-table";
 import { loadTableFacts } from "@/lib/ai-table-load";
 import { guardStream } from "@/lib/ai-guard";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -65,7 +65,7 @@ async function POSTHandler(request: NextRequest) {
       const memoItemIds = state.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds));
       // процессор: выборка из таблицы («у кого», «что просрочено», «не подано», «удалённые») и журнал — сразу точным списком
       const tableText = b?.localDevice === "cpu" && facts ? tableAnswer({ ...facts, question, memoItemIds, budget: 0 }) : null;
-      if (tableText) return NextResponse.json({ local: { kind: "text", text: tableText } }, { headers });
+      if (tableText && facts) return NextResponse.json({ local: { kind: "text", text: tableText, items: itemRefs({ ...facts, question, memoItemIds }) } }, { headers });
       // процессор: вопрос про документы — сразу список с путями и ссылками
       if (b?.localDevice === "cpu" && isDocsQuestion(question) && task !== "search") return NextResponse.json({ local: { kind: "text", text: docsAnswer(question, docs), docs: docRefs(docs) } }, { headers });
       if (b?.localDevice === "cpu" && task === "search" && found) return NextResponse.json({ local: { kind: "text", text: hitsAnswer(found, found.scope) } }, { headers });
@@ -87,7 +87,7 @@ async function POSTHandler(request: NextRequest) {
         ].filter(Boolean).join("\n\n") || undefined,
         docs,
       });
-      return NextResponse.json({ local: { ...local, docs: docRefs(docs) } }, { headers });
+      return NextResponse.json({ local: { ...local, docs: docRefs(docs), items: facts ? itemRefs({ ...facts, question, memoItemIds }) : undefined } }, { headers });
     }
     const cfg = await loadEffectiveAiConfig(actor.id);
     if (!cfg) throw new AiError("NOT_CONFIGURED", "ИИ не подключён: попросите администратора подключить его для всех или вставьте свой ключ в настройках ИИ.");
@@ -126,7 +126,7 @@ async function POSTHandler(request: NextRequest) {
     const first = await withAiFallback(chain, ctx.text.length, make, preroute);
     // мусор в начале ответа («personas, personas…») — отбрасываем и спрашиваем ещё раз (запасную модель, если есть)
     const stream = await guardStream(first, () => withAiFallback(chain.fallback ?? chain, ctx.text.length, make, false));
-    return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-AI-Model": encodeURIComponent(modelLabel(used)), ...docsHeader(docs) } });
+    return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-AI-Model": encodeURIComponent(modelLabel(used)), ...docsHeader(docs), ...(facts ? itemsHeader(itemRefs({ ...facts, question, memoItemIds })) : {}) } });
   } catch (e) {
     return aiErrorResponse(e);
   }

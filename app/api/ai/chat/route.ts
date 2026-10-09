@@ -7,6 +7,9 @@ import { buildLocalPrompt, routeTask } from "@/lib/local-ai-prompt";
 import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion } from "@/lib/ai-docs";
+import { TABLE_RULE, itemRefs, itemsHeader, tableAnswer, tableContext } from "@/lib/ai-table";
+import { loadTableFacts } from "@/lib/ai-table-load";
+import { guardStream } from "@/lib/ai-guard";
 import { canViewItems } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { readFiles } from "@/lib/item-files";
@@ -44,7 +47,17 @@ async function POSTHandler(request: NextRequest) {
     const withHits = !!found && (task === "search" || found.hits.length > 0);
     // документы пунктов (ссылки на общий диск) — тем, кто видит их в интерфейсе (не ЗГД: ему документы позиций не открываются)
     const docs = await memoDocsFor(actor, memos);
-    if (memos.length === 0 && !(found && found.hits.length)) return NextResponse.json({ error: "NO_CONTEXT", message: task === "search" ? "Ничего не нашлось — ни в таблице, ни в справках." : "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
+    // тот же движок фактов, что у Оперативщика: таблица дирекции, итоги, точная выборка, журнал — кому таблица доступна (не ЗГД)
+    const facts = await loadTableFacts(actor);
+    const memoItemIds = memos.flatMap((m) => m.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds)));
+    const tableFor = (budget: number) => (facts ? tableContext({ ...facts, question, memoItemIds, budget }).text : "");
+    const memoHits = (f: NonNullable<typeof found>) => (facts ? { ...f, hits: f.hits.filter((h) => h.kind === "memo") } : f);
+    if (!cfg && b?.localDevice === "cpu" && facts && !(requested && memos.length === 0)) {
+      const t = tableAnswer({ ...facts, question, memoItemIds, budget: 0 });
+      if (t) return NextResponse.json({ local: { kind: "text", text: t, items: itemRefs({ ...facts, question, memoItemIds }) } }, { headers: { "Cache-Control": "no-store" } });
+    }
+    // открыли конкретные справки, а доступных среди них нет — отвечать не по чему (свою таблицу вместо чужой справки не подсовываем)
+    if (memos.length === 0 && (requested || (!(found && found.hits.length) && !facts))) return NextResponse.json({ error: "NO_CONTEXT", message: task === "search" ? "Ничего не нашлось — ни в таблице, ни в справках." : "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
     if (!cfg) {
       // локальная модель (маленькая): сроки, пустые формулировки, дубли считает сервер, модель формулирует выводы
       // (lib/local-ai-prompt.ts); ответ считает браузер этого человека, справки в облако не уходят
@@ -64,24 +77,29 @@ async function POSTHandler(request: NextRequest) {
         historyChars: lb.historyChars,
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
         lead,
-        hits: withHits && found ? hitsBlock(found, Math.round(lb.contextChars * 0.6), found.scope) : undefined,
+        hits: [facts ? `${TABLE_RULE}\n${tableFor(Math.round(lb.contextChars * 0.45))}` : "", withHits && found ? hitsBlock(memoHits(found), Math.round(lb.contextChars * 0.15), found.scope) : ""].filter(Boolean).join("\n\n") || undefined,
         docs,
       });
-      return NextResponse.json({ local: { ...local, docs: docRefs(docs) } }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ local: { ...local, docs: docRefs(docs), items: facts ? itemRefs({ ...facts, question, memoItemIds }) : undefined } }, { headers: { "Cache-Control": "no-store" } });
     }
     const fullLength = buildContextInfo(memos).text.length;
     const { chain, preroute } = chainForEngine(cfg, parseEngine(b?.engine));
     let used = chain as Parameters<typeof modelLabel>[0];
-    const { stream, trimmed } = await withAiFallback(chain, fullLength, async (c) => {
+    const run = async (c: Parameters<typeof aiBudget>[0] & Parameters<typeof streamText>[0]) => {
       used = c;
       const budget = aiBudget(c);
       // найденное поиском — до трети окна (у бесплатного Groq окно маленькое), остальное — справки
-      const hits = withHits && found ? hitsBlock(found, Math.round(budget.contextChars * (task === "search" ? 0.5 : 0.3)), found.scope) : "";
+      const table = tableFor(Math.round(budget.contextChars * 0.45));
+      const hits = withHits && found ? hitsBlock(memoHits(found), Math.round(budget.contextChars * (facts ? 0.15 : task === "search" ? 0.5 : 0.3)), found.scope) : "";
       const docsText = docsBlock(docs, 4000);
-      const ctx = buildContextInfo(memos, Math.max(2000, budget.contextChars - hits.length - docsText.length));
-      const st = await streamText(c, { system: chatSystem(docsText ? `${ctx.text}\n\n${docsText}` : ctx.text, lead, hits || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
+      const ctx = buildContextInfo(memos, Math.max(2000, budget.contextChars - hits.length - docsText.length - table.length));
+      const st = await streamText(c, { system: chatSystem(docsText ? `${ctx.text}\n\n${docsText}` : ctx.text, lead, hits || undefined, table || undefined), messages: fitHistory(messages, budget.historyChars), maxTokens: budget.chatOut, signal: request.signal });
       return { stream: st, trimmed: ctx.trimmed };
-    }, preroute);
+    };
+    const res = await withAiFallback(chain, fullLength, run, preroute);
+    const trimmed = res.trimmed;
+    // мусор в начале ответа — отбрасываем и спрашиваем ещё раз (запасную модель, если есть)
+    const stream = await guardStream(res.stream, async () => (await withAiFallback(chain.fallback ?? chain, fullLength, run, false)).stream);
     // ИИ видел справки не целиком — чат покажет это человеку
     const headers: Record<string, string> = { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" };
     if (trimmed) headers["X-AI-Context"] = trimmed;
@@ -90,6 +108,7 @@ async function POSTHandler(request: NextRequest) {
     if (used.model !== chain.model || used.baseUrl !== chain.baseUrl) headers["X-AI-Switched"] = "1";
     // метки [Д1]… → ссылки на документы в чате
     if (docs.length) headers["X-AI-Docs"] = encodeURIComponent(JSON.stringify(docRefs(docs)));
+    Object.assign(headers, facts ? itemsHeader(itemRefs({ ...facts, question, memoItemIds })) : {});
     return new Response(stream, { headers });
   } catch (e) {
     return aiErrorResponse(e);

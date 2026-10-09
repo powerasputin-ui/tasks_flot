@@ -69,6 +69,17 @@ export function memoAssistContext(doc: MemoDoc, title: string, meta: MemoMeta = 
       lines.push(`[${++n}] ${b.text.trim()}${src ? ` ← ${src}` : ""}${marks ? ` {${marks}}` : ""}`);
     }
   }
+  // итоги по справке считает программа (экзамен: модель сама насчитала 9 новых подач вместо 10)
+  const visible = doc.sections.flatMap((s) => s.bullets.filter((b) => !b.hidden && b.text.trim()));
+  const nums = (pred: (b: (typeof visible)[number]) => boolean) => visible.map((b, i) => (pred(b) ? `[${i + 1}]` : "")).filter(Boolean);
+  const sections = doc.sections.filter((s) => s.bullets.some((b) => !b.hidden && b.text.trim()));
+  const fresh = nums((b) => !!b.fresh);
+  const edited = visible.map((b, i) => (b.changedBy ? `[${i + 1}] — ${b.changedBy}` : "")).filter(Boolean);
+  lines.splice(
+    meta.deadline ? 4 : 3,
+    0,
+    `ИТОГИ ПО СПРАВКЕ (посчитано программой): пунктов ${n} в ${sections.length} разделах; новые подачи (добавлены автоматически) — ${fresh.length}${fresh.length ? `: ${fresh.join(", ")}` : ""}; текст пункта правили вручную — ${edited.length ? edited.join("; ") : "никто"}.`,
+  );
   // сам блок «ДОКУМЕНТЫ» (названия и пути) маршрут добавляет отдельно, чтобы его не отрезало при сжатии справки под окно
   return { text: lines.join("\n"), count: n };
 }

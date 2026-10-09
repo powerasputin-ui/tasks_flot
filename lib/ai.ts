@@ -8,6 +8,7 @@ import { isIP } from "node:net";
 import { visibleSections, type MemoDoc } from "@/lib/memo";
 import { SEARCH_RULE } from "@/lib/ai-search";
 import { DOCS_RULE } from "@/lib/ai-docs";
+import { TABLE_RULE } from "@/lib/ai-table";
 import type { VersionSource } from "@/lib/memo-archive";
 import type { Consolidated, ConsolidatedItem, ConsolidatedTopic } from "@/lib/ai-shared";
 
@@ -411,7 +412,7 @@ const ANALYSIS = [
 
 const today = () => new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
 
-export function chatSystem(context: string, lead?: "director", hits?: string): string {
+export function chatSystem(context: string, lead?: "director", hits?: string, table?: string): string {
   const intro =
     lead === "director"
       ? "Ты помощник директора дирекции. Он читает отправленные справки своей дирекции и просит выжимку, оценку, слабые места и то, что может спросить руководство (ЗГД)."
@@ -420,11 +421,13 @@ export function chatSystem(context: string, lead?: "director", hits?: string): s
     `${intro} ${RULES}`,
     ANALYSIS,
     "На конкретный вопрос отвечай прямо. Если просят выжимку или общий взгляд — дай главное и затем блок «На что обратить внимание» по пунктам проверки выше (только то, что действительно нашёл).",
+    ...(table ? [TABLE_RULE] : []),
     ...(hits ? [SEARCH_RULE] : []),
     ...(context.includes("ДОКУМЕНТЫ, прикреплённые") ? [DOCS_RULE] : []),
     `Сегодня: ${today()}.`,
     "",
     context,
+    ...(table ? ["", table] : []),
     ...(hits ? ["", hits] : []),
   ].join("\n");
 }

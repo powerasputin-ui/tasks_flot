@@ -245,7 +245,7 @@ export const wantsJournal = (question: string) => JOURNAL_Q.test(n(question));
  * Блок «ТАБЛИЦА ДИРЕКЦИИ» для модели в пределах budget знаков: итоги, выборка по вопросу, карточки (сначала
  * выборка и позиции справки, потом остальные — пока влезают), журнал — если о нём спросили.
  */
-export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; question: string; dict: Parameters<typeof parseTableQuestion>[1]; memoItemIds: string[]; budget: number; today?: number }): { text: string; labels: Map<string, string>; query: TableQuery; matched: FactItem[] } {
+export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; question: string; dict: Parameters<typeof parseTableQuestion>[1]; memoItemIds: string[]; budget: number; today?: number }): { text: string; labels: Map<string, string>; query: TableQuery; matched: FactItem[]; shown: FactItem[] } {
   const today = opts.today ?? todayMsk();
   const labels = labelItems(opts.items);
   const query = parseTableQuestion(opts.question, opts.dict);
@@ -256,6 +256,7 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
   const order = [...matched, ...opts.items.filter((i) => opts.memoItemIds.includes(i.id)), ...opts.items];
   const seen = new Set<string>();
   const cards: string[] = [];
+  const shown: FactItem[] = [];
   let used = parts.join("\n").length + journal.length + 200;
   let skipped = 0;
   for (const i of order) {
@@ -267,11 +268,12 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
       continue;
     }
     cards.push(line);
+    shown.push(i);
     used += line.length + 1;
   }
   const head = `ТАБЛИЦА ДИРЕКЦИИ — карточки позиций (задач), включая удалённые${skipped ? `; не показаны ${skipped} позиций — они учтены в ИТОГАХ` : ""}:`;
   const text = [parts[0], ...(parts[1] ? [parts[1]] : []), "", head, ...cards, ...(journal ? ["", journal] : [])].join("\n");
-  return { text, labels, query, matched };
+  return { text, labels, query, matched, shown };
 }
 
 /**
@@ -294,6 +296,15 @@ export function tableAnswer(opts: Parameters<typeof tableContext>[0]): string | 
   return out.join("\n").trim();
 }
 
+/** Метки [Т7] → позиции, для ссылок в чате (заголовок X-AI-Items): только показанные модели, коротко. */
+export type AiItemRef = { l: string; i: string; t: string };
+export function itemRefs(opts: Omit<Parameters<typeof tableContext>[0], "budget">, max = 40): AiItemRef[] {
+  // тот же порядок, что у карточек: выборка по вопросу, позиции справки, остальные — первые max (заголовок не раздуваем)
+  const { shown, labels } = tableContext({ ...opts, budget: Number.MAX_SAFE_INTEGER });
+  return shown.slice(0, max).map((i) => ({ l: labels.get(i.id)!, i: i.id, t: i.title.slice(0, 24) }));
+}
+export const itemsHeader = (refs: AiItemRef[]): Record<string, string> => (refs.length ? { "X-AI-Items": encodeURIComponent(JSON.stringify(refs)) } : {});
+
 /** Правило для модели к блокам таблицы (облако и локальная модель). */
 export const TABLE_RULE = [
   "ТАБЛИЦА ДИРЕКЦИИ — рабочие позиции (задачи) дирекции: сегмент → трек → задача; справка собирается из поданных позиций. Позиция [Т…] — не то же, что пункт справки [n]; связь показана стрелкой «← [Т…]» у пункта.",
@@ -301,5 +312,5 @@ export const TABLE_RULE = [
   "Списки и числа (сколько, какие, у кого, что просрочено, что не подано) — ТОЛЬКО из «ИТОГОВ» и «ВЫБОРКИ ПО ВОПРОСУ»: они посчитаны программой по всей таблице и полные. Сам не пересчитывай и ничего не добавляй.",
   "Человек в вопросе («что у Майкова») — ответственный за позицию. «Кто создал», «кто менял», «кто подавал», «что изменилось» — из полей «создал»/«последним менял» и «ЖУРНАЛА ПРАВОК».",
   "Если нужного поля нет или оно «не указано» — так и скажи. Никогда не утверждай того, чего нет в данных.",
-  "В ответе ссылайся на позиции метками [Т1] и называй задачу коротко; удалённые помечай «удалена».",
+  "Каждую позицию в ответе называй словами, а метку ставь рядом: «[Т7] расчёты БКК по консолидации — Майков, В работе, срок 09.10». Одни метки без названий не пиши: человек их не расшифрует. Удалённые помечай «удалена».",
 ].join("\n");

@@ -52,7 +52,13 @@ def line_owner(line: str, all_items: list[dict]):
     return best if best_score >= 0.22 and best_score - second >= 0.05 else None
 
 
+LABELS: dict[str, str] = {}  # метка [Т7] → id позиции (из заголовка X-AI-Items текущего ответа)
+
+
 def mentioned(item: dict, answer: str, all_items: list[dict]) -> bool:
+    # метка позиции в ответе ([Т7]) — тоже упоминание: чат показывает её ссылкой на позицию
+    if any(f"[{l}]" in answer for l, i in LABELS.items() if i == item["id"]):
+        return True
     a = norm(answer)
     keys = item_keys(item, all_items)
     if not keys:  # короткое название («ыы», «тест») — ищем целиком в кавычках
@@ -63,7 +69,7 @@ def mentioned(item: dict, answer: str, all_items: list[dict]) -> bool:
     return any(line_owner(x, all_items) is item for x in lines)
 
 
-HONEST = re.compile(r"(нет данных|не указан|нет информации|не нашел|не найден|не найдено|отсутству|нет в справке|в справке нет|нет такого|нет сведений|не содерж|не удалось найти|нет позиций|не значится|нет ответственного)")
+HONEST = re.compile(r"(^\s*нет[.,!]|задач нет|позиций нет|таких позиций нет|нет данных|не указан|нет информации|не нашел|не найден|не найдено|отсутству|нет в справке|в справке нет|нет такого|нет сведений|не содерж|не удалось найти|нет позиций|не значится|нет ответственного)")
 
 
 def score(q: dict, exp: dict, answer: str, items: list[dict]) -> dict:
@@ -134,8 +140,12 @@ def main():
             else:
                 st, body, h, sec = s.post("/api/ai/chat", {"messages": msgs})
             answer = body if st == 200 else f"[HTTP {st}] {body[:300]}"
+            import urllib.parse
+            LABELS.clear()
+            if h.get("x-ai-items"):
+                LABELS.update({x["l"]: x["i"] for x in json.loads(urllib.parse.unquote(h["x-ai-items"]))})
             sc = score(q, exp, answer, d.items) if st == 200 else {"verdict": "ошибка", "checks": [{"name": "HTTP", "ok": False, "detail": str(st)}]}
-            rows.append({"id": q["id"], "group": q["group"], "q": q["q"], "answer": answer, "sec": sec, "model": h.get("x-ai-model", ""),
+            rows.append({"id": q["id"], "group": q["group"], "q": q["q"], "answer": answer, "sec": sec, "model": h.get("x-ai-model", ""), "labels": dict(LABELS),
                          "expected": {k: ([f"«{i['title'][:70]}» ({i['responsible']}, {i['status']}, срок {i['deadline']})" for i in v] if k in ("items", "forbidden_items") else v) for k, v in exp.items()},
                          **sc})
             print(f"{q['id']:4} {sc['verdict']:14} {sec:5}с  {q['q'][:60]}")
@@ -147,7 +157,19 @@ def main():
     write_report(rows)
 
 
+def previous_verdicts() -> dict:
+    """Вердикты прошлого прогона — чтобы в отчёте было видно, что исправилось и что сломалось."""
+    import glob
+    files = sorted(glob.glob(str(DATA / "report-*.json")))
+    if not files:
+        return {}
+    return {r["id"]: r["verdict"] for r in json.loads(open(files[-1], encoding="utf-8").read())}
+
+
 def write_report(rows):
+    prev = previous_verdicts()
+    for r in rows:
+        r["prev"] = prev.get(r["id"])
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     (DATA / f"report-{stamp}.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     groups: dict = {}
@@ -159,6 +181,10 @@ def write_report(rows):
              f"Вопросов: {len(rows)}; верно {sum(r['verdict'] == 'верно' for r in rows)}, ошибок {sum(r['verdict'] == 'ошибка' for r in rows)}, на ручную оценку {sum(r['verdict'] == 'ручная оценка' for r in rows)}.",
              f"Время ответа: медиана {statistics.median(secs):.1f} с, худшее {max(secs):.1f} с.", "", "| Группа | Верно | Ошибка | Ручная |", "|---|---|---|---|"]
     lines += [f"| {g} | {v['верно']} | {v['ошибка']} | {v['ручная оценка']} |" for g, v in groups.items()]
+    fixed = [r["id"] for r in rows if r.get("prev") == "ошибка" and r["verdict"] == "верно"]
+    broke = [r["id"] for r in rows if r.get("prev") == "верно" and r["verdict"] == "ошибка"]
+    if fixed or broke:
+        lines += ["", f"По сравнению с прошлым прогоном: исправлено {', '.join(fixed) or '—'}; сломалось {', '.join(broke) or '—'}."]
     for r in rows:
         lines += ["", f"## {r['id']} · {r['group']} · **{r['verdict']}** · {r['sec']} с", f"**Вопрос:** {r['q']}", "", "**Эталон:**"]
         for k, v in r["expected"].items():
@@ -182,6 +208,8 @@ def rescore():
     rows = json.loads(open(sorted(glob.glob(str(DATA / "report-*.json")))[-1], encoding="utf-8").read())
     byq = {q["id"]: q for q in QS["questions"]}
     for r in rows:
+        LABELS.clear()
+        LABELS.update(r.get("labels") or {})
         if not r["answer"].startswith("[HTTP"):
             r.update(score(byq[r["id"]], expected(byq[r["id"]], d), r["answer"], d.items))
         print(f"{r['id']:4} {r['verdict']:14} {r.get('recall') or ''}")

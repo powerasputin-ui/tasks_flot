@@ -20,6 +20,8 @@ export type LocalPrompt = {
   sampling?: { temp: number; top_p: number; min_p: number; penalty_repeat: number; penalty_last_n: number };
   /** Документы пунктов: метки [Д1]… в ответе чат превращает в ссылки (lib/ai-docs.ts). */
   docs?: Array<{ n: number; i: string; f: string; t: string }>;
+  /** Позиции таблицы: метки [Т7]… в ответе чат превращает в ссылки (lib/ai-table.ts). */
+  items?: Array<{ l: string; i: string; t: string }>;
 };
 
 const META_KEY = "operativka.localModel.v1";
@@ -451,7 +453,10 @@ export async function aiRequest(url: string, body: Record<string, unknown>, opts
   const d = (await r.json().catch(() => null)) as { local?: LocalPrompt } | null;
   if (!d?.local) return errorResponse("Сервер не подготовил запрос для локальной модели.");
   const p = d.local;
-  const docsHeader: Record<string, string> = p.docs?.length ? { "X-AI-Docs": encodeURIComponent(JSON.stringify(p.docs)) } : {};
+  const docsHeader: Record<string, string> = {
+    ...(p.docs?.length ? { "X-AI-Docs": encodeURIComponent(JSON.stringify(p.docs)) } : {}),
+    ...(p.items?.length ? { "X-AI-Items": encodeURIComponent(JSON.stringify(p.items)) } : {}),
+  };
   if (p.kind === "text") return new Response(p.text ?? "", { headers: { "Content-Type": "text/plain; charset=utf-8", "X-AI-Model": encodeURIComponent("Мгновенный разбор по данным таблицы"), ...docsHeader } });
   const label = encodeURIComponent(`Локальная · ${localModelMeta()?.name ?? "модель"}`);
   try {

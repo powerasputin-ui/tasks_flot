@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyQuery, cardLine, journalBlock, labelItems, parseTableQuestion, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
+import { applyQuery, cardLine, itemRefs, journalBlock, labelItems, parseTableQuestion, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
+import { memoAssistContext } from "@/lib/memo-assist";
 import { guardStream, looksGarbage } from "@/lib/ai-guard";
 
 const TODAY = Date.UTC(2026, 9, 9); // 09.10.2026
@@ -88,6 +89,21 @@ describe("движок фактов: что видит модель", () => {
     const a = tableAnswer({ items, events: [], question: "Какие задачи у Сухова?", dict, memoItemIds: [], budget: 0, today: TODAY })!;
     expect(a).toMatch(/^По таблице \(ответственный Сухов В\.А\.\) — 2:/);
     expect(tableAnswer({ items, events: [], question: "Перепиши пункт 2", dict, memoItemIds: [], budget: 0, today: TODAY })).toBeNull();
+  });
+});
+
+describe("ссылки [Т…] и итоги по справке", () => {
+  it("метки для ссылок — сначала выборка по вопросу, коротко", () => {
+    const refs = itemRefs({ items, events: [], question: "Что просрочено?", dict, memoItemIds: [], today: TODAY }, 3);
+    expect(refs).toHaveLength(3);
+    expect(refs[0].t).toBe("Hai Qiang 18: ТКП ожидае"); // 24 знака
+    expect(refs[0].l).toMatch(/^Т\d+$/);
+  });
+  it("справка: число пунктов, новые подачи и кто правил — считает программа; пункт ← позиция", () => {
+    const b = (id: string, text: string, extra: object = {}) => ({ id, text, itemIds: [id], origin: "auto" as const, edited: false, hidden: false, sourceHash: "", ...extra });
+    const ctx = memoAssistContext({ sections: [{ id: "s", title: "Раздел", kind: "section", bullets: [b("i1", "Первый", { fresh: true }), b("i2", "Второй", { changedBy: "Сухов В.А." }), b("i3", "Скрытый", { hidden: true })] }] }, "Справка", {}, [], (id) => ({ i1: "Т1", i2: "Т2" })[id]);
+    expect(ctx.text).toContain("пунктов 2 в 1 разделах; новые подачи (добавлены автоматически) — 1: [1]; текст пункта правили вручную — [2] — Сухов В.А.");
+    expect(ctx.text).toContain("[2] Второй ← [Т2] {текст пункта в справке правил: Сухов В.А.}");
   });
 });
 
