@@ -7,7 +7,7 @@ export type Bootstrap = {
   user: { id: string; name: string; email: string; role: string; isActive: boolean; memoEditor?: boolean } | null;
   segments: Array<{ id: string; name: string; color?: string | null }>;
   tracks: Array<{ id: string; name: string; segmentId: string | null }>;
-  statuses: Array<{ id: string; name: string }>;
+  statuses: Array<{ id: string; name: string; trackerColumn?: string | null }>;
   attractiveness: Array<{ id: string; name: string }>;
   users: Array<{ id: string; name: string; role: string }>;
   columns: Array<{ id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] }>;
@@ -18,6 +18,8 @@ export type Bootstrap = {
   directorates?: Array<{ id: string; name: string }>;
   /** Режим «Посмотреть как»: чьими глазами смотрит человек за сессией. */
   viewAs?: { id: string; name: string; role: string; realName: string } | null;
+  /** Пункт «Трекер» в меню (у кого есть таблица; админ может выключить). */
+  tracker?: boolean;
 };
 
 import { fetchRetry } from "@/lib/fetch-retry";

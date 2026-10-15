@@ -51,6 +51,7 @@ import * as cyclesCurrent from "@/app/api/cycles/current/route";
 import * as cycleReview from "@/app/api/cycles/[id]/review/route";
 import * as cycleExport from "@/app/api/cycles/[id]/export/route";
 import * as bootstrap from "@/app/api/bootstrap/route";
+import * as tracker from "@/app/api/tracker/route";
 import * as report from "@/app/api/report/route";
 import * as templates from "@/app/api/report-templates/route";
 import * as template from "@/app/api/report-templates/[id]/route";
@@ -2184,5 +2185,60 @@ describe("удалить навсегда из «Удалённых»", () => {
     expect((await purge(headB, b)).status).toBe(200);
     expect(await prisma.notification.count({ where: { userId: directorB.id, message: { contains: "навсегда руководителем" } } })).toBe(1);
     expect(await prisma.notification.count({ where: { userId: headB.id, message: { contains: "навсегда руководителем" } } })).toBe(0);
+  });
+});
+
+describe("трекер: виды таблицы, «Выполнено» принимает директор", () => {
+  const status = async (name: string) => (await prisma.status.findFirstOrThrow({ where: { name } })).id;
+  let t = "";
+  let version = 1;
+  const patch = (a: Actor, body: Record<string, unknown>) => call(a, item.PATCH, `/api/items/${t}`, { method: "PATCH", id: t, body: { version, ...body } });
+
+  it("трекер видят те, у кого есть таблица; ЗГД — нет; чужая дирекция не видна", async () => {
+    const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача трекера` } });
+    expect(c.status).toBe(201);
+    t = c.data.row.id;
+    created.items.push(t);
+    const r = await call(head, tracker.GET, "/api/tracker");
+    expect(r.status).toBe(200);
+    expect(r.data.rows.some((x: { id: string }) => x.id === t)).toBe(true);
+    expect(r.data.statuses.find((s: { name: string }) => s.name === "На проверке")?.trackerColumn).toBe("REVIEW");
+    expect(r.data.events.some((e: { itemId: string; kind: string }) => e.itemId === t && e.kind === "created")).toBe(true);
+    expect((await call(management, tracker.GET, "/api/tracker")).status).toBe(403);
+    const b = await call(directorB, tracker.GET, "/api/tracker");
+    expect(b.data.rows.some((x: { id: string }) => x.id === t)).toBe(false);
+  });
+
+  it("руководитель доводит до «На проверке», но не ставит и не снимает «Выполнено»", async () => {
+    const review = await patch(head, { statusId: await status("На проверке") });
+    expect(review.status).toBe(200);
+    version = review.data.row.version;
+    const done = await patch(head, { statusId: await status("Завершено") });
+    expect(done.status).toBe(403);
+    expect(done.data.message).toContain("директор");
+    const accepted = await patch(director, { statusId: await status("Завершено") });
+    expect(accepted.status).toBe(200);
+    version = accepted.data.row.version;
+    expect((await patch(head, { statusId: await status("В работе") })).status).toBe(403);
+    // правка без смены статуса у принятой задачи руководителю по-прежнему доступна
+    const edit = await patch(head, { comment: "итог по задаче" });
+    expect(edit.status).toBe(200);
+    version = edit.data.row.version;
+    const ev = (await call(director, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === t);
+    expect(ev.map((e: { text: string }) => e.text)).toEqual(expect.arrayContaining([expect.stringMatching(/На проверке → Завершено$/)]));
+  });
+
+  it("пункт меню: в bootstrap у руководителя есть, у ЗГД нет; скрыть может только админ", async () => {
+    expect((await call(head, bootstrap.GET, "/api/bootstrap")).data.tracker).toBe(true);
+    expect((await call(management, bootstrap.GET, "/api/bootstrap")).data.tracker).toBeFalsy();
+    expect((await call(director, tracker.PATCH, "/api/tracker", { method: "PATCH", body: { enabled: false } })).status).toBe(403);
+    const before = await prisma.appSetting.findUnique({ where: { key: "tracker.enabled" } });
+    try {
+      expect((await call(curator, tracker.PATCH, "/api/tracker", { method: "PATCH", body: { enabled: false } })).status).toBe(200);
+      expect((await call(head, bootstrap.GET, "/api/bootstrap")).data.tracker).toBe(false);
+    } finally {
+      if (before) await prisma.appSetting.update({ where: { key: "tracker.enabled" }, data: { value: before.value as object } });
+      else await prisma.appSetting.deleteMany({ where: { key: "tracker.enabled" } });
+    }
   });
 });

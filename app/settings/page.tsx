@@ -11,6 +11,7 @@ import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
 import { ColumnsSettings } from "@/components/ColumnsSettings";
 import { clearBootstrap } from "@/lib/client-bootstrap";
+import { TrackerSettings } from "@/components/TrackerSettings";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 
@@ -205,15 +206,18 @@ export default function SettingsPage() {
           />
         )}
         {section === "statuses" && (
-          <RefSection
-            title="Статусы"
-            hint="Значения колонки «Статус» (общие для всех дирекций). Переименование видно сразу во всех позициях; удалить можно статус, который не стоит ни в одной позиции."
-            items={statuses}
-            onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")}
-            onRename={(id, name) => act(send(`/api/statuses/${id}`, "PATCH", { name }), "Статус переименован.")}
-            onDelete={(id) => act(send(`/api/statuses/${id}`, "DELETE"), "Статус удалён.")}
-            locked={(i) => (PROTECTED_STATUSES.includes(i.name) ? "Системный статус: по нему считаются просрочки и напоминания, поэтому его не переименовывают и не удаляют." : null)}
-          />
+          <>
+            <RefSection
+              title="Статусы"
+              hint="Значения колонки «Статус» (общие для всех дирекций). Переименование видно сразу во всех позициях; удалить можно статус, который не стоит ни в одной позиции."
+              items={statuses}
+              onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")}
+              onRename={(id, name) => act(send(`/api/statuses/${id}`, "PATCH", { name }), "Статус переименован.")}
+              onDelete={(id) => act(send(`/api/statuses/${id}`, "DELETE"), "Статус удалён.")}
+              locked={(i) => (PROTECTED_STATUSES.includes(i.name) ? "Системный статус: по нему считаются просрочки и напоминания, поэтому его не переименовывают и не удаляют." : null)}
+            />
+            <TrackerSettings reloadKey={statuses.length} />
+          </>
         )}
         {section === "ai" && (
           <div className="max-w-md">

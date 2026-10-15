@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ClipboardList, Eye, LogOut, Search, Settings, Table2, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, Eye, KanbanSquare, LogOut, Search, Settings, Table2, Trash2, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { setPreview } from "@/lib/preview-as";
@@ -58,6 +58,7 @@ const SEARCH_PATHS = ["/table", "/archive"];
 const NAV_ICON: Record<string, ReactNode> = {
   "/operativka": <ClipboardList size={20} />,
   "/table": <Table2 size={20} />,
+  "/tracker": <KanbanSquare size={20} />,
   "/archive": <Trash2 size={20} />,
 };
 
@@ -120,6 +121,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [viewAs, setViewAs] = useState<{ id: string; name: string; role: string; realName: string } | null>(null);
   const [directorate, setDirectorate] = useState<{ id: string; name: string } | null>(null);
   const [directorates, setDirectorates] = useState<Array<{ id: string; name: string }>>([]);
+  const [tracker, setTracker] = useState(false);
 
   useEffect(() => {
     if (pathname === "/login") {
@@ -132,6 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setPreview(b?.viewAs ? { id: b.viewAs.id, name: b.viewAs.name, role: b.viewAs.role } : null);
       setDirectorate(b?.directorate ?? null);
       setDirectorates(b?.directorates ?? []);
+      setTracker(b?.tracker ?? false);
       // ссылка из уведомления помнит дирекцию (?dir=): админ, работающий сейчас в другой, переключается на неё,
       // иначе позиция или справка «не найдётся». Остальным параметр не нужен — убираем его из адреса.
       const url = new URL(window.location.href);
@@ -187,7 +190,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const effRole = me?.role;
   const baseNav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
   // назначенный админом составитель справки (руководитель) видит «Оперативку»
-  const nav = effRole === "HEAD" && me?.memoEditor ? [baseNav[0], { href: "/operativka", label: "Оперативка" }, ...baseNav.slice(1)] : baseNav;
+  const withMemo = effRole === "HEAD" && me?.memoEditor ? [baseNav[0], { href: "/operativka", label: "Оперативка" }, ...baseNav.slice(1)] : baseNav;
+  // «Трекер» — виды той же таблицы (доска, таймлайн): после «Таблицы»; админ может скрыть его в Настройках → Статусы
+  const tableAt = withMemo.findIndex((n) => n.href === "/table");
+  const nav = tracker && tableAt >= 0 && effRole !== "SYSTEM_ADMIN" ? [...withMemo.slice(0, tableAt + 1), { href: "/tracker", label: "Трекер" }, ...withMemo.slice(tableAt + 1)] : withMemo;
 
   return (
     <>

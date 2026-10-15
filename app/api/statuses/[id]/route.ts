@@ -5,6 +5,7 @@ import { requireFreshSession } from "@/lib/session";
 import { canManageDirectory } from "@/lib/permissions";
 import { inUse, PROTECTED_STATUSES, renameSchema, sameName } from "@/lib/reference-edit";
 import { withApiErrors } from "@/lib/api-guard";
+import { z } from "zod";
 
 // Статус (общий для всех дирекций): переименовать / удалить (только админ).
 // «Завершено» и «Не актуально» — системные: по ним считаются просрочки и напоминания.
@@ -12,7 +13,19 @@ async function PATCHHandler(request: NextRequest, { params }: { params: Promise<
   const session = await requireFreshSession();
   if (!canManageDirectory(session.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const { id } = await params;
-  const parsed = renameSchema.safeParse(await request.json().catch(() => null));
+  const body = await request.json().catch(() => null);
+  // колонка «Трекера»: у системных «Завершено» (Выполнено) и «Не актуально» (не показывать) она закреплена
+  if (body && typeof body === "object" && "trackerColumn" in body) {
+    const col = z.enum(["TODO", "DOING", "REVIEW", "DONE", "HIDDEN"]).safeParse(body.trackerColumn);
+    if (!col.success) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
+    const status = await prisma.status.findUnique({ where: { id } });
+    if (!status) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    if (PROTECTED_STATUSES.includes(status.name)) return NextResponse.json({ error: "PROTECTED" }, { status: 409 });
+    const updated = await prisma.status.update({ where: { id }, data: { trackerColumn: col.data } });
+    invalidateDicts();
+    return NextResponse.json({ status: updated });
+  }
+  const parsed = renameSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", message: parsed.error.issues[0]?.message }, { status: 400 });
   const status = await prisma.status.findUnique({ where: { id } });
   if (!status) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });

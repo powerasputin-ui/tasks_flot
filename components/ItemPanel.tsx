@@ -1,6 +1,8 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
 import { AuditChange } from "@/components/AuditChange";
@@ -138,6 +140,7 @@ export function ItemPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  const pathname = usePathname() ?? "";
   const L = (key: string) => labels[key] || DEFAULT_LABEL[key as keyof typeof DEFAULT_LABEL] || key;
   const [addingTrack, setAddingTrack] = useState(false);
   const [tab, setTab] = useState<"details" | "history">("details");
@@ -199,7 +202,7 @@ export function ItemPanel({
         const body = await res.json().catch(() => null);
         if (body?.error === "ARCHIVED") setError("Позиция удалена: сначала верните её из «Удалённых».");
         else setConflict(true);
-      } else if (res.status === 403) setError("Нет прав на это действие.");
+      } else if (res.status === 403) setError((await res.json().catch(() => null))?.message ?? "Нет прав на это действие.");
       else if (res.status === 400) setError((await res.json().catch(() => null))?.message ?? "Проверьте заполненные поля.");
       else setError("Не удалось сохранить. Данные не потеряны, попробуйте ещё раз.");
     } finally {
@@ -327,6 +330,11 @@ export function ItemPanel({
         ) : (
           <span>
             Создал: {base!.createdByName}
+            {!base!.archived && !pathname.startsWith("/tracker") && (
+              <Link href={`/tracker?view=timeline&item=${base!.id}`} className="link-subtle ml-2" title="История задачи на таймлайне">
+                на трекере
+              </Link>
+            )}
             {base!.archived && <span className="ml-2 rounded-full bg-surface-highest px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">удалена</span>}
           </span>
         )
