@@ -9,6 +9,7 @@ import { MemoEditor } from "@/components/MemoEditor";
 import { MemoArchive, type VersionTab } from "@/components/MemoArchive";
 import { ConsolidatedMemo } from "@/components/ConsolidatedMemo";
 import { AiChat } from "@/components/AiChat";
+import { Operativshchik } from "@/components/Operativshchik";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { Popover } from "@/components/ui/Popover";
 import { isDirectorial } from "@/lib/permissions";
@@ -276,7 +277,7 @@ export function OperativkaView() {
         </nav>
       </header>
 
-      <div className={`p-6 max-md:px-3 ${aiUser && tab === "finals" ? "pb-28" : ""}`}>
+      <div className={`p-6 max-md:px-3 ${isManagement && tab === "finals" ? "pb-28" : ""}`}>
         {error && (
           <div role="alert" className="mb-4 flex items-center gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
             <AlertTriangle size={15} /> {error}
@@ -337,11 +338,14 @@ export function OperativkaView() {
         )}
       </div>
 
-      {aiUser && tab === "finals" && (
+      {/* админ и директор: Оперативщик и без оперативки — по архиву, таблице и трекеру (в черновике он свой, в MemoEditor) */}
+      {aiUser && !isManagement && (tab === "finals" || !cycle || cycle.status === "FINAL") && (
+        <Operativshchik versionIds={tab === "finals" && memoId ? [memoId] : []} scope={tab === "finals" && memoId ? "открытая справка, таблица и трекер" : undefined} />
+      )}
+      {isManagement && tab === "finals" && (
         <AiChat
-          versionIds={memoId ? [memoId] : isManagement && archiveMode === "summary" ? summaryIds : []}
-          scopeLabel={memoId ? "открытая справка" : archiveMode === "summary" ? `справок в сводке: ${summaryIds.length}` : isManagement ? "последние справки дирекций" : "последняя справка дирекции"}
-          forDirector={role === "DIRECTOR"}
+          versionIds={memoId ? [memoId] : archiveMode === "summary" ? summaryIds : []}
+          scopeLabel={memoId ? "открытая справка" : archiveMode === "summary" ? `справок в сводке: ${summaryIds.length}` : "последние справки дирекций"}
         />
       )}
     </div>

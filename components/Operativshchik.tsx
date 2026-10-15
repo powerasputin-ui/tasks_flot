@@ -138,11 +138,35 @@ type Msg = { role: "user" | "assistant"; content: string; docs?: AiDocRef[]; ite
 const BALL = 56;
 const POS_KEY = "operativka.operativshchik.pos.v1";
 const QUICK = ["Проверь справку: где формулировки слабые", "Приведи пункты к одному стилю", "Что в справке будет непонятно руководству?"];
+/** Без черновика (нет оперативки, «Архив», «Трекер») — вопросы по архиву справок, таблице и трекеру. */
+const GENERAL_QUICK = ["Что горит и где нужно вмешательство?", "Что застряло без движения?", "Где переносили сроки?", "Что было в последней справке?"];
 
-/** «Оперативщик» в правом нижнем углу справки: клик — маленький чат по текущему черновику. */
-export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; disabledReason?: string }) {
+/** Разговор вне черновика живёт, пока открыта вкладка: тот же на «Оперативке» и «Трекере» (стирается при выходе — clearAiChat). */
+export const OPERATIVSHCHIK_STORE = "operativka.operativshchik.chat.v1";
+
+/**
+ * «Оперативщик» — шар в правом нижнем углу: клик — маленький чат.
+ * С cycleId — по текущему черновику справки (помогает с текстом). Без него — по архиву справок (versionIds: открытая
+ * справка, иначе последние), таблице и трекеру: тот же помощник у админа и директора, даже когда оперативки нет.
+ */
+export function Operativshchik({ cycleId, versionIds = [], scope, disabledReason }: { cycleId?: string; versionIds?: string[]; scope?: string; disabledReason?: string }) {
+  const general = !cycleId;
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<Msg[]>(() => {
+    if (!general) return [];
+    try {
+      return (JSON.parse(sessionStorage.getItem(OPERATIVSHCHIK_STORE) ?? "null") as Msg[] | null) ?? [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (!general || busyRef.current) return;
+    try {
+      sessionStorage.setItem(OPERATIVSHCHIK_STORE, JSON.stringify(messages));
+    } catch {}
+  }, [general, messages]);
+  const busyRef = useRef(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,13 +203,17 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
     setInput("");
     setError(null);
     setBusy(true);
+    busyRef.current = true;
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const r = await aiRequest("/api/ai/memo-assist", { cycleId, mode: "chat", messages: history }, {
+      // черновик — помощник по тексту справки; без черновика — чат по архиву справок, таблице и трекеру
+      const url = general ? "/api/ai/chat" : "/api/ai/memo-assist";
+      const payload = general ? { versionIds, messages: history } : { cycleId, mode: "chat", messages: history };
+      const r = await aiRequest(url, payload, {
         signal: ctl.signal,
         onStatus: setStatus,
-        cloud: () => fetchFirstByteRetry("/api/ai/memo-assist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cycleId, mode: "chat", messages: history }), signal: ctl.signal }, 45000),
+        cloud: () => fetchFirstByteRetry(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: ctl.signal }, 45000),
       });
       if (!r.ok || !r.body) {
         const d = await r.json().catch(() => null);
@@ -214,6 +242,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
         setMessages(history);
       }
     } finally {
+      busyRef.current = false;
       setBusy(false);
       setStatus(null);
     }
@@ -237,7 +266,7 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
             <OperativshchikAvatar size={32} />
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-semibold text-on-surface">Оперативщик</p>
-              <p className="truncate text-[11px] text-on-surface-variant">помогаю с текстом справки</p>
+              <p className="truncate text-[11px] text-on-surface-variant">{general ? scope ?? "архив справок, таблица и трекер" : "помогаю с текстом справки"}</p>
             </div>
             {messages.length > 0 && (
               <button onClick={() => { abort.current?.abort(); setMessages([]); setError(null); }} className="btn-icon h-7 w-7" title="Новый разговор" aria-label="Новый разговор">
@@ -259,13 +288,22 @@ export function Operativshchik({ cycleId, disabledReason }: { cycleId: string; d
           )}
           <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
             <div className="rounded-2xl bg-surface-low px-3 py-2 text-[13px] leading-relaxed text-on-surface">
-              Привет, я твой Оперативщик! Помогу сделать справку понятной и ровной: подскажу слабые формулировки, приведу пункты к одному стилю.
-              Ещё могу найти: «найди ремонт насоса», «кто отвечает за …», «что было по … в прошлых справках» — ищу в таблице (и в удалённых) и в архиве справок.
-              Чтобы переписать один пункт — наведите на него и нажмите <Sparkles size={12} className="inline" /> или правую кнопку.
+              {general ? (
+                <>
+                  Привет, я твой Оперативщик! Отвечу по архиву справок, таблице и трекеру: что горит, что застряло, где переносили сроки, как двигалась задача, что было в прошлых справках.
+                  Могу и найти: «найди ремонт насоса», «кто отвечает за …». Когда идёт оперативка, в справке помогу и с текстом.
+                </>
+              ) : (
+                <>
+                  Привет, я твой Оперативщик! Помогу сделать справку понятной и ровной: подскажу слабые формулировки, приведу пункты к одному стилю.
+                  Ещё могу найти: «найди ремонт насоса», «кто отвечает за …», «что было по … в прошлых справках» — ищу в таблице (и в удалённых) и в архиве справок.
+                  Чтобы переписать один пункт — наведите на него и нажмите <Sparkles size={12} className="inline" /> или правую кнопку.
+                </>
+              )}
             </div>
             {messages.length === 0 && (
               <div className="flex flex-col items-start gap-1.5">
-                {QUICK.map((q) => (
+                {(general ? GENERAL_QUICK : QUICK).map((q) => (
                   <button key={q} onClick={() => void ask(q)} disabled={!!disabledReason} className="rounded-full border border-outline-variant px-3 py-1 text-left text-[12px] text-on-surface hover:bg-surface-high disabled:opacity-50">
                     {q}
                   </button>

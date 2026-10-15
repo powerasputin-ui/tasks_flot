@@ -17,6 +17,7 @@ import { useIsMobile } from "@/lib/use-mobile";
 import { BOARD_COLUMNS, columnOf, ruDay, statusForColumn, summarize, type TaskSummary, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
+import { Operativshchik } from "@/components/Operativshchik";
 
 /** Строка трекера = строка общей таблицы (как её отдаёт /api/tracker). */
 export type TRow = ItemRow & {
@@ -185,7 +186,7 @@ export function TrackerView() {
   const slipped = rows.filter((r) => (summaries.get(r.id)?.slips ?? 0) > 0).length;
 
   return (
-    <div className={`min-h-0 flex-1 overflow-auto p-6 max-md:p-3 ${aiUser ? "pb-28" : ""}`}>
+    <div className={`min-h-0 flex-1 overflow-auto p-6 max-md:p-3 ${sent ? "pb-28" : ""}`}>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-on-surface">Трекер</h1>
@@ -259,7 +260,8 @@ export function TrackerView() {
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} hot={data.hot} events={byItem} colors={colors} onOpen={setEditor} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
-      {aiUser && <AiChat versionIds={[]} scopeLabel={sent ? "трекер и последние справки дирекций" : "трекер и таблица дирекции"} inherit quick={TRACKER_QUICK} forDirector={me?.role === "DIRECTOR"} />}
+      {aiUser && sent && <AiChat versionIds={[]} scopeLabel="трекер и последние справки дирекций" inherit quick={TRACKER_QUICK} />}
+      {aiUser && !sent && <Operativshchik scope="трекер, таблица и архив справок" />}
       {editor && sent && <SentPanel row={editor} events={byItem.get(editor.id) ?? []} hot={data?.hot[editor.id]} onClose={() => setEditor(null)} />}
       {editor && !sent && (
         <ItemPanel

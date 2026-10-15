@@ -39,6 +39,7 @@ function loadChat(): Stored | null {
 export function clearAiChat() {
   try {
     sessionStorage.removeItem(CHAT_STORE);
+    sessionStorage.removeItem("operativka.operativshchik.chat.v1"); // разговор Оперативщика вне черновика (components/Operativshchik.tsx)
   } catch {}
 }
 
