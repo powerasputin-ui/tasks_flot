@@ -224,9 +224,13 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; d
     zgdControl: r.zgdControl,
     review: r.review,
   }));
+  // движение по истории подтверждений: «на проверке N дн.», закрыта ли по колонке — как у директора, но по тому, что видит ЗГД
+  const cols = new Map(statuses.map((st) => [st.name, st.trackerColumn]));
+  const byItem = new Map<string, TrackerEvent[]>();
+  for (const e of sent.events) byItem.set(e.itemId, [...(byItem.get(e.itemId) ?? []), e]);
   const facts = sent.rows.map((r) => {
     const rq = requests.filter((q) => q.itemId === r.id);
-    return { ...sentFact(r), openRequests: rq.length ? { count: rq.length, dueAt: rq.map((q) => q.dueAt).filter((x): x is Date => !!x).sort((a, b) => a.getTime() - b.getTime())[0] ?? null } : undefined };
+    return { ...sentFact(r), motion: motionOf(byItem.get(r.id) ?? [], columnByName(r.statusName, cols)), openRequests: rq.length ? { count: rq.length, dueAt: rq.map((q) => q.dueAt).filter((x): x is Date => !!x).sort((a, b) => a.getTime() - b.getTime())[0] ?? null } : undefined };
   });
   const hot = Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
   const openReq = new Set(requests.map((q) => q.itemId));
