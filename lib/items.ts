@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canViewItems, isSubmitter, type Actor } from "@/lib/permissions";
+import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canViewItems, isDirectorial, isSubmitter, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
@@ -137,7 +137,7 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   // перенос срока — с причиной; у поручения ЗГД и задачи на контроле руководитель только просит (решает директор)
   if (fields.deadline !== undefined) {
     const err = deadlineChangeError(actor, existing, fields.deadline, deadlineReason);
-    if (err) return { ok: false, error: existing.zgdControl || existing.origin === "ZGD" ? "FORBIDDEN" : "INVALID_INPUT", message: err };
+    if (err) return { ok: false, error: existing.zgdControl || existing.origin ? "FORBIDDEN" : "INVALID_INPUT", message: err };
   }
 
   // Значения своих колонок: проверяем тип и сливаем с уже сохранёнными.
@@ -186,6 +186,10 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
         },
         tx
       );
+      // директор сам поменял срок — открытая просьба о переносе закрыта (иначе сигнал «перенос ждёт решения» висел бы)
+      if (isDirectorial(actor.role) && fields.deadline !== undefined && (existing.deadline?.getTime() ?? null) !== (row.deadline?.getTime() ?? null)) {
+        await tx.deadlineRequest.updateMany({ where: { itemId: id, decision: null }, data: { decision: "CLOSED", decidedById: actor.id, decidedByName: (await tx.user.findUnique({ where: { id: actor.id }, select: { name: true } }))?.name ?? null, decidedAt: new Date(), comment: "директор сам изменил срок" } });
+      }
       // причина переноса — рядом с самим переносом в журнале
       if (deadlineReason?.trim() && existing.deadline && row.deadline && existing.deadline.getTime() !== row.deadline.getTime()) {
         await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: "UPDATE", fieldName: "deadlineReason", after: deadlineReason.trim().slice(0, 500) }, tx);

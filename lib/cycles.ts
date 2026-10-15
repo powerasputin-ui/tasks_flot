@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { publishAll } from "@/lib/workflow-server";
+import { MEMO_PUBLICATION } from "@/lib/tracker-sent";
 import type { Cycle, CycleStatus, Prisma } from "@prisma/client";
 import { archiveLayout, buildArchiveRows } from "@/lib/archive-table";
 import { DEFAULT_COLUMNS, normalizeColumns, withCustomColumns, type ColumnConfig, type CustomCol } from "@/lib/table-columns";
@@ -173,8 +175,12 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
     });
   });
   if (created === "CHANGED") return { ok: false, error: "CHANGED", message: "Пока готовилась отправка, кто-то подал или снял позицию. Проверьте справку и отправьте ещё раз." };
-  // отправленная справка — подтверждение для ЗГД всех строк дирекции (снимок в memo_versions.rows); updatedAt не трогаем
-  if (cycle.directorateId) await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = now() WHERE "directorateId" = ${cycle.directorateId} AND "archivedAt" IS NULL`;
+  // отправленная справка — подтверждение для ЗГД всех строк дирекции: таблица — в memo_versions.rows, полный снимок
+  // каждой задачи (блокер, отмена, сдача) — в item_publications; updatedAt не трогаем
+  if (cycle.directorateId) {
+    const items = await prisma.operationalItem.findMany({ where: { directorateId: cycle.directorateId, archivedAt: null } });
+    await publishAll(items, { id: actor.id, name: actor.name }, MEMO_PUBLICATION);
+  }
 
   await logMemoEvent({ id: actor.id, name: actor.name, role: actor.role }, cycle, "sent", `${actor.name} отправил справку ЗГД (оперативка №${cycle.number}${cycle.revision > 1 ? `, ред. ${cycle.revision}` : ""}).`);
   // ЗГД получает уведомление, что пришла справка — ссылка сразу на неё

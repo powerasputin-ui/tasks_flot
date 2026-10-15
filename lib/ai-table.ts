@@ -72,7 +72,7 @@ const n = (s: string) => normalizeText(s);
 const dayOf = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 const ru = (d: Date) => new Date(dayOf(d)).toLocaleDateString("ru-RU", { timeZone: "UTC" });
 const ruMsk = (d: Date) => d.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit" });
-const closed = (i: FactItem) => !!i.status && PROTECTED_STATUSES.includes(i.status);
+const closed = (i: FactItem) => (!!i.status && PROTECTED_STATUSES.includes(i.status)) || i.motion?.column === "DONE" || i.motion?.column === "HIDDEN";
 /** «Сегодня» по Москве — полночь UTC (сроки хранятся датой без времени). */
 export function todayMsk(now = new Date()): number {
   const m = new Date(now.getTime() + 3 * 3600 * 1000);

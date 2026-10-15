@@ -67,6 +67,8 @@ export function checkAction(actor: Pick<Actor, "id" | "role">, item: WorkflowIte
     case "accept":
     case "return":
       if (!director) return "Принимает и возвращает задачи директор.";
+      // свою же работу не принимают: админ, который сам ведёт позиции, сдаёт их директору
+      if (item.responsibleId === actor.id && actor.role !== "DIRECTOR") return "Свою задачу принимает директор дирекции.";
       if (item.column !== "REVIEW") return "Принять или вернуть можно задачу, сданную на проверку.";
       if (action === "return" && input && !filled(input.comment)) return "Напишите, что нужно доработать.";
       return null;
@@ -112,7 +114,7 @@ export function deadlineChangeError(actor: Pick<Actor, "role">, item: { deadline
   const before = item.deadline ? item.deadline.toISOString().slice(0, 10) : null;
   const after = next ? next.toISOString().slice(0, 10) : null;
   if (before === after || before === null) return null; // первый срок ставится свободно
-  if (!isDirectorial(actor.role) && (item.zgdControl || item.origin === "ZGD")) return "Срок этой задачи под контролем ЗГД: запросите перенос — решение примет директор.";
+  if (!isDirectorial(actor.role) && (item.zgdControl || !!item.origin)) return item.zgdControl || item.origin === "ZGD" ? "Срок этой задачи под контролем ЗГД: запросите перенос — решение примет директор." : "Срок поручения директора: запросите перенос — решение примет директор.";
   if (!filled(reason, 3)) return "Укажите причину переноса срока.";
   return null;
 }

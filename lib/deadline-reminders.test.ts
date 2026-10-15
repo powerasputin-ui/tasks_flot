@@ -31,6 +31,15 @@ describe("pickDeadlineReminders", () => {
     expect(r.overdue).toEqual([]);
   });
 
+  it("по колонке трекера: «Выполнено» / «Не показывать» — молчим; сданная на проверку — не торопим, просрочка остаётся (уйдёт директору)", () => {
+    const r = pickDeadlineReminders(
+      [item("done", "2026-10-10", { statusName: "Принято", column: "DONE" }), item("hid", "2026-10-07", { statusName: "Снято", column: "HIDDEN" }), item("rsoon", "2026-10-10", { column: "REVIEW" }), item("rover", "2026-10-07", { column: "REVIEW" })],
+      now
+    );
+    expect(r.soon).toEqual([]);
+    expect(r.overdue.map((i) => i.id)).toEqual(["rover"]);
+  });
+
   it("день считается по Москве: 23:30 UTC — это уже следующий день", () => {
     expect(mskDay(new Date("2026-10-07T23:30:00Z"))).toBe(Date.UTC(2026, 9, 8));
     const late = new Date("2026-10-07T22:30:00Z"); // 01:30 МСК 08.10

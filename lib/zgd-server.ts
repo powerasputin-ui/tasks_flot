@@ -58,7 +58,8 @@ export async function answerRequest(actor: Actor, requestId: string, answer: unk
   const a = clip(answer, 2000);
   if (a.length < 3) return fail(400, "Напишите ответ.");
   const me = { id: actor.id, name: await nameOf(actor.id) };
-  await prisma.zgdRequest.update({ where: { id: requestId }, data: { answer: a, answeredById: me.id, answeredByName: me.name, answeredAt: new Date() } });
+  const done = await prisma.zgdRequest.updateMany({ where: { id: requestId, answeredAt: null }, data: { answer: a, answeredById: me.id, answeredByName: me.name, answeredAt: new Date() } });
+  if (!done.count) return fail(409, "На запрос уже ответили.", "CONFLICT");
   await recordAudit({ entityType: "OperationalItem", entityId: r.itemId, actorId: actor.id, action: "UPDATE", fieldName: "zgdAnswer", after: a });
   await publishItem(r.item, me, `ответил(а) на запрос ЗГД: ${a.slice(0, 200)}`, undefined, [r.askedById]);
   await createNotification({ userId: r.askedById, type: "ZGD_ANSWER", message: `${me.name} ответил(а) по «${r.item.title.slice(0, 90)}»: ${a.slice(0, 160)}`, link: zgdLink(r.itemId) });
@@ -161,12 +162,13 @@ export async function requestDeadline(actor: Actor, itemId: string, newDeadline:
 export async function decideDeadline(actor: Actor, requestId: string, approve: boolean, comment: unknown): Promise<ZgdResult<{ id: string }>> {
   if (!isDirectorial(actor.role) || actor.viewAs) return fail(403, "Перенос срока согласует директор.");
   const r = await prisma.deadlineRequest.findUnique({ where: { id: requestId }, include: { item: true } });
-  if (!r || r.item.directorateId !== actor.directorateId) return fail(404, "Просьба не найдена.");
+  if (!r || r.item.directorateId !== actor.directorateId || r.item.archivedAt) return fail(404, "Просьба не найдена.");
   if (r.decision) return fail(409, "По просьбе уже решили.", "CONFLICT");
   const c = clip(comment, 500);
   if (!approve && c.length < 3) return fail(400, "Напишите, почему перенос не согласован.");
   const me = { id: actor.id, name: await nameOf(actor.id) };
-  await prisma.deadlineRequest.update({ where: { id: requestId }, data: { decision: approve ? "APPROVED" : "REJECTED", decidedById: me.id, decidedByName: me.name, decidedAt: new Date(), comment: c || null } });
+  const done = await prisma.deadlineRequest.updateMany({ where: { id: requestId, decision: null }, data: { decision: approve ? "APPROVED" : "REJECTED", decidedById: me.id, decidedByName: me.name, decidedAt: new Date(), comment: c || null } });
+  if (!done.count) return fail(409, "По просьбе уже решили.", "CONFLICT");
   let item = r.item;
   if (approve) {
     item = await prisma.operationalItem.update({ where: { id: r.itemId }, data: { deadline: r.newDeadline, originalDeadline: r.item.originalDeadline ?? r.item.deadline, updatedById: me.id, version: { increment: 1 } } });

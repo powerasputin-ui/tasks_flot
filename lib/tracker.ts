@@ -107,9 +107,12 @@ export function buildEvents(audit: RawAudit[], memos: MemoSent[], names: { statu
   }
   for (const m of memos) for (const id of m.itemIds) out.push({ itemId: id, at: iso(m.at), kind: "memo", who: null, text: `вошла в отправленную справку «${m.title}»` });
   out.sort((x, y) => x.at.localeCompare(y.at));
-  // одно сохранение = одно событие на вид (заголовок и комментарий разом → «обновлён текст задачи»)
+  // одно сохранение = одно событие на вид (заголовок и комментарий разом → «обновлён текст задачи»);
+  // смена статуса, сделанная действием трекера (сдал / принял / вернул…), описана самим действием — без повтора
+  const wf = new Set(out.filter((e) => e.kind === "workflow").map((e) => `${e.itemId}|${e.at.slice(0, 16)}`));
   const seen = new Set<string>();
   return out.filter((e) => {
+    if (e.kind === "status" && wf.has(`${e.itemId}|${e.at.slice(0, 16)}`)) return false;
     const k = `${e.itemId}|${e.kind}|${e.at.slice(0, 16)}|${e.kind === "status" || e.kind === "deadline" || e.kind === "owner" || e.kind === "memo" || e.kind === "workflow" ? e.text : ""}`;
     if (seen.has(k)) return false;
     seen.add(k);

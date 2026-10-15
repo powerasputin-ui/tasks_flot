@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildEvents, columnOf, motionOf, statusForColumn, summarize, timelineRange, type RawAudit } from "@/lib/tracker";
-import { buildSentTracker } from "@/lib/tracker-sent";
+import { buildSentTracker, buildZgdTracker, MEMO_PUBLICATION } from "@/lib/tracker-sent";
 import type { ArchiveRow } from "@/lib/archive-table";
 import { canSetStatus } from "@/lib/permissions";
 
@@ -52,6 +52,10 @@ describe("трекер: события", () => {
     ]);
     expect(e[2].slip).toBe(11);
   });
+  it("смена статуса действием трекера не повторяется отдельной строкой «статус: …»", () => {
+    const e = buildEvents([ev({ fieldName: "statusId", before: "s1", after: "s2" }), ev({ fieldName: "workflow:submit", after: "отчёт готов" })], [], names);
+    expect(e.map((x) => x.kind)).toEqual(["workflow"]);
+  });
   it("заголовок и комментарий одним сохранением — одно событие", () => {
     const e = buildEvents([ev({ fieldName: "title" }), ev({ fieldName: "comment" })], [], names);
     expect(e).toHaveLength(1);
@@ -95,6 +99,21 @@ describe("трекер ЗГД: история по отправленным сп
     // доска — состояние на последнюю справку
     expect(r.rows.map((x) => [x.id, x.statusName])).toEqual([["a", "На проверке"], ["c", "В работе"]]);
     expect(r.since).toBe("2026-10-07T10:00:00.000Z");
+  });
+  it("подтверждение справкой: блокер и отмена — по снимку задачи, без лишних событий; снятый блок не «залипает»", () => {
+    const pub = (at: string, reason: string, state: Record<string, unknown>) => ({ itemId: "a", directorateId: "d", directorateName: "РФ и КЭ", at, who: "Директор Д.Д.", reason, state: { name: "Задача", comment: "c", ownerName: "Майков Т.Г.", statusName: "В работе", deadline: "2026-10-09T00:00:00.000Z", ...state } });
+    const r = buildZgdTracker(
+      [v("2026-10-07T10:00:00.000Z", [row({})]), v("2026-10-14T10:00:00.000Z", [row({})])],
+      [
+        pub("2026-10-08T10:00:00.000Z", "заблокировал(а)", { blockedBy: "поставка" }),
+        pub("2026-10-14T10:00:01.000Z", MEMO_PUBLICATION, { blockedBy: null, submitted: false }),
+      ],
+    );
+    const texts = r.events.map((e) => e.text);
+    expect(texts).toContain("блок снят");
+    expect(texts.filter((t) => t.includes(MEMO_PUBLICATION))).toEqual([]);
+    expect(texts).not.toContain("обновлён текст задачи");
+    expect(r.rows[0]).toMatchObject({ blockedBy: null, confirmedBy: "справка от 14.10.26" });
   });
   it("справка без снимка таблицы не считается «всё удалили»", () => {
     const r = buildSentTracker([v("2026-10-07T10:00:00.000Z", [row({})]), v("2026-10-10T10:00:00.000Z", [])]);

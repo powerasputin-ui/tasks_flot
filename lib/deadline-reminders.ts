@@ -28,6 +28,8 @@ export type ReminderItem = {
   statusName: string | null;
   archived: boolean;
   directorateId: string | null;
+  /** Колонка трекера: «Выполнено» / «Не показывать» — закрыта; «На проверке» — ждёт директора. */
+  column?: string | null;
 };
 
 /** Кому и о чём напомнить сегодня: «скоро срок» (через SOON_DAYS дня) и «просрочено со вчера». */
@@ -38,8 +40,10 @@ export function pickDeadlineReminders<T extends ReminderItem>(items: T[], now: D
   for (const i of items) {
     if (i.archived || !i.deadline || !i.responsibleId) continue;
     if (i.statusName && PROTECTED_STATUSES.includes(i.statusName)) continue;
+    if (i.column === "DONE" || i.column === "HIDDEN") continue;
     const diff = Math.round((dayOf(i.deadline) - today) / DAY);
-    if (diff === SOON_DAYS) soon.push(i);
+    // сдана на проверку: торопить исполнителя незачем — «скоро срок» не шлём, просрочка идёт директору в сводку
+    if (diff === SOON_DAYS && i.column !== "REVIEW") soon.push(i);
     else if (diff === -1) overdue.push(i);
   }
   return { soon, overdue };
@@ -55,9 +59,9 @@ export async function sendDeadlineReminders(now: Date = new Date()): Promise<{ s
   const to = new Date(today + (SOON_DAYS + 1) * DAY);
   const rows = await prisma.operationalItem.findMany({
     where: { archivedAt: null, responsibleId: { not: null }, deadline: { gte: from, lt: to } },
-    select: { id: true, title: true, deadline: true, responsibleId: true, directorateId: true, status: { select: { name: true } } },
+    select: { id: true, title: true, deadline: true, responsibleId: true, directorateId: true, status: { select: { name: true, trackerColumn: true } } },
   });
-  const items: ReminderItem[] = rows.map((r) => ({ id: r.id, title: r.title, deadline: r.deadline, responsibleId: r.responsibleId, statusName: r.status?.name ?? null, archived: false, directorateId: r.directorateId }));
+  const items: ReminderItem[] = rows.map((r) => ({ id: r.id, title: r.title, deadline: r.deadline, responsibleId: r.responsibleId, statusName: r.status?.name ?? null, archived: false, directorateId: r.directorateId, column: r.status?.trackerColumn ?? null }));
   const { soon, overdue } = pickDeadlineReminders(items, now);
   if (soon.length + overdue.length === 0) return { soon: 0, overdue: 0, summaries: 0 };
 
@@ -92,6 +96,11 @@ export async function sendDeadlineReminders(now: Date = new Date()): Promise<{ s
   let overdueSent = 0;
   const fresh: ReminderItem[] = [];
   for (const i of overdue) {
+    // на проверке — ждёт решения директора: исполнителю не пишем, директор увидит в сводке
+    if (i.column === "REVIEW") {
+      fresh.push(i);
+      continue;
+    }
     if (sent(i.responsibleId!, "DEADLINE_OVERDUE", i.id)) continue;
     await createNotification({
       userId: i.responsibleId!,
@@ -108,15 +117,20 @@ export async function sendDeadlineReminders(now: Date = new Date()): Promise<{ s
   let summaries = 0;
   const byDir = new Map<string, ReminderItem[]>();
   for (const i of fresh) if (i.directorateId) byDir.set(i.directorateId, [...(byDir.get(i.directorateId) ?? []), i]);
-  for (const [dir, list] of byDir) {
+  // сводка — без ссылки на позицию; сданные на проверку не помечаются личным напоминанием, поэтому при повторном
+  // запуске в тот же день их не повторяем тому, кто сводку уже получил
+  const summarized = (userId: string) => already.some((n) => n.userId === userId && n.type === "DEADLINE_OVERDUE" && !(n.link ?? "").includes("item="));
+  for (const [dir, all] of byDir) {
     const leads = await prisma.user.findMany({ where: { directorateId: dir, role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } });
-    const names = list.slice(0, 3).map((i) => `«${short(i.title)}»`).join(", ") + (list.length > 3 ? ` и ещё ${list.length - 3}` : "");
     for (const l of leads) {
-      if (list.every((i) => i.responsibleId === l.id)) continue; // свои просрочки он уже получил лично
+      const list = summarized(l.id) ? all.filter((i) => i.column !== "REVIEW") : all;
+      if (!list.length) continue;
+      if (list.every((i) => i.responsibleId === l.id && i.column !== "REVIEW")) continue; // свои просрочки он уже получил лично
+      const names = list.slice(0, 3).map((i) => `«${short(i.title)}»`).join(", ") + (list.length > 3 ? ` и ещё ${list.length - 3}` : "");
       await createNotification({
         userId: l.id,
         type: "DEADLINE_OVERDUE",
-        message: `Просрочено со вчерашнего дня: ${list.length} ${list.length === 1 ? "позиция" : list.length < 5 ? "позиции" : "позиций"} — ${names}`,
+        message: `Просрочено со вчерашнего дня: ${list.length} ${list.length === 1 ? "позиция" : list.length < 5 ? "позиции" : "позиций"} — ${names}${list.some((i) => i.column === "REVIEW") ? " (часть уже сдана и ждёт вашей приёмки)" : ""}`,
         link: "/table",
         directorateId: dir,
       });

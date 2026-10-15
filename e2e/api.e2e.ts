@@ -91,6 +91,7 @@ import * as weeksList from "@/app/api/weeks/route";
 import * as weekOne from "@/app/api/weeks/[cycleId]/route";
 import * as cronReminders from "@/app/api/cron/reminders/route";
 import { hitRateLimit } from "@/lib/rate-limit";
+import { invalidateDicts } from "@/lib/dictionaries";
 import * as notif from "@/app/api/notifications/[id]/route";
 import * as cycleRemind from "@/app/api/cycles/[id]/remind/route";
 import * as aiSettings from "@/app/api/ai/settings/route";
@@ -585,6 +586,23 @@ describe("напоминания по срокам позиций", () => {
     expect(await prisma.notification.count({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] } } })).toBe(before);
     await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: new Date(Date.now() - 600000) } } });
   });
+
+  it("сданная на проверку: исполнителя не торопим, директору — в сводке «ждёт вашей приёмки», повтор не дублирует", async () => {
+    const now = new Date("2031-10-08T06:00:00Z");
+    const r = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG}-сдана с опозданием`, deadline: "2031-10-07" } });
+    created.items.push(r.data.row.id);
+    const sid = r.data.row.id as string;
+    const sub = await call(head, transition.POST, `/api/items/${sid}/transition`, { method: "POST", id: sid, body: { version: r.data.row.version, action: "submit", result: "Отчёт готов" } });
+    expect(sub.status).toBe(200);
+    const first = await sendDeadlineReminders(now);
+    expect(first.overdue).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: head.id, type: "DEADLINE_OVERDUE", link: { contains: sid } } })).toBe(0);
+    const summary = () => prisma.notification.count({ where: { userId: director.id, type: "DEADLINE_OVERDUE", message: { contains: "ждёт вашей приёмки" } } });
+    expect(await summary()).toBe(1);
+    await sendDeadlineReminders(now);
+    expect(await summary()).toBe(1);
+    await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: new Date(Date.now() - 600000) } } });
+  });
 });
 
 describe("треки", () => {
@@ -1015,6 +1033,10 @@ describe("руководитель, который заполняет табли
     expect(blocked.status).toBe(409);
     expect(blocked.data.error).toBe("LOCKED");
     expect((await call(headB, item.DELETE, `/api/items/${itemId}`, { method: "DELETE", id: itemId })).status).toBe(409);
+    // и действием трекера (заблокировать, сдать) — тоже нет: иначе запрет обходится через доску
+    const viaTracker = await call(headB, transition.POST, `/api/items/${itemId}/transition`, { method: "POST", id: itemId, body: { version: cur, action: "block", blockedBy: "жду ответа" } });
+    expect(viaTracker.status).toBe(409);
+    expect(viaTracker.data.error).toBe("LOCKED");
     // директор правит свободно
     const byDirector = await call(directorB, item.PATCH, `/api/items/${itemId}`, { method: "PATCH", id: itemId, body: { version: cur, comment: "поправил директор" } });
     expect(byDirector.status).toBe(200);
@@ -1031,6 +1053,11 @@ describe("руководитель, который заполняет табли
 
   it("итог, отправленный директором, руководитель открыть не может, ЗГД — может", async () => {
     expect((await call(directorB, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId })).status).toBe(200);
+    // справка подтверждает для ЗГД каждую задачу дирекции полным снимком (блокер, отмена, сдача — не только поля таблицы)
+    const pub = await prisma.itemPublication.findFirst({ where: { itemId, reason: "отправлена справка" } });
+    expect(pub).not.toBeNull();
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: itemId } })).publishedAt?.getTime()).toBe(pub!.publishedAt.getTime());
+    expect(await prisma.notification.count({ where: { type: "ZGD_UPDATE", message: { contains: "отправлена справка" } } })).toBe(0);
     expect((await call(headB, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(404);
     expect((await call(management, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
     expect((await call(directorB, cycleReport.POST, `/api/cycles/${cycleId}/report`, { method: "POST", id: cycleId, body: {} })).status).toBe(200);
@@ -2427,5 +2454,50 @@ describe("ЗГД в трекере: только подтверждённое д
     // исполнитель видит поручение в своих задачах и может сдать его на проверку
     const row = (await call(head, tracker.GET, "/api/tracker")).data.rows.find((r: { id: string }) => r.id === o.data.id);
     expect(row?.origin).toBe("DIRECTOR");
+  });
+
+  it("срок поручения директора руководитель не переносит сам; директор сам сменил срок — просьба закрыта; решения и ответы — один раз", async () => {
+    const o = await zgdAct(director, { action: "director-order", responsibleId: head.id, title: `${TAG} поручение со сроком`, expectedResult: "Расчёт", deadline: "2026-11-20" });
+    expect(o.status).toBe(200);
+    const oid = o.data.id as string;
+    created.items.push(oid);
+    let cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id: oid } });
+    expect((await call(head, item.PATCH, `/api/items/${oid}`, { method: "PATCH", id: oid, body: { version: cur.version, deadline: "2026-12-01", deadlineReason: "не успеваем" } })).status).toBe(403);
+    expect((await zgdAct(head, { action: "deadline-request", itemId: oid, newDeadline: "2026-12-01", reason: "ждём данные" })).status).toBe(200);
+    expect((await call(director, tracker.GET, "/api/tracker")).data.hot[oid]?.kinds ?? []).toContain("deadlineRequest");
+    // директор сам поставил свой срок — висящая просьба закрыта, сигнал снят
+    cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id: oid } });
+    expect((await call(director, item.PATCH, `/api/items/${oid}`, { method: "PATCH", id: oid, body: { version: cur.version, deadline: "2026-11-25", deadlineReason: "даю неделю" } })).status).toBe(200);
+    const req = await prisma.deadlineRequest.findFirstOrThrow({ where: { itemId: oid } });
+    expect(req.decision).toBe("CLOSED");
+    expect(req.decidedByName).toBeTruthy();
+    expect((await call(director, tracker.GET, "/api/tracker")).data.hot[oid]?.kinds ?? []).not.toContain("deadlineRequest");
+    expect((await zgdAct(director, { action: "deadline-decide", requestId: req.id, approve: true })).status).toBe(409);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: oid } })).deadline?.toISOString().slice(0, 10)).toBe("2026-11-25");
+    // на запрос ЗГД отвечают один раз
+    const answered = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: id, answeredAt: { not: null } } });
+    expect((await zgdAct(director, { action: "answer", requestId: answered.id, answer: "ещё один ответ" })).status).toBe(409);
+  });
+
+  it("админ, который сам ведёт позиции, свою сданную задачу не принимает — принимает директор", async () => {
+    const u = await prisma.user.create({ data: { name: `${TAG} Админ-исполнитель`, email: `${TAG}.adminexec${Date.now()}@e2e.local`, passwordHash: "x", role: "ADMIN", directorateId: director.directorateId, submits: true } });
+    testUserIds.push(u.id);
+    invalidateDicts(); // создан мимо API — справочник людей перечитать
+    const me = { id: u.id, role: "ADMIN", name: u.name, directorateId: director.directorateId, submits: true } as Actor;
+    const c = await call(me, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача админа` } });
+    expect(c.status, JSON.stringify(c.data)).toBe(201);
+    const tid = c.data.row.id as string;
+    created.items.push(tid);
+    let ver = c.data.row.version as number;
+    const tr = async (a: Actor, body: Record<string, unknown>) => {
+      const r = await call(a, transition.POST, `/api/items/${tid}/transition`, { method: "POST", id: tid, body: { version: ver, ...body } });
+      if (r.data.row) ver = r.data.row.version;
+      return r;
+    };
+    expect((await tr(me, { action: "submit", result: "Готово, файл в документах" })).status).toBe(200);
+    const self = await tr(me, { action: "accept" });
+    expect(self.status).toBe(403);
+    expect((await tr(me, { action: "return", comment: "сам себе" })).status).toBe(403);
+    expect((await tr(director, { action: "accept" })).status).toBe(200);
   });
 });

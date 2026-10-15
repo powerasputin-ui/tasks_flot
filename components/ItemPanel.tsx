@@ -180,7 +180,7 @@ export function ItemPanel({
   // срок уже был и меняется — нужна причина (сервер тоже требует)
   const deadlineMoved = !!base?.deadline && form.deadline !== base.deadline.slice(0, 10);
   // поручение ЗГД / на контроле ЗГД: руководитель срок не переносит (lib/workflow.ts deadlineChangeError)
-  const deadlineLocked = lockResponsible && !!base && !!base.deadline && (!!base.zgdControl || base.origin === "ZGD");
+  const deadlineLocked = lockResponsible && !!base && !!base.deadline && (!!base.zgdControl || !!base.origin);
 
   useEffect(() => {
     if (tab !== "history" || !base) return;
@@ -482,8 +482,8 @@ export function ItemPanel({
                 </Field>
               </div>
               <Field label={L("deadline")}>
-                <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled || deadlineLocked} className="input w-full" title={deadlineLocked ? "Срок под контролем ЗГД: перенос — только с согласия директора" : undefined} />
-                {deadlineLocked && <p className="mt-1 text-[11px] text-on-surface-variant">Под контролем ЗГД: перенос — через директора.</p>}
+                <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled || deadlineLocked} className="input w-full" title={deadlineLocked ? "Срок поручения: перенос — только с согласия директора" : undefined} />
+                {deadlineLocked && <p className="mt-1 text-[11px] text-on-surface-variant">Поручение: перенос срока — через просьбу директору.</p>}
               </Field>
               <Field label={L("status")}>
                 {/* «На проверке», «Выполнено», «Не актуально» — только действиями ниже (сдать / принять / отменить) */}

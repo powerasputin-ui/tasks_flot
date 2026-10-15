@@ -12,6 +12,9 @@ import { ruDay, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 
 export type SentVersion = { directorateId: string; directorateName: string; sentAt: Date | string; title: string; rows: ArchiveRow[] };
 
+/** Подтверждение каждой задачи полным снимком при отправке справки: в истории ЗГД — не отдельным событием, а только изменения. */
+export const MEMO_PUBLICATION = "отправлена справка";
+
 /** Подтверждение директора по одной задаче (снимок полей — lib/workflow-server.ts PublishedSnapshot). */
 export type Publication = {
   itemId: string;
@@ -69,9 +72,15 @@ const EMPTY: Omit<SentState, "name"> = {
 const fromRow = (r: ArchiveRow): SentState => ({ ...EMPTY, segmentId: r.segmentId, segmentName: r.segmentName, trackName: r.trackName, name: r.name, comment: r.comment, ownerName: r.ownerName, statusName: r.statusName, statusColor: r.statusColor, deadline: r.deadline, submitted: r.submitted, inMemo: r.inMemo });
 
 /** Что изменилось между двумя подтверждёнными состояниями — события истории ЗГД. */
-function diff(itemId: string, p: SentState, r: SentState, at: string, who: string, out: TrackerEvent[]) {
+function diff(itemId: string, p: SentState, r: SentState, at: string, who: string, out: TrackerEvent[], table = true) {
   const ev = (kind: TrackerEvent["kind"], text: string, slip?: number, before?: string | null, after?: string | null) =>
     out.push({ itemId, at, kind, who, text, ...(slip ? { slip } : {}), ...(before !== undefined || after !== undefined ? { before: before ?? null, after: after ?? null } : {}) });
+  if (table) tableDiff(p, r, ev);
+  if (!p.blockedBy && r.blockedBy) ev("workflow", `заблокирована: ждём ${r.blockedBy}`);
+  if (p.blockedBy && !r.blockedBy) ev("workflow", "блок снят");
+}
+
+function tableDiff(p: SentState, r: SentState, ev: (kind: TrackerEvent["kind"], text: string, slip?: number, before?: string | null, after?: string | null) => void) {
   if ((p.statusName ?? null) !== (r.statusName ?? null)) ev("status", `статус: ${p.statusName ?? "без статуса"} → ${r.statusName ?? "без статуса"}`, undefined, p.statusName, r.statusName);
   if (!sameDay(p.deadline, r.deadline)) {
     const slip = p.deadline && r.deadline ? Math.round((new Date(r.deadline).getTime() - new Date(p.deadline).getTime()) / DAY) : 0;
@@ -80,8 +89,6 @@ function diff(itemId: string, p: SentState, r: SentState, at: string, who: strin
   if ((p.ownerName ?? null) !== (r.ownerName ?? null)) ev("owner", `ответственный: ${p.ownerName ?? "не назначен"} → ${r.ownerName ?? "не назначен"}`, undefined, p.ownerName, r.ownerName);
   if (p.name !== r.name || (p.comment ?? "") !== (r.comment ?? "")) ev("text", "обновлён текст задачи");
   if (!p.submitted && r.submitted) ev("submitted", "подана в справку");
-  if (!p.blockedBy && r.blockedBy) ev("workflow", `заблокирована: ждём ${r.blockedBy}`);
-  if (p.blockedBy && !r.blockedBy) ev("workflow", "блок снят");
 }
 
 /**
@@ -125,7 +132,14 @@ export function buildZgdTracker(versions: SentVersion[], publications: Publicati
       const state: SentState = { ...EMPTY, ...(cur.get(p.itemId)?.state ?? {}), ...p.state };
       const prev = cur.get(p.itemId);
       const who = p.who;
-      if (prev) diff(p.itemId, prev.state, state, s.at, who, events);
+      // полный снимок при отправке справки: поля таблицы уже сравнены по самой справке — уточняет только поля поручения
+      // (блокер, отмена, сдача), без события «директор: …»
+      const memo = p.reason === MEMO_PUBLICATION;
+      if (prev) diff(p.itemId, prev.state, state, s.at, who, events, !memo);
+      if (memo) {
+        cur.set(p.itemId, { state, directorateId: p.directorateId, directorateName: p.directorateName, asOf: s.at, confirmedBy: prev?.confirmedBy ?? who });
+        continue;
+      }
       const rv = state.review;
       const why = rv?.comment && (p.reason.startsWith("вернул") || p.reason.startsWith("принял")) ? ` — ${rv.comment}` : state.cancelReason && p.reason.startsWith("отменил") ? ` — ${state.cancelReason}` : "";
       events.push({ itemId: p.itemId, at: s.at, kind: prev ? "workflow" : "created", who, text: `${p.reason}${why}` });

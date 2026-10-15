@@ -66,7 +66,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
 
   const director = !!actor && (actor.role === "DIRECTOR" || actor.role === "ADMIN");
   // руководитель: срок поручения ЗГД / задачи на контроле переносится только через просьбу директору
-  const canAskDeadline = !!actor && !readOnly && actor.role === "HEAD" && (!!row.zgdControl || row.origin === "ZGD") && !!row.deadline && !info?.deadlineRequests.some((r) => !r.decision);
+  const canAskDeadline = !!actor && !readOnly && actor.role === "HEAD" && (!!row.zgdControl || !!row.origin) && !!row.deadline && !info?.deadlineRequests.some((r) => !r.decision);
   const [reply, setReply] = useState<{ kind: "answer" | "reject" | "ask"; id: string } | null>(null);
   const [newDate, setNewDate] = useState("");
   async function side(body: Record<string, unknown>) {
@@ -184,8 +184,8 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
           </p>
           <p className="mt-0.5 text-on-surface">{r.reason}</p>
           {r.decision ? (
-            <p className={`mt-1 ${r.decision === "APPROVED" ? "text-status-emerald" : "text-status-red"}`}>
-              {r.decision === "APPROVED" ? "Согласовано" : "Не согласовано"} — {r.decidedByName}
+            <p className={`mt-1 ${r.decision === "APPROVED" ? "text-status-emerald" : r.decision === "CLOSED" ? "text-on-surface-variant" : "text-status-red"}`}>
+              {r.decision === "APPROVED" ? "Согласовано" : r.decision === "CLOSED" ? "Закрыта" : "Не согласовано"} — {r.decidedByName}
               {r.comment ? `: ${r.comment}` : ""}
             </p>
           ) : director && !readOnly ? (

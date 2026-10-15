@@ -38,8 +38,14 @@ export type PublishedSnapshot = {
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
+type Review = Prisma.TaskReviewGetPayload<object>;
+
 export async function snapshotOf(item: ItemRecord, db: Db = prisma): Promise<PublishedSnapshot> {
   const [d, review] = await Promise.all([getDicts(), db.taskReview.findFirst({ where: { itemId: item.id }, orderBy: { submittedAt: "desc" } })]);
+  return snapshotFrom(item, review, d);
+}
+
+function snapshotFrom(item: ItemRecord, review: Review | null, d: Awaited<ReturnType<typeof getDicts>>): PublishedSnapshot {
   const status = item.statusId ? d.statuses.get(item.statusId) : undefined;
   return {
     title: item.title,
@@ -69,6 +75,24 @@ export async function snapshotOf(item: ItemRecord, db: Db = prisma): Promise<Pub
  * Подтвердить состояние задачи для ЗГД: решение директора (принял, вернул, ответил, согласовал перенос…), отправка
  * справки или кнопка «Обновить для ЗГД». ЗГД видит только последнее подтверждённое — черновики дирекции ему не видны.
  */
+/**
+ * Отправка справки: подтвердить для ЗГД все задачи дирекции разом, полным снимком (блокер, отмена, сдача — не только
+ * поля таблицы). Без уведомлений: ЗГД и так получает «пришла справка». Пачкой — дирекция может вести сотни позиций.
+ */
+export async function publishAll(items: ItemRecord[], actor: { id: string; name: string }, reason: string): Promise<void> {
+  const list = items.filter((i) => i.directorateId);
+  if (!list.length) return;
+  const ids = list.map((i) => i.id);
+  const [d, reviews] = await Promise.all([getDicts(), prisma.taskReview.findMany({ where: { itemId: { in: ids } }, orderBy: { submittedAt: "desc" } })]);
+  const last = new Map<string, Review>();
+  for (const r of reviews) if (!last.has(r.itemId)) last.set(r.itemId, r);
+  const now = new Date();
+  await prisma.itemPublication.createMany({
+    data: list.map((i) => ({ itemId: i.id, directorateId: i.directorateId!, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snapshotFrom(i, last.get(i.id) ?? null, d) as unknown as Prisma.InputJsonValue, publishedAt: now })),
+  });
+  await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" IN (${Prisma.join(ids)})`;
+}
+
 export async function publishItem(item: ItemRecord, actor: { id: string; name: string }, reason: string, db: Db = prisma, skipUserIds: string[] = []): Promise<void> {
   if (!item.directorateId) return;
   const snapshot = await snapshotOf(item, db);
@@ -110,6 +134,9 @@ export async function performTransition(actor: Actor, id: string, action: Workfl
   const err = checkAction(actor, { column, responsibleId: item.responsibleId, createdById: item.createdById, blocked: !!item.blockedBy, archived: !!item.archivedAt }, action, input);
   if (err) return { ok: false, status: err.startsWith("Укажите") || err.startsWith("Опишите") || err.startsWith("Напишите") ? 400 : 403, error: err.startsWith("Укажите") || err.startsWith("Опишите") || err.startsWith("Напишите") ? "INVALID_INPUT" : "FORBIDDEN", message: err };
 
+  // как и обычная правка: пока директор собирает справку, руководитель не меняет поданные позиции
+  if (actor.role === "HEAD" && item.operFlag && (await prisma.cycle.findFirst({ where: { directorateId: item.directorateId ?? "-", status: "IN_REVIEW" }, select: { id: true } })))
+    return { ok: false, status: 409, error: "LOCKED", message: "Идёт сборка справки директором: поданные позиции сейчас не меняются. Дождитесь отправки или возврата с замечанием." };
   const me = { id: actor.id, name: d.users.get(actor.id)?.name ?? "—" };
   const statuses = [...d.statuses].map(([sid, s]) => ({ id: sid, trackerColumn: s.trackerColumn }));
   const target = TARGET_COLUMN[action];

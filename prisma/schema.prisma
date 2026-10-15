@@ -514,7 +514,7 @@ model DeadlineRequest {
   newDeadline     DateTime
   reason          String
   createdAt       DateTime        @default(now())
-  decision        String? // APPROVED | REJECTED
+  decision        String? // APPROVED | REJECTED | CLOSED (директор сам изменил срок)
   decidedById     String?
   decidedByName   String?
   decidedAt       DateTime?
