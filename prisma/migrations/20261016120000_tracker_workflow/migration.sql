@@ -26,9 +26,14 @@ ALTER TABLE "operational_items" ADD COLUMN IF NOT EXISTS "zgdControl" BOOLEAN NO
 -- исходный срок у уже заведённых задач — текущий (историю переносов до сегодняшнего дня даёт журнал)
 UPDATE "operational_items" SET "originalDeadline" = "deadline" WHERE "originalDeadline" IS NULL AND "deadline" IS NOT NULL;
 
--- задачи, которые уже были в таблице на момент последней отправленной справки дирекции, ЗГД уже видел (снимок справки):
--- «подтверждено» = дата этой справки. Правленные после неё останутся «не подтверждено» (updatedAt позже) — так и должно быть.
-UPDATE "operational_items" i SET "publishedAt" = m."lastSent"
+-- задачи, которые уже были в таблице на момент последней отправленной справки дирекции, ЗГД уже видел (снимок справки).
+-- Если после справки по журналу правок задачу не меняли — она подтверждена (publishedAt = updatedAt: сама отправка справки
+-- снимает галку «Опер» и сдвигает updatedAt, это не правка). Если правили — «подтверждено» = дата справки, и директор увидит
+-- метку «не подтверждено для ЗГД»: ЗГД действительно видит состояние на дату справки.
+UPDATE "operational_items" i SET "publishedAt" = CASE
+    WHEN EXISTS (SELECT 1 FROM "audit_events" a WHERE a."entityType" = 'OperationalItem' AND a."entityId" = i."id" AND a."timestamp" > m."lastSent") THEN m."lastSent"
+    ELSE i."updatedAt"
+  END
 FROM (SELECT "directorateId", max("sentAt") AS "lastSent" FROM "memo_versions" GROUP BY "directorateId") m
 WHERE m."directorateId" = i."directorateId" AND i."publishedAt" IS NULL AND i."createdAt" <= m."lastSent";
 
