@@ -201,6 +201,7 @@ export function ItemPanel({
       if (res.status === 409) {
         const body = await res.json().catch(() => null);
         if (body?.error === "ARCHIVED") setError("Позиция удалена: сначала верните её из «Удалённых».");
+        else if (body?.error === "LOCKED") setError(body.message ?? "Идёт сборка справки директором — позиция сейчас не меняется.");
         else setConflict(true);
       } else if (res.status === 403) setError((await res.json().catch(() => null))?.message ?? "Нет прав на это действие.");
       else if (res.status === 400) setError((await res.json().catch(() => null))?.message ?? "Проверьте заполненные поля.");
@@ -426,7 +427,7 @@ export function ItemPanel({
                 <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled} className="input w-full" />
               </Field>
               <Field label={L("status")}>
-                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={refs.statuses} disabled={disabled} />
+                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={lockResponsible ? refs.statuses.filter((s) => (s as { trackerColumn?: string | null }).trackerColumn !== "DONE" || s.id === form.statusId) : refs.statuses} disabled={disabled || (lockResponsible && (refs.statuses.find((s) => s.id === base?.statusId) as { trackerColumn?: string | null } | undefined)?.trackerColumn === "DONE")} />
               </Field>
             </div>
           </Section>

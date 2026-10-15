@@ -28,6 +28,7 @@ export type TRow = ItemRow & {
   /** Только у ЗГД (трекер по отправленным справкам): дирекция и дата справки, на которую показано состояние. */
   directorateName?: string;
   asOf?: string;
+  inMemo?: boolean;
 };
 type Status = { id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null };
 type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, string[]>; since: string | null; mode?: "sent" };
@@ -56,6 +57,7 @@ export function TrackerView() {
   const [view, setView] = useState<View>("list");
   const [mine, setMine] = useState(false);
   const [hotOnly, setHotOnly] = useState(false);
+  const [slipOnly, setSlipOnly] = useState(false);
   const [segmentIds, setSegmentIds] = useState<string[]>([]);
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [q, setQ] = useState("");
@@ -134,14 +136,15 @@ export function TrackerView() {
       .map((r) => (manyDirs ? { ...r, segmentName: `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` } : r))
       .filter((r) => {
       if (columnOf(r.statusId, colOf) === "HIDDEN") return false;
-      if (mine && r.ownerId !== me?.id) return false;
+      if (mine && r.ownerId !== me?.id && !(directorial && !r.ownerId && r.createdById === me?.id)) return false;
       if (hotOnly && !data?.hot[r.id]) return false;
+      if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, hotOnly, segmentIds, ownerIds, q, me, manyDirs]);
+  }, [data, colOf, mine, hotOnly, slipOnly, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);
 
   const refs: Refs = useMemo(
     () => ({
@@ -161,7 +164,7 @@ export function TrackerView() {
     const statusId = statusForColumn(col, data.statuses);
     if (!statusId) return setError("Для этой колонки не назначен ни один статус (Настройки → Статусы).");
     const prev = data;
-    setData({ ...data, rows: data.rows.map((r) => (r.id === row.id ? { ...r, statusId, statusName: data.statuses.find((s) => s.id === statusId)?.name ?? null } : r)) });
+    setData({ ...data, rows: data.rows.map((r) => (r.id === row.id ? { ...r, statusId, statusName: data.statuses.find((s) => s.id === statusId)?.name ?? null, statusColor: data.statuses.find((s) => s.id === statusId)?.color ?? null } : r)) });
     const res = await fetch(`/api/items/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: row.version, statusId }) });
     if (res.ok) {
       setError(null);
@@ -170,8 +173,8 @@ export function TrackerView() {
     }
     setData(prev);
     const body = await res.json().catch(() => null);
-    setError(res.status === 409 ? "Задачу только что изменил кто-то другой — трекер обновлён." : (body?.message ?? "Не удалось перенести задачу."));
-    if (res.status === 409) setTick((t) => t + 1);
+    setError(body?.message ?? (body?.error === "CONFLICT" ? "Задачу только что изменил кто-то другой — трекер обновлён." : "Не удалось перенести задачу."));
+    if (body?.error === "CONFLICT") setTick((t) => t + 1);
   }
 
   const counts = useMemo(() => Object.fromEntries(BOARD_COLUMNS.map((c) => [c.key, rows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [rows, colOf]);
@@ -219,13 +222,13 @@ export function TrackerView() {
             {c.label}: <span className="text-on-surface">{counts[c.key] ?? 0}</span>
           </span>
         ))}
-        <button onClick={() => setHotOnly((v) => !v)} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${hotOnly ? "bg-status-red text-white" : "bg-status-red/10 text-status-red"}`} title="Правило: просрочено; срок ≤ 3 дн.; ждём чужого решения без срока; нет ни срока, ни статуса; не подана при сроке ≤ 7 дн.">
+        <button onClick={() => setHotOnly((v) => !v)} aria-pressed={hotOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${hotOnly ? "bg-status-red text-white" : "bg-status-red/10 text-status-red"}`} title="Правило: просрочено; срок ≤ 3 дн.; ждём чужого решения без срока; нет ни срока, ни статуса; не подана при сроке ≤ 7 дн.">
           <Flame size={13} /> Горит: {hotCount}
         </button>
-        {slipped > 0 && (
-          <span className="flex items-center gap-1 rounded-full bg-status-amber/15 px-2.5 py-1 font-semibold text-[#b45309]" title="Задачи, у которых срок переносили позже">
+        {(slipped > 0 || slipOnly) && (
+          <button onClick={() => setSlipOnly((v) => !v)} aria-pressed={slipOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${slipOnly ? "bg-[#b45309] text-white" : "bg-status-amber/15 text-[#b45309]"}`} title="Задачи, у которых срок переносили позже — нажмите, чтобы показать только их">
             <Timer size={13} /> Срок сдвигали: {slipped}
-          </span>
+          </button>
         )}
       </div>
 
@@ -249,7 +252,7 @@ export function TrackerView() {
       {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
 
       {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} hot={data.hot} events={byItem} colors={colors} onOpen={setEditor} />}
 
       {editor && sent && <SentPanel row={editor} events={byItem.get(editor.id) ?? []} hot={data?.hot[editor.id]} onClose={() => setEditor(null)} />}
@@ -297,7 +300,7 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
 }
 
 /** Метки задачи: горит, срок сдвигали, давно без движения. */
-function Marks({ row, hot, summary }: { row: TRow; hot?: string[]; summary?: TaskSummary }) {
+function Marks({ row, hot, summary, done }: { row: TRow; hot?: string[]; summary?: TaskSummary; done?: boolean }) {
   return (
     <>
       {hot && (
@@ -310,12 +313,14 @@ function Marks({ row, hot, summary }: { row: TRow; hot?: string[]; summary?: Tas
           срок сдвигали {summary.slips}× (+{summary.slipDays} дн.)
         </span>
       )}
-      {summary?.idleDays !== null && summary && summary.idleDays >= 14 && (
+      {!done && summary?.idleDays !== null && summary && summary.idleDays >= 14 && (
         <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant" title="Последнее изменение задачи">
           без движения {summary.idleDays} дн.
         </span>
       )}
-      {row.operFlag && <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary">подана в справку</span>}
+      {row.inMemo !== undefined
+        ? row.inMemo && <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary" title="Вошла в последнюю отправленную справку">в справке</span>
+        : row.operFlag && <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary">подана в справку</span>}
     </>
   );
 }
@@ -344,11 +349,11 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen }: Common) {
                       <button onClick={() => onOpen(r)} className="row-hover flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-t border-outline-variant/50 px-4 py-2.5 text-left">
                         <span className="min-w-0 flex-1 basis-72 text-[13px] text-on-surface [overflow-wrap:anywhere]">{r.name}</span>
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} />
+                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} />
                         </span>
                         <span className="w-32 shrink-0"><StatusPill name={r.statusName ?? "Без статуса"} color={r.statusColor} /></span>
                         <span className="flex w-40 shrink-0 items-center gap-1.5 truncate text-[12px] text-on-surface-variant">
-                          <PersonAvatar name={r.ownerName} size={20} /> {r.ownerName ?? "не назначен"}
+                          {r.ownerName && <PersonAvatar name={r.ownerName} size={20} />} {r.ownerName ?? "не назначен"}
                         </span>
                         <span className="w-24 shrink-0 text-[12px]"><Deadline row={r} col={col} /></span>
                       </button>
@@ -364,7 +369,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen }: Common) {
   );
 }
 
-function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void }) {
+function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
   const [drag, setDrag] = useState<TRow | null>(null);
   const [over, setOver] = useState<TrackerColumnKey | null>(null);
   const allowed = (r: TRow, col: TrackerColumnKey) => canDone || (col !== "DONE" && columnOf(r.statusId, colOf) !== "DONE");
@@ -407,22 +412,26 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
                     setOver(null);
                   }}
                   onClick={() => onOpen(r)}
-                  className="surface cursor-pointer border-l-4 p-3 hover:shadow-md"
+                  onKeyDown={(e) => e.key === "Enter" && onOpen(r)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Задача: ${r.name}`}
+                  className="surface cursor-pointer border-l-4 p-3 outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary"
                   style={{ borderLeftColor: colors.get(r.segmentId ?? "none") ?? "#94a3b8" }}
                 >
                   <div className="truncate text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || "Без сегмента"}</div>
                   <div className="mt-0.5 line-clamp-3 text-[13px] font-medium text-on-surface [overflow-wrap:anywhere]">{r.name}</div>
-                  {r.statusName && r.statusName !== c.label && (
+                  {r.statusName && r.statusId !== mainStatus.get(c.key) && (
                     <div className="mt-1.5">
                       <StatusPill name={r.statusName} color={r.statusColor} />
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} />
+                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
                     <span className="flex min-w-0 items-center gap-1.5 truncate text-on-surface-variant">
-                      <PersonAvatar name={r.ownerName} size={20} /> <span className="truncate">{r.ownerName ?? "не назначен"}</span>
+                      {r.ownerName && <PersonAvatar name={r.ownerName} size={20} />} <span className="truncate">{r.ownerName ?? "не назначен"}</span>
                     </span>
                     <Deadline row={r} col={c.key} />
                   </div>
@@ -462,7 +471,7 @@ function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEv
         <div>
           <div className="label-caps mb-1">История по справкам</div>
           <ul className="space-y-1.5">
-            {[...events].reverse().map((e, k) => (
+            {events.map((e, i) => ({ e, i })).sort((a, b) => b.e.at.localeCompare(a.e.at) || a.i - b.i).map(({ e }, k) => (
               <li key={k} className="flex gap-2">
                 <span className="w-16 shrink-0 text-outline">{ruDay(e.at)}</span>
                 <span className={e.slip ? "font-semibold text-status-red" : "text-on-surface"}>{e.text}</span>

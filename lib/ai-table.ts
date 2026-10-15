@@ -1,6 +1,6 @@
 import { normalizeText } from "@/lib/search";
 import { PROTECTED_STATUSES } from "@/lib/statuses";
-import { COLUMN_LABEL, motionText, type Motion } from "@/lib/tracker";
+import { COLUMN_LABEL, daysText, motionText, type Motion } from "@/lib/tracker";
 
 /**
  * Движок фактов таблицы для ИИ-помощников. Экзамен (e2e/ai-exam) показал: модель, видя только тексты пунктов справки,
@@ -232,7 +232,8 @@ export function signals(items: FactItem[], today: number): Signal[] {
     if (days !== null && days < 0) add(`просрочено на ${-days} дн.`, 4 + Math.min(3, Math.floor(-days / 7)));
     else if (days !== null && days <= 3) add(days === 0 ? "срок сегодня" : `срок через ${days} дн.`, 3);
     const wait = WAITING.exec(n(`${i.title} ${i.comment ?? ""}`));
-    if (wait && (days === null || days < 0)) add(`ждём чужого решения/результата («${wait[0]}»)${days === null ? ", срока нет" : ""}`, 2);
+    const waitWord = wait ? (n(`${i.title} ${i.comment ?? ""}`).match(new RegExp(`[а-яё]*${wait[0]}[а-яё]*`))?.[0] ?? wait[0]) : "";
+    if (wait && (days === null || days < 0)) add(`ждём чужого решения/результата («${waitWord}»)${days === null ? ", срока нет" : ""}`, 2);
     if (!i.deadline && !i.status) add("нет ни срока, ни статуса", 2);
     if (!i.submitted && days !== null && days >= 0 && days <= 7) add("не подана в справку, а срок близко", 1);
     if (reasons.length) out.push({ item: i, reasons, weight });
@@ -511,7 +512,7 @@ export const TABLE_RULE = [
 // Доска «Сделать → В работе → На проверке → Выполнено» — те же позиции; движение — из журнала правок (у ЗГД — из
 // разницы между отправленными справками). Модель не выдумывает историю: колонки, переносы срока и простой — готовые.
 
-const TRACK_Q = /(двигал|движени|застрял|завис|стоит на месте|перенос|сдвига|сдвинул|приемк|приёмк|принять|трекер|доск|таймлайн|динамик|как шл|как продвига|сколько раз|без движени|колонк|этап)/;
+const TRACK_Q = /(двигал|движени|застрял|завис|стоит на месте|перенос|сдвига|сдвинул|приемк|приёмк|трекер|доск|таймлайн|динамик|как шл|как продвига|сколько раз|без движени|колонк|этап)/;
 export const wantsTracker = (question: string) => TRACK_Q.test(n(question));
 
 const STOP_SUBJ = new Set([...STOP_WHO, "как", "двигалась", "двигался", "двигалось", "шла", "шло", "история", "историю", "задачи", "что", "было", "происходило", "менялось", "трекер", "трекеру", "движение"]);
@@ -544,7 +545,7 @@ export function trackerBlock(items: FactItem[], labels: Map<string, string>): st
   return [
     "ТРЕКЕР (доска «Сделать → В работе → На проверке → Выполнено», те же позиции; посчитано программой, полные):",
     `Колонки: ${(["TODO", "DOING", "REVIEW", "DONE"] as const).map((c) => `${COLUMN_LABEL[c]} — ${col(c).length}${col(c).length ? ` (${col(c).map(lab).join(", ")})` : ""}`).join("; ")}.`,
-    `Ждут приёмки директором («На проверке»): ${list(review, (i) => `${m(i).inColumnDays ?? "?"} дн.`)}.`,
+    `Ждут приёмки директором («На проверке»): ${list(review, (i) => (m(i).inColumnDays === null ? "?" : daysText(m(i).inColumnDays!)))}.`,
     `Срок переносили позже: ${list(slipped, (i) => `${m(i).slips}× (+${m(i).slipDays} дн.)`)}.`,
     `Без движения 14+ дней (не выполнены): ${list(idle, (i) => `${m(i).idleDays} дн.`)}.`,
     `Дольше 3 недель в одной колонке: ${list(long, (i) => `«${COLUMN_LABEL[m(i).column]}» ${m(i).inColumnDays} дн.`)}.`,
@@ -572,7 +573,7 @@ export function trackerAnswer(question: string, items: FactItem[], labels: Map<s
   if (/(перенос|сдвига|сдвинул|сколько раз)/.test(q) && /срок/.test(q)) {
     const xs = act.filter((i) => m(i).slips > 0).sort((a, b) => m(b).slipDays - m(a).slipDays);
     return xs.length
-      ? [`Срок переносили позже у ${xs.length} задач:`, ...xs.map((i) => line(i, `${m(i).slips}× (+${m(i).slipDays} дн.), сейчас ${i.deadline ? `срок ${ru(i.deadline)}` : "срока нет"}`))].join("\n")
+      ? [`Срок переносили позже у ${xs.length} ${xs.length % 10 === 1 && xs.length % 100 !== 11 ? "задачи" : "задач"}:`, ...xs.map((i) => line(i, `${m(i).slips}× (+${m(i).slipDays} дн.), сейчас ${i.deadline ? `срок ${ru(i.deadline)}` : "срока нет"}`))].join("\n")
       : "По истории трекера срок позже ни у одной задачи не переносили.";
   }
   if (/(застрял|завис|стоит на месте|без движени)/.test(q)) {
@@ -581,9 +582,9 @@ export function trackerAnswer(question: string, items: FactItem[], labels: Map<s
       ? [`Без движения 14 дней и больше (не выполнены) — ${xs.length}:`, ...xs.map((i) => line(i, `«${COLUMN_LABEL[m(i).column]}», последнее движение ${m(i).idleDays} дн. назад`))].join("\n")
       : "Задач без движения 14 дней и больше нет: все невыполненные задачи менялись за последние две недели.";
   }
-  if (/(приемк|приёмк|принять)/.test(q)) {
+  if (/(приемк|приёмк)/.test(q)) {
     const xs = act.filter((i) => m(i).column === "REVIEW");
-    return xs.length ? [`Ждут приёмки директором («На проверке») — ${xs.length}:`, ...xs.map((i) => line(i, `на проверке ${m(i).inColumnDays ?? "?"} дн.`))].join("\n") : "На проверке (ждут приёмки директором) задач нет.";
+    return xs.length ? [`Ждут приёмки директором («На проверке») — ${xs.length}:`, ...xs.map((i) => line(i, `на проверке ${m(i).inColumnDays === null ? "?" : daysText(m(i).inColumnDays!)}`))].join("\n") : "На проверке (ждут приёмки директором) задач нет.";
   }
   if (/(двигал|движени|как шл|как продвига)/.test(q)) {
     const xs = bySubject(question, items).filter((i) => i.motion?.history.length).slice(0, 3);

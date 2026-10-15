@@ -161,12 +161,15 @@ export function motionOf(events: TrackerEvent[], column: TrackerColumnKey, now: 
   };
 }
 
+/** «3 дн.», а 0 — «меньше дня» (а не «0 дн.»). */
+export const daysText = (d: number) => (d === 0 ? "меньше дня" : `${d} дн.`);
+
 /** Строка «трекер: …» в карточке позиции для модели. */
 export function motionText(m: Motion): string {
   return [
-    `колонка «${COLUMN_LABEL[m.column]}»${m.inColumnDays !== null ? ` ${m.inColumnDays} дн.` : ""}`,
+    `колонка «${COLUMN_LABEL[m.column]}»${m.inColumnDays !== null ? ` ${daysText(m.inColumnDays)}` : ""}`,
     m.slips ? `срок переносили позже ${m.slips}× (+${m.slipDays} дн.)` : "срок не переносили",
-    m.idleDays !== null ? `последнее движение ${m.idleDays} дн. назад` : null,
+    m.idleDays !== null ? (m.idleDays === 0 ? "последнее движение сегодня" : `последнее движение ${m.idleDays} дн. назад`) : null,
   ]
     .filter(Boolean)
     .join("; ");

@@ -143,6 +143,7 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent" }>
     directorateId: r.directorateId,
     directorateName: r.directorateName,
     asOf: r.asOf,
+    inMemo: r.inMemo,
   }));
   const hot = Object.fromEntries(signals(sent.rows.map(sentFact), todayMsk()).map((s) => [s.item.id, s.reasons]));
   return { mode: "sent", rows: rows as unknown as TableRow[], statuses, events: sent.events, hot, since: sent.since };

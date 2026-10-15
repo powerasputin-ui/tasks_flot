@@ -17,7 +17,7 @@ const KIND_COLOR: Record<TrackerEventKind, string> = {
   files: "#94a3b8",
   edit: "#94a3b8",
   owner: "#7c3aed",
-  submitted: "#0059a5",
+  submitted: "#0891b2",
   unsubmitted: "#94a3b8",
   memo: "#16a34a",
   archived: "#dc2626",
