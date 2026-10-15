@@ -230,13 +230,17 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
  * Удалить навсегда: только позицию из «Удалённых». Стираются сама позиция, её комментарии, история правок
  * и уведомления со ссылкой на неё. Отправленные справки не меняются — в них хранится свой снимок.
  */
-export async function purgeItem(actor: Actor, id: string): Promise<{ ok: true } | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "ARCHIVED" }> {
+export async function purgeItem(actor: Actor, id: string): Promise<{ ok: true } | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "ARCHIVED" | "HAS_DECISIONS"; message?: string }> {
   if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
   if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
   if (!canPurgeItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   // навсегда — только из «Удалённых»: рабочую позицию сначала удаляют обычным способом
   if (existing.archivedAt === null) return { ok: false, error: "ARCHIVED" };
+  // история решений — доказательство: если по задаче уже были сдача/приёмка, подтверждение для ЗГД, запрос или поручение ЗГД,
+  // навсегда её не стираем (остаётся в «Удалённых» вместе с историей)
+  const [reviews, pubs, reqs] = await Promise.all([prisma.taskReview.count({ where: { itemId: id } }), prisma.itemPublication.count({ where: { itemId: id } }), prisma.zgdRequest.count({ where: { itemId: id } })]);
+  if (reviews || pubs || reqs || existing.origin === "ZGD") return { ok: false, error: "HAS_DECISIONS", message: "По задаче есть решения или она видна ЗГД — удалить навсегда нельзя: история решений должна сохраниться. Задача остаётся в «Удалённых»." };
   await prisma.$transaction(async (tx) => {
     await tx.itemNote.deleteMany({ where: { itemId: id } });
     await tx.auditEvent.deleteMany({ where: { entityType: "OperationalItem", entityId: id } });

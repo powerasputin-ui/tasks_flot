@@ -5,7 +5,7 @@
  */
 
 /** Сигналы задачи (lib/ai-table.ts signals): виды и причины «→ что сделать». */
-export type HotInfo = { kinds: Array<"overdue" | "soon" | "blocker" | "review" | "request" | "data" | "report">; reasons: string[] };
+export type HotInfo = { kinds: Array<"overdue" | "slipped" | "deadlineRequest" | "soon" | "blocker" | "review" | "request" | "data" | "report">; reasons: string[] };
 
 /** Настройка (app_settings): false — пункт «Трекер» скрыт у всех. Откат без выкладки. */
 export const TRACKER_SETTING = "tracker.enabled";

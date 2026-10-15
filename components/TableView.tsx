@@ -176,7 +176,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       if (res.ok) {
         setRefetchTick((t) => t + 1);
         setFeedTick((t) => t + 1);
-      } else setError("Не удалось удалить позицию навсегда.");
+      } else setError((await res.json().catch(() => null))?.message ?? "Не удалось удалить позицию навсегда.");
       return;
     }
     const res = await fetch(action === "restore" ? `/api/items/${row.id}/restore` : `/api/items/${row.id}`, {

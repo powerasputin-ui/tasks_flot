@@ -75,11 +75,17 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
   const byItem = new Map<string, TrackerEvent[]>();
   for (const e of events) byItem.set(e.itemId, [...(byItem.get(e.itemId) ?? []), e]);
   const cols = new Map(statuses.map((s) => [s.id, s.trackerColumn]));
-  const requests = ids.length ? await prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }) : [];
+  const [requests, pendingDl] = ids.length
+    ? await Promise.all([
+        prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }),
+        prisma.deadlineRequest.findMany({ where: { itemId: { in: ids }, decision: null }, select: { itemId: true, newDeadline: true, reason: true } }),
+      ])
+    : [[], []];
   const facts = rows.map((r) => {
     const rq = requests.filter((q) => q.itemId === r.id);
     const due = rq.map((q) => q.dueAt).filter((x): x is Date => !!x).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-    return { ...toFact(r), motion: motionOf(byItem.get(r.id) ?? [], columnOf(r.statusId, cols)), openRequests: rq.length ? { count: rq.length, dueAt: due } : undefined };
+    const dl = pendingDl.find((x) => x.itemId === r.id);
+    return { ...toFact(r), motion: motionOf(byItem.get(r.id) ?? [], columnOf(r.statusId, cols)), openRequests: rq.length ? { count: rq.length, dueAt: due } : undefined, pendingDeadline: dl ? { newDeadline: dl.newDeadline, reason: dl.reason } : null };
   });
   const hot = Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
   return { rows, statuses, events, hot, since: audit[0]?.timestamp.toISOString() ?? null };
@@ -108,6 +114,13 @@ async function loadZgdSources(): Promise<{ versions: SentVersion[]; publications
     };
   });
   return { versions, publications };
+}
+
+/** Последнее подтверждённое (то, что ЗГД видит сейчас) по задачам дирекции. */
+export async function zgdStateFor(directorateId: string): Promise<Map<string, SentRow>> {
+  const { versions, publications } = await loadZgdSources();
+  const built = buildZgdTracker(versions.filter((v) => v.directorateId === directorateId), publications.filter((p) => p.directorateId === directorateId));
+  return new Map(built.rows.map((r) => [r.id, r]));
 }
 
 async function loadSentVersions(): Promise<SentVersion[]> {
@@ -220,7 +233,11 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; d
 
 /** Факты для ИИ ЗГД: позиции из последних справок с движением по трекеру и журнал — разница между справками. */
 export async function loadSentFacts(): Promise<{ items: FactItem[]; events: FactEvent[]; dict: { owners: string[]; segments: string[]; tracks: string[]; statuses: string[] } } | null> {
-  const [sent, statuses] = await Promise.all([loadZgdSources().then((x) => buildZgdTracker(x.versions, x.publications)), prisma.status.findMany({ select: { name: true, trackerColumn: true } })]);
+  const [built, statuses] = await Promise.all([loadZgdSources().then((x) => buildZgdTracker(x.versions, x.publications)), prisma.status.findMany({ select: { name: true, trackerColumn: true } })]);
+  // ровно то, что видно в трекере ЗГД: удалённые дирекцией — нет; «на контроле» и «поручение» — живые отметки ЗГД
+  const live = built.rows.length ? await prisma.operationalItem.findMany({ where: { id: { in: built.rows.map((r) => r.id) }, archivedAt: null }, select: { id: true, zgdControl: true, origin: true } }) : [];
+  const liveById = new Map(live.map((l) => [l.id, l]));
+  const sent = { ...built, rows: built.rows.filter((r) => liveById.has(r.id)).map((r) => ({ ...r, zgdControl: liveById.get(r.id)!.zgdControl, origin: liveById.get(r.id)!.origin })), events: built.events.filter((e) => liveById.has(e.itemId)) };
   if (!sent.rows.length) return null;
   const cols = new Map(statuses.map((s) => [s.name, s.trackerColumn]));
   const byItem = new Map<string, TrackerEvent[]>();

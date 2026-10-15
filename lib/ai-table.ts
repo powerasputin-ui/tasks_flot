@@ -43,6 +43,8 @@ export type FactItem = {
   zgdControl?: boolean;
   /** У ЗГД: когда и чем подтверждено состояние (справка или решение директора). */
   confirmed?: string;
+  /** Просьба о переносе срока ждёт решения директора. */
+  pendingDeadline?: { newDeadline: Date; reason: string } | null;
   /** Открытые запросы ЗГД: сколько и самый ранний срок ответа. */
   openRequests?: { count: number; dueAt: Date | null };
 };
@@ -238,8 +240,8 @@ export const wantsSignals = (question: string) => HOT_Q.test(n(question));
  * Сигналы — раздельно (разбор GPT: одно «горит» смешивало просрочку, качество данных и отчётность). У каждого — причина
  * и следующее действие. Вид: просрочка, скоро срок, блокер, ждёт приёмки, запрос ЗГД без ответа, нет данных, отчётность.
  */
-export type SignalKind = "overdue" | "soon" | "blocker" | "review" | "request" | "data" | "report";
-export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", soon: "Скоро срок", blocker: "Блокер", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Нет данных", report: "Отчётность" };
+export type SignalKind = "overdue" | "slipped" | "deadlineRequest" | "soon" | "blocker" | "review" | "request" | "data" | "report";
+export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", slipped: "Исходный срок нарушен", deadlineRequest: "Перенос ждёт решения", soon: "Скоро срок", blocker: "Блокер", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Нет данных", report: "Отчётность" };
 export type Signal = { item: FactItem; reasons: string[]; weight: number; kinds: SignalKind[] };
 
 export function signals(items: FactItem[], today: number): Signal[] {
@@ -258,7 +260,11 @@ export function signals(items: FactItem[], today: number): Signal[] {
     const review = i.motion?.column === "REVIEW";
     // исходный срок сорван, даже если текущий перенесли
     const origMissed = i.originalDeadline && i.deadline && dayOf(i.originalDeadline) < dayOf(i.deadline) && dayOf(i.originalDeadline) < today ? ` (исходный срок ${ru(i.originalDeadline)} сорван)` : "";
-    if (days !== null && days < 0) add("overdue", `просрочено на ${-days} дн.${origMissed}`, review ? "директору принять или вернуть" : "согласовать новый срок с причиной или закрыть", 4 + Math.min(3, Math.floor(-days / 7)));
+    const pend = i.pendingDeadline;
+    if (days !== null && days < 0) add("overdue", `просрочено на ${-days} дн.${origMissed}${pend ? `; запрошен перенос на ${ru(pend.newDeadline)}` : ""}`, review ? "директору принять или вернуть" : pend ? "директору решить по переносу" : "согласовать новый срок с причиной или закрыть", 4 + Math.min(3, Math.floor(-days / 7)));
+    // исходное обязательство сорвано, хотя текущий срок ещё не прошёл (его перенесли)
+    else if (i.originalDeadline && dayOf(i.originalDeadline) < today && i.deadline && dayOf(i.deadline) > dayOf(i.originalDeadline)) add("slipped", `исходный срок ${ru(i.originalDeadline)} нарушен, текущий — ${ru(i.deadline)}`, "держать на контроле: второй перенос — повод вмешаться", 2);
+    if (pend) add("deadlineRequest", `просят перенести на ${ru(pend.newDeadline)}: ${pend.reason.slice(0, 120)}`, "директору согласовать или отклонить", 2);
     else if (days !== null && days <= 3 && !review) add("soon", days === 0 ? "срок сегодня" : `срок через ${days} дн.${origMissed}`, "проверить готовность у ответственного", 3);
     if (i.blockedBy) {
       const late = i.blockedUntil && dayOf(i.blockedUntil) < today;
@@ -284,7 +290,7 @@ export function signals(items: FactItem[], today: number): Signal[] {
 export function signalsBlock(sig: Signal[], labels: Map<string, string>): string {
   if (!sig.length) return "СИГНАЛЫ «ГОРИТ» (по правилу программы): нет — просрочек, сроков на носу, зависших ожиданий и позиций без срока и статуса нет.";
   return [
-    "СИГНАЛЫ «ГОРИТ» (посчитано программой; у каждого — вид, причина и «→ что сделать»; виды: Просрочка, Скоро срок, Блокер, Ждёт приёмки, Запрос ЗГД, Нет данных, Отчётность), сначала самое серьёзное:",
+    "СИГНАЛЫ «ГОРИТ» (посчитано программой; у каждого — вид, причина и «→ что сделать»; виды: Просрочка, Исходный срок нарушен, Перенос ждёт решения, Скоро срок, Блокер, Ждёт приёмки, Запрос ЗГД, Нет данных, Отчётность), сначала самое серьёзное:",
     ...sig.map((s) => `[${labels.get(s.item.id)}] ${s.reasons.join("; ")} — ответственный: ${s.item.owner ?? "не указан"}`),
   ].join("\n");
 }

@@ -183,6 +183,21 @@ describe("«что горит»: сигналы по правилу програ
     expect(by("Запрос")?.reasons[0]).toContain("запрос ЗГД без ответа (ответ ждали к 08.10.2026) → директору ответить ЗГД");
     expect(by("Перенос")?.reasons[0]).toContain("(исходный срок 01.10.2026 сорван)");
   });
+  it("сроки: «исходный срок нарушен» при перенесённом текущем; просьба о переносе — отдельный сигнал и пояснение у просрочки", () => {
+    const s2 = signals(
+      [
+        item({ title: "Перенесли", owner: "Сухов В.А.", status: "В работе", deadline: d("2026-10-20"), originalDeadline: d("2026-10-01") }),
+        item({ title: "Просят", owner: "Сухов В.А.", status: "В работе", deadline: d("2026-10-05"), pendingDeadline: { newDeadline: d("2026-10-25"), reason: "ждём поставку" } }),
+      ],
+      TODAY,
+    );
+    const by = (t: string) => s2.find((x) => x.item.title === t)!;
+    expect(by("Перенесли").kinds).toEqual(["slipped"]);
+    expect(by("Перенесли").reasons[0]).toBe("Исходный срок нарушен: исходный срок 01.10.2026 нарушен, текущий — 20.10.2026 → держать на контроле: второй перенос — повод вмешаться");
+    expect(by("Просят").kinds).toEqual(["overdue", "deadlineRequest"]);
+    expect(by("Просят").reasons[0]).toBe("Просрочка: просрочено на 4 дн.; запрошен перенос на 25.10.2026 → директору решить по переносу");
+    expect(by("Просят").reasons[1]).toBe("Перенос ждёт решения: просят перенести на 25.10.2026: ждём поставку → директору согласовать или отклонить");
+  });
   it("пункт справки, у которого строка в таблице изменилась, помечен", () => {
     const b = { id: "b1", text: "Пункт", itemIds: ["x"], origin: "auto" as const, edited: false, hidden: false, sourceHash: "" };
     const t = memoAssistContext({ sections: [{ id: "s", title: "Р", kind: "section", bullets: [b] }] }, "Справка", {}, [], undefined, { b1: { sourceChanged: true, sourceMissing: false } }).text;

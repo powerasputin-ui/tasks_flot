@@ -8,7 +8,7 @@ async function POSTHandler(_request: NextRequest, { params }: { params: Promise<
   const actor = await requireActor();
   const { id } = await params;
   const result = await purgeItem(actor, id);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.error === "NOT_FOUND" ? 404 : result.error === "FORBIDDEN" ? 403 : 409 });
+  if (!result.ok) return NextResponse.json({ error: result.error, message: "message" in result ? result.message : undefined }, { status: result.error === "NOT_FOUND" ? 404 : result.error === "FORBIDDEN" ? 403 : 409 });
   return NextResponse.json({ ok: true });
 }
 

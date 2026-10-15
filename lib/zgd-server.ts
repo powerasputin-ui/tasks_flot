@@ -21,7 +21,7 @@ const zgdLink = (id: string) => `/tracker?view=timeline&item=${id}`;
 
 async function zgdItem(actor: Actor, itemId: string) {
   if (actor.role !== "EXECUTIVE") return null;
-  return prisma.operationalItem.findFirst({ where: { id: itemId, archivedAt: null } });
+  return prisma.operationalItem.findFirst({ where: { id: itemId, archivedAt: null, publishedAt: { not: null } } });
 }
 
 /** ЗГД берёт задачу на контроль / снимает: директор видит метку, перенос срока — только с его согласия. */

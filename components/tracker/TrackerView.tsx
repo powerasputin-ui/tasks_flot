@@ -22,6 +22,7 @@ import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
 import { Operativshchik } from "@/components/Operativshchik";
 import { OrderPanel, ZgdPanel } from "@/components/tracker/ZgdPanel";
+import { PublishPanel } from "@/components/tracker/PublishPanel";
 
 /** Строка трекера = строка общей таблицы (как её отдаёт /api/tracker). */
 export type TRow = ItemRow & {
@@ -54,13 +55,15 @@ const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
 const VIEW_KEY = "operativka.tracker.view";
 
 // сигналы: порядок, цвет (красный — исполнение под угрозой, жёлтый — внимание, серый — данные и отчётность), подсказка-определение
-const SIGNAL_ORDER: SignalKind[] = ["overdue", "blocker", "request", "review", "soon", "data", "report"];
+const SIGNAL_ORDER: SignalKind[] = ["overdue", "slipped", "deadlineRequest", "blocker", "request", "review", "soon", "data", "report"];
 const RED = { on: "bg-status-red text-white", off: "bg-status-red/10 text-status-red" };
 const AMBER = { on: "bg-[#b45309] text-white", off: "bg-status-amber/15 text-[#b45309]" };
 const GRAY = { on: "bg-on-surface-variant text-white", off: "bg-surface-high text-on-surface-variant" };
-const SIGNAL_TONE: Record<SignalKind, { on: string; off: string }> = { overdue: RED, blocker: RED, request: RED, review: AMBER, soon: AMBER, data: GRAY, report: GRAY };
+const SIGNAL_TONE: Record<SignalKind, { on: string; off: string }> = { overdue: RED, slipped: AMBER, deadlineRequest: AMBER, blocker: RED, request: RED, review: AMBER, soon: AMBER, data: GRAY, report: GRAY };
 const SIGNAL_HINT: Record<SignalKind, string> = {
   overdue: "Срок прошёл, задача не выполнена (и исходный срок, если его переносили)",
+  slipped: "Исходный срок прошёл, задачу перенесли — текущий срок ещё не наступил",
+  deadlineRequest: "Ответственный попросил перенести срок — директор ещё не решил",
   blocker: "Отмечено «Заблокировано»: ждём чужого решения / документа (дата ожидания прошла — серьёзнее)",
   request: "ЗГД запросил статус — директор ещё не ответил",
   review: "Сдана на проверку 3+ дня назад — директор не принял и не вернул",
@@ -231,16 +234,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
   // директор: изменённые после прошлого подтверждения (или ни разу не подтверждённые) — ЗГД их ещё не видит
   const unconfirmed = (r: TRow) => !sent && directorial && (!r.publishedAt || new Date(r.updatedAt).getTime() > new Date(r.publishedAt).getTime());
   const unconfirmedCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) !== "HIDDEN" && unconfirmed(r)).length;
-  async function publishForZgd() {
-    setNotice(null);
-    const res = await fetch("/api/tracker/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    const d = await res.json().catch(() => null);
-    if (!res.ok) return setError(d?.message ?? "Не удалось подтвердить для ЗГД.");
-    const n = d.published as number;
-    const word = n % 10 === 1 && n % 100 !== 11 ? "задача" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "задачи" : "задач";
-    setNotice(n ? `Подтверждено для ЗГД: ${n} ${word}.` : "Изменений для ЗГД нет — всё уже подтверждено.");
-    setTick((t) => t + 1);
-  }
+  const [publishing, setPublishing] = useState(false);
   const kindCounts = useMemo(() => {
     const m = new Map<SignalKind, number>();
     for (const r of data?.rows ?? []) if (columnOf(r.statusId, colOf) !== "HIDDEN") for (const k of data?.hot[r.id]?.kinds ?? []) m.set(k, (m.get(k) ?? 0) + 1);
@@ -274,7 +268,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             </button>
           )}
           {!sent && directorial && !preview && (
-            <button onClick={() => void publishForZgd()} className="btn-ghost" title="ЗГД видит только подтверждённое: подтвердите текущее состояние изменённых задач">
+            <button onClick={() => (setNotice(null), setPublishing(true))} className="btn-ghost" title="ЗГД видит только подтверждённое вами: посмотрите, что изменилось, и выберите, что показать">
               <ShieldCheck size={15} /> Обновить для ЗГД{unconfirmedCount ? ` (${unconfirmedCount})` : ""}
             </button>
           )}
@@ -351,6 +345,21 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       {aiUser && sent && <AiChat versionIds={[]} scopeLabel="трекер и последние справки дирекций" inherit quick={TRACKER_QUICK} />}
       {aiUser && !sent && <Operativshchik scope="трекер, таблица и архив справок" />}
       {editor && sent && <ZgdPanel key={editor.id} row={editor} events={byItem.get(editor.id) ?? []} hot={data?.hot[editor.id]} onClose={() => setEditor(null)} onChanged={() => setTick((t) => t + 1)} />}
+      {publishing && !sent && (
+        <PublishPanel
+          onClose={() => setPublishing(false)}
+          onOpen={(id) => {
+            setPublishing(false);
+            setEditor(data?.rows.find((r) => r.id === id) ?? null);
+          }}
+          onDone={(n) => {
+            setPublishing(false);
+            const word = n % 10 === 1 && n % 100 !== 11 ? "задача" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "задачи" : "задач";
+            setNotice(`ЗГД увидит актуальное состояние: ${n} ${word}.`);
+            setTick((t) => t + 1);
+          }}
+        />
+      )}
       {ordering && sent && (
         <OrderPanel
           directorates={data?.directorates ?? []}

@@ -2317,7 +2317,7 @@ describe("ЗГД в трекере: только подтверждённое д
     expect((await call(director, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).data.published).toBe(0);
     const row = (await zgdRows()).find((r) => r.id === id)!;
     expect(row.name).toBe(`${TAG} задача для ЗГД (черновик)`);
-    expect(row.confirmedBy).toMatch(/подтвердил\(а\) состояние для ЗГД/);
+    expect(row.confirmedBy).toMatch(/подтвердил\(а\) актуальность для ЗГД/);
   });
 
   it("на контроль и комментарий: директор и ответственный узнают; срок задачи на контроле руководитель не переносит сам", async () => {
@@ -2349,6 +2349,36 @@ describe("ЗГД в трекере: только подтверждённое д
     expect((await call(director, tracker.GET, "/api/tracker")).data.hot[id]?.kinds ?? []).not.toContain("request");
     const ev = (await call(zgdUser, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === id).map((e: { text: string }) => e.text);
     expect(ev).toEqual(expect.arrayContaining([expect.stringMatching(/^ответил\(а\) на запрос ЗГД: Договор на подписи/)]));
+  });
+
+  it("ИИ ЗГД не видит неподтверждённого: ни в данных модели, ни в прямых ответах; действовать над ней ЗГД тоже не может", async () => {
+    const secret = `${TAG} СЕКРЕТНЫЙ-ЧЕРНОВИК-${Date.now()}`;
+    const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: secret, deadline: "2026-09-01" } });
+    created.items.push(c.data.row.id);
+    expect((await zgdAct(zgdUser, { action: "control", itemId: c.data.row.id, on: true })).status).toBe(404);
+    expect((await zgdAct(zgdUser, { action: "request", itemId: c.data.row.id, text: "что там?" })).status).toBe(404);
+    // модель (локальная: сервер отдаёт готовый запрос — видно всё, что ушло бы в модель) и прямой ответ программы
+    for (const body of [
+      { messages: [{ role: "user", content: "Что по задачам дирекции? Что просрочено и что горит?" }], engine: "local" },
+      { messages: [{ role: "user", content: "Что застряло?" }], engine: "local", localDevice: "cpu" },
+      { messages: [{ role: "user", content: "Найди черновик" }], engine: "local", localDevice: "cpu" },
+    ]) {
+      const r = await call(zgdUser, aiChat.POST, "/api/ai/chat", { method: "POST", body });
+      expect([200, 400]).toContain(r.status);
+      expect(JSON.stringify(r.data)).not.toContain("СЕКРЕТНЫЙ-ЧЕРНОВИК");
+    }
+    // задачу, которую ЗГД видел (было подтверждение), нельзя стереть навсегда — история решений сохраняется
+    const seen = await prisma.operationalItem.findFirstOrThrow({ where: { id } });
+    const del = await call(head, item.DELETE, `/api/items/${id}`, { method: "DELETE", id });
+    expect(del.status).toBe(200);
+    const purgeRes = await call(head, purgeRoute.POST, `/api/items/${id}/purge`, { method: "POST", id });
+    expect(purgeRes.status).toBe(409);
+    expect(purgeRes.data.error).toBe("HAS_DECISIONS");
+    await call(head, restore.POST, `/api/items/${id}/restore`, { method: "POST", id });
+    void seen;
+    // у директора эта задача в данных ИИ есть (контрольная проверка, что тест вообще что-то ловит)
+    const d = await call(director, aiChat.POST, "/api/ai/chat", { method: "POST", body: { messages: [{ role: "user", content: "Что просрочено?" }], engine: "local", localDevice: "cpu" } });
+    expect(JSON.stringify(d.data)).toContain("СЕКРЕТНЫЙ-ЧЕРНОВИК");
   });
 
   it("поручение ЗГД: дирекция получает задачу без ответственного, на контроле; без результата или срока — нельзя; руководитель не даёт поручений", async () => {
