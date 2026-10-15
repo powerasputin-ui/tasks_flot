@@ -60,7 +60,7 @@ export async function answerRequest(actor: Actor, requestId: string, answer: unk
   const me = { id: actor.id, name: await nameOf(actor.id) };
   await prisma.zgdRequest.update({ where: { id: requestId }, data: { answer: a, answeredById: me.id, answeredByName: me.name, answeredAt: new Date() } });
   await recordAudit({ entityType: "OperationalItem", entityId: r.itemId, actorId: actor.id, action: "UPDATE", fieldName: "zgdAnswer", after: a });
-  await publishItem(r.item, me, `ответил(а) на запрос ЗГД: ${a.slice(0, 200)}`);
+  await publishItem(r.item, me, `ответил(а) на запрос ЗГД: ${a.slice(0, 200)}`, undefined, [r.askedById]);
   await createNotification({ userId: r.askedById, type: "ZGD_ANSWER", message: `${me.name} ответил(а) по «${r.item.title.slice(0, 90)}»: ${a.slice(0, 160)}`, link: zgdLink(r.itemId) });
   return { ok: true, data: { id: requestId } };
 }

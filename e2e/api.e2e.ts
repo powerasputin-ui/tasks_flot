@@ -2346,6 +2346,11 @@ describe("ЗГД в трекере: только подтверждённое д
     const q = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: id, answeredAt: null } });
     expect((await zgdAct(zgdUser, { action: "answer", requestId: q.id, answer: "сам себе" })).status).toBe(403);
     expect((await zgdAct(director, { action: "answer", requestId: q.id, answer: "Договор на подписи, будет 25.10" })).status).toBe(200);
+    // спросивший получает ровно одно уведомление — ответ (без дубля «подтверждённое изменение» по задаче на контроле)
+    expect(await prisma.notification.count({ where: { userId: zgdUser.id, type: "ZGD_ANSWER", link: { contains: id } } })).toBe(1);
+    expect(await prisma.notification.count({ where: { userId: zgdUser.id, type: "ZGD_UPDATE", message: { contains: "ответил(а) на запрос" }, link: { contains: id } } })).toBe(0);
+    // директору — запрос; руководителю — комментарий ЗГД; самому ЗГД о своих действиях — ничего
+    expect(await prisma.notification.count({ where: { userId: director.id, type: "ZGD_REQUEST", link: { contains: id } } })).toBe(1);
     expect((await call(director, tracker.GET, "/api/tracker")).data.hot[id]?.kinds ?? []).not.toContain("request");
     const ev = (await call(zgdUser, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === id).map((e: { text: string }) => e.text);
     expect(ev).toEqual(expect.arrayContaining([expect.stringMatching(/^ответил\(а\) на запрос ЗГД: Договор на подписи/)]));
@@ -2390,6 +2395,8 @@ describe("ЗГД в трекере: только подтверждённое д
     const it = await prisma.operationalItem.findUniqueOrThrow({ where: { id: o.data.id } });
     expect(it).toMatchObject({ origin: "ZGD", zgdControl: true, responsibleId: null, expectedResult: "Справка по флоту" });
     expect((await zgdRows()).find((r) => r.id === o.data.id)?.origin).toBe("ZGD");
-    expect(await prisma.notification.count({ where: { userId: director.id, type: "ZGD_ORDER" } })).toBeGreaterThan(0);
+    expect(await prisma.notification.count({ where: { userId: director.id, type: "ZGD_ORDER", link: { contains: o.data.id } } })).toBe(1);
+    // ЗГД не получает уведомление о собственном поручении
+    expect(await prisma.notification.count({ where: { userId: zgdUser.id, link: { contains: o.data.id } } })).toBe(0);
   });
 });

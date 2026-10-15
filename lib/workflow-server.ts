@@ -69,7 +69,7 @@ export async function snapshotOf(item: ItemRecord, db: Db = prisma): Promise<Pub
  * Подтвердить состояние задачи для ЗГД: решение директора (принял, вернул, ответил, согласовал перенос…), отправка
  * справки или кнопка «Обновить для ЗГД». ЗГД видит только последнее подтверждённое — черновики дирекции ему не видны.
  */
-export async function publishItem(item: ItemRecord, actor: { id: string; name: string }, reason: string, db: Db = prisma): Promise<void> {
+export async function publishItem(item: ItemRecord, actor: { id: string; name: string }, reason: string, db: Db = prisma, skipUserIds: string[] = []): Promise<void> {
   if (!item.directorateId) return;
   const snapshot = await snapshotOf(item, db);
   const now = new Date();
@@ -79,7 +79,8 @@ export async function publishItem(item: ItemRecord, actor: { id: string; name: s
   // ЗГД, взявший задачу на контроль, узнаёт о подтверждённом изменении
   if (item.zgdControl) {
     const zgd = await db.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
-    for (const u of zgd) await createNotification({ userId: u.id, type: "ZGD_UPDATE", message: `${actor.name}: ${reason} — «${item.title.slice(0, 100)}»`, link: `/tracker?view=timeline&item=${item.id}` });
+    // автору и тем, кто уже получил своё уведомление об этом же (ответ на запрос), — не дублируем
+    for (const u of zgd) if (u.id !== actor.id && !skipUserIds.includes(u.id)) await createNotification({ userId: u.id, type: "ZGD_UPDATE", message: `${actor.name}: ${reason} — «${item.title.slice(0, 100)}»`, link: `/tracker?view=timeline&item=${item.id}` });
   }
 }
 
