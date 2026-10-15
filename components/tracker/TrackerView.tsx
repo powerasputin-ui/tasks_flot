@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarClock, Flame, KanbanSquare, List, Search, Timer } from "lucide-react";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
+import { Panel } from "@/components/ui/Panel";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
@@ -24,9 +25,12 @@ export type TRow = ItemRow & {
   statusName: string | null;
   statusColor: string | null;
   updatedAt: string;
+  /** Только у ЗГД (трекер по отправленным справкам): дирекция и дата справки, на которую показано состояние. */
+  directorateName?: string;
+  asOf?: string;
 };
 type Status = { id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null };
-type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, string[]>; since: string | null };
+type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, string[]>; since: string | null; mode?: "sent" };
 type View = "list" | "board" | "timeline";
 
 const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
@@ -104,11 +108,31 @@ export function TrackerView() {
     return m;
   }, [data]);
   const summaries = useMemo(() => new Map([...byItem].map(([id, ev]) => [id, summarize(ev)])), [byItem]);
-  const colors = useMemo(() => segmentColors((boot?.segments ?? []).map((s) => ({ id: s.id, name: s.name, color: s.color ?? null }))), [boot]);
+  // ЗГД: только чтение, данные — снимки отправленных справок (несколько дирекций — дирекция в названии группы)
+  const sent = data?.mode === "sent";
+  const manyDirs = sent && new Set(data?.rows.map((r) => r.directorateName)).size > 1;
+  const segRefs = useMemo(() => {
+    if (!sent) return (boot?.segments ?? []).map((s) => ({ id: s.id, name: s.name, color: s.color ?? null }));
+    const m = new Map<string, string>();
+    for (const r of data?.rows ?? []) if (r.segmentId) m.set(r.segmentId, manyDirs ? `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` : r.segmentName ?? "Без сегмента");
+    return [...m].map(([id, name]) => ({ id, name, color: null }));
+  }, [sent, manyDirs, boot, data]);
+  const ownerOptions = useMemo(
+    () => (sent ? [...new Set((data?.rows ?? []).map((r) => r.ownerName).filter((x): x is string => !!x))].sort().map((n) => ({ id: n, name: n })) : (boot?.users ?? []).map((u) => ({ id: u.id, name: u.name }))),
+    [sent, data, boot],
+  );
+  const colors = useMemo(() => segmentColors(segRefs), [segRefs]);
+  const asOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of data?.rows ?? []) if (r.directorateName && r.asOf) m.set(r.directorateName, r.asOf);
+    return [...m];
+  }, [data]);
 
   const rows = useMemo(() => {
     const tokens = tokenize(q);
-    return (data?.rows ?? []).filter((r) => {
+    return (data?.rows ?? [])
+      .map((r) => (manyDirs ? { ...r, segmentName: `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` } : r))
+      .filter((r) => {
       if (columnOf(r.statusId, colOf) === "HIDDEN") return false;
       if (mine && r.ownerId !== me?.id) return false;
       if (hotOnly && !data?.hot[r.id]) return false;
@@ -117,7 +141,7 @@ export function TrackerView() {
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, hotOnly, segmentIds, ownerIds, q, me]);
+  }, [data, colOf, mine, hotOnly, segmentIds, ownerIds, q, me, manyDirs]);
 
   const refs: Refs = useMemo(
     () => ({
@@ -160,8 +184,17 @@ export function TrackerView() {
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-on-surface">Трекер</h1>
           <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant">
-            Те же позиции, что в общей таблице, — в виде доски и истории. Заполнять отдельно ничего не нужно.
-            {data?.since && <> История ведётся с {ruDay(data.since)}.</>}
+            {sent ? (
+              <>
+                По отправленным справкам: состояние — на дату последней справки{asOf.length ? ` (${asOf.map(([d, at]) => (manyDirs ? `${d} — ${ruDay(at)}` : ruDay(at))).join(", ")})` : ""}, история — что менялось от справки к справке.
+                {data?.since && <> Первая справка — {ruDay(data.since)}.</>}
+              </>
+            ) : (
+              <>
+                Те же позиции, что в общей таблице, — в виде доски и истории. Заполнять отдельно ничего не нужно.
+                {data?.since && <> История ведётся с {ruDay(data.since)}.</>}
+              </>
+            )}
           </p>
         </div>
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5" role="tablist" aria-label="Вид трекера">
@@ -197,12 +230,14 @@ export function TrackerView() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        {!sent && (
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[13px]">
           <button onClick={() => setMine(false)} className={`rounded px-3 py-1 font-semibold ${!mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Все задачи</button>
           <button onClick={() => setMine(true)} className={`rounded px-3 py-1 font-semibold ${mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Мои задачи</button>
         </div>
-        <FilterChip label="Сегмент" value={segmentIds} options={[...(boot?.segments ?? []).map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={setSegmentIds} />
-        <FilterChip label="Ответственный" value={ownerIds} options={[...(boot?.users ?? []).map((u) => ({ id: u.id, name: u.name })), { id: "none", name: "Не назначен" }]} onChange={setOwnerIds} />
+        )}
+        <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={setSegmentIds} />
+        <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={setOwnerIds} />
         <label className="relative ml-auto max-md:ml-0 max-md:w-full">
           <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-outline" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по задачам" className="input w-64 pl-8 max-md:w-full" aria-label="Поиск по задачам" />
@@ -214,10 +249,11 @@ export function TrackerView() {
       {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
 
       {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} canMove={(r) => canEditRow(r) && !preview} canDone={directorial} onMove={move} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} />}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} hot={data.hot} events={byItem} colors={colors} onOpen={setEditor} />}
 
-      {editor && (
+      {editor && sent && <SentPanel row={editor} events={byItem.get(editor.id) ?? []} hot={data?.hot[editor.id]} onClose={() => setEditor(null)} />}
+      {editor && !sent && (
         <ItemPanel
           key={editor.id}
           row={editor}
@@ -397,5 +433,45 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
         );
       })}
     </div>
+  );
+}
+
+/** Карточка задачи у ЗГД: только чтение — поля из последней справки и история от справки к справке. */
+function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEvent[]; hot?: string[]; onClose: () => void }) {
+  const fields: Array<[string, string]> = [
+    ["Дирекция", row.directorateName ?? "—"],
+    ["Сегмент · трек", [row.segmentName, row.trackName].filter(Boolean).join(" · ") || "—"],
+    ["Ответственный", row.ownerName ?? "не назначен"],
+    ["Статус", row.statusName ?? "без статуса"],
+    ["Срок", row.deadline ? ruDay(row.deadline) : "срока нет"],
+    ["Состояние на", row.asOf ? `справку от ${ruDay(row.asOf)}` : "—"],
+  ];
+  return (
+    <Panel title={row.name} subtitle="Только просмотр: данные из отправленных справок" onClose={onClose}>
+      <div className="space-y-4 px-5 py-4 text-[13px]">
+        {hot && <p className="rounded-md bg-status-red/10 px-3 py-2 text-status-red">Горит: {hot.join("; ")}</p>}
+        <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5">
+          {fields.map(([k, v]) => (
+            <Fragment key={k}>
+              <dt className="text-on-surface-variant">{k}</dt>
+              <dd className="text-on-surface">{v}</dd>
+            </Fragment>
+          ))}
+        </dl>
+        {row.comment && <p className="whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{row.comment}</p>}
+        <div>
+          <div className="label-caps mb-1">История по справкам</div>
+          <ul className="space-y-1.5">
+            {[...events].reverse().map((e, k) => (
+              <li key={k} className="flex gap-2">
+                <span className="w-16 shrink-0 text-outline">{ruDay(e.at)}</span>
+                <span className={e.slip ? "font-semibold text-status-red" : "text-on-surface"}>{e.text}</span>
+              </li>
+            ))}
+            {!events.length && <li className="text-outline">Событий нет.</li>}
+          </ul>
+        </div>
+      </div>
+    </Panel>
   );
 }

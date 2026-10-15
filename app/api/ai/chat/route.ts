@@ -7,8 +7,9 @@ import { buildLocalPrompt, routeTask } from "@/lib/local-ai-prompt";
 import { hitsAnswer, hitsBlock } from "@/lib/ai-search";
 import { aiSearch } from "@/lib/ai-search-load";
 import { collectDocs, docRefs, docsAnswer, docsBlock, isDocsQuestion } from "@/lib/ai-docs";
-import { TABLE_RULE, directAnswer, directResponse, hasConditions, itemRefs, itemsHeader, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
+import { TABLE_RULE, wantsTracker, directAnswer, directResponse, hasConditions, itemRefs, itemsHeader, parseTableQuestion, tableAnswer, tableContext } from "@/lib/ai-table";
 import { loadTableFacts } from "@/lib/ai-table-load";
+import { loadSentFacts } from "@/lib/tracker-load";
 import { guardStream } from "@/lib/ai-guard";
 import { canViewItems } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
@@ -47,19 +48,26 @@ async function POSTHandler(request: NextRequest) {
     const withHits = !!found && (task === "search" || found.hits.length > 0);
     // документы пунктов (ссылки на общий диск) — тем, кто видит их в интерфейсе (не ЗГД: ему документы позиций не открываются)
     const docs = await memoDocsFor(actor, memos);
-    // тот же движок фактов, что у Оперативщика: таблица дирекции, итоги, точная выборка, журнал — кому таблица доступна (не ЗГД)
-    const facts = await loadTableFacts(actor);
+    // тот же движок фактов, что у Оперативщика: таблица дирекции, итоги, точная выборка, журнал, трекер — кому таблица доступна;
+    // ЗГД — то же по снимкам отправленных справок (его трекер): рабочих черновиков дирекций он не видит
+    const sentMode = actor.role === "EXECUTIVE";
+    const facts = sentMode ? await loadSentFacts() : await loadTableFacts(actor);
     const memoItemIds = memos.flatMap((m) => m.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds)));
-    const tableFor = (budget: number) => (facts ? tableContext({ ...facts, question, memoItemIds, budget }).text : "");
+    const SENT_NOTE = "Таблица и трекер ниже — по снимкам ОТПРАВЛЕННЫХ справок (состояние на дату последней справки каждой дирекции, история — что менялось от справки к справке); рабочих черновиков дирекций здесь нет.\n";
+    const tableFor = (budget: number) => (facts ? `${sentMode ? SENT_NOTE : ""}${tableContext({ ...facts, question, memoItemIds, budget }).text}` : "");
+    // ссылки-метки [Т…] у ЗГД ведут в его трекер (таблицы у него нет)
+    const refsFor = () => (facts ? itemRefs({ ...facts, question, memoItemIds }).map((r) => (sentMode ? { ...r, h: "t" as const } : r)) : []);
     const memoHits = (f: NonNullable<typeof found>) => (facts ? { ...f, hits: f.hits.filter((h) => h.kind === "memo") } : f);
     // в вопросе точные условия — отвечаем выборкой таблицы, без поиска похожих слов (он сбивает модель)
     const precise = !!facts && hasConditions(parseTableQuestion(question, facts.dict));
     // «какие / у кого / сколько / кто подавал» — точный ответ программы без модели (облако; у процессора — ниже)
-    const direct = cfg && facts && !(requested && memos.length === 0) ? directAnswer({ ...facts, question, memoItemIds, budget: 0 }) : null;
-    if (direct && facts) return directResponse(direct, itemRefs({ ...facts, question, memoItemIds }));
-    if (!cfg && facts && !(requested && memos.length === 0)) {
+    // у ЗГД главное — справки: программа отвечает напрямую только про движение задач (трекер), остальное — модель со справкой
+    const directOk = !!facts && !(requested && memos.length === 0) && (!sentMode || wantsTracker(question));
+    const direct = cfg && directOk ? directAnswer({ ...facts, question, memoItemIds, budget: 0 }) : null;
+    if (direct && facts) return directResponse(direct, refsFor());
+    if (!cfg && facts && directOk) {
       const t = (b?.localDevice === "cpu" ? tableAnswer : directAnswer)({ ...facts, question, memoItemIds, budget: 0 });
-      if (t) return NextResponse.json({ local: { kind: "text", text: t, items: itemRefs({ ...facts, question, memoItemIds }) } }, { headers: { "Cache-Control": "no-store" } });
+      if (t) return NextResponse.json({ local: { kind: "text", text: t, items: refsFor() } }, { headers: { "Cache-Control": "no-store" } });
     }
     // открыли конкретные справки, а доступных среди них нет — отвечать не по чему (свою таблицу вместо чужой справки не подсовываем)
     if (memos.length === 0 && (requested || (!(found && found.hits.length) && !facts))) return NextResponse.json({ error: "NO_CONTEXT", message: task === "search" ? "Ничего не нашлось — ни в таблице, ни в справках." : "Отправленных справок пока нет — отвечать не по чему." }, { status: 400 });
@@ -85,7 +93,7 @@ async function POSTHandler(request: NextRequest) {
         hits: [facts ? `${TABLE_RULE}\n${tableFor(Math.round(lb.contextChars * 0.45))}` : "", withHits && found && !precise ? hitsBlock(memoHits(found), Math.round(lb.contextChars * 0.15), found.scope) : ""].filter(Boolean).join("\n\n") || undefined,
         docs,
       });
-      return NextResponse.json({ local: { ...local, docs: docRefs(docs), items: facts ? itemRefs({ ...facts, question, memoItemIds }) : undefined } }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ local: { ...local, docs: docRefs(docs), items: facts ? refsFor() : undefined } }, { headers: { "Cache-Control": "no-store" } });
     }
     const fullLength = buildContextInfo(memos).text.length;
     const { chain, preroute } = chainForEngine(cfg, parseEngine(b?.engine));
@@ -113,7 +121,7 @@ async function POSTHandler(request: NextRequest) {
     if (used.model !== chain.model || used.baseUrl !== chain.baseUrl) headers["X-AI-Switched"] = "1";
     // метки [Д1]… → ссылки на документы в чате
     if (docs.length) headers["X-AI-Docs"] = encodeURIComponent(JSON.stringify(docRefs(docs)));
-    Object.assign(headers, facts ? itemsHeader(itemRefs({ ...facts, question, memoItemIds })) : {});
+    Object.assign(headers, itemsHeader(refsFor()));
     return new Response(stream, { headers });
   } catch (e) {
     return aiErrorResponse(e);

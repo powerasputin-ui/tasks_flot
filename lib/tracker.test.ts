@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildEvents, columnOf, statusForColumn, summarize, timelineRange, type RawAudit } from "@/lib/tracker";
+import { buildEvents, columnOf, motionOf, statusForColumn, summarize, timelineRange, type RawAudit } from "@/lib/tracker";
+import { buildSentTracker } from "@/lib/tracker-sent";
+import type { ArchiveRow } from "@/lib/archive-table";
 import { canSetStatus } from "@/lib/permissions";
 
 const names = { status: new Map([["s1", "В работе"], ["s2", "На проверке"]]), user: new Map([["u1", "Майков Т.Г."], ["u2", "Сухов В.А."]]) };
@@ -69,5 +71,40 @@ describe("трекер: события", () => {
     const r = timelineRange(["2026-10-08T10:00:00.000Z", "2026-10-30T00:00:00.000Z"], new Date("2026-10-14T00:00:00.000Z"));
     expect(new Date(r.from).toISOString().slice(0, 10)).toBe("2026-10-05");
     expect(new Date(r.to).toISOString().slice(0, 10)).toBe("2026-11-09");
+  });
+});
+
+describe("трекер ЗГД: история по отправленным справкам", () => {
+  const row = (o: Partial<ArchiveRow>): ArchiveRow => ({ id: "a", segmentId: "s", segmentName: "Флот", trackName: "Т", name: "Задача", cost: null, attractivenessName: null, attractivenessColor: null, ownerName: "Майков Т.Г.", ownerRole: "HEAD", deadline: "2026-10-09T00:00:00.000Z", deadlineWeek: null, statusName: "В работе", statusColor: null, comment: "c", customValues: {}, submitted: true, inMemo: true, ...o });
+  const v = (at: string, rows: ArchiveRow[]) => ({ directorateId: "d", directorateName: "РФ и КЭ", sentAt: at, title: `Справка ${at.slice(5, 10)}`, rows });
+  it("разница между справками: статус, перенос срока, ответственный, новая и исчезнувшая задача", () => {
+    const r = buildSentTracker([
+      v("2026-10-07T10:00:00.000Z", [row({}), row({ id: "b", name: "Удалят" })]),
+      v("2026-10-14T10:00:00.000Z", [row({ statusName: "На проверке", deadline: "2026-10-20T00:00:00.000Z", ownerName: "Сухов В.А." }), row({ id: "c", name: "Новая", inMemo: false })]),
+    ]);
+    const texts = r.events.map((e) => `${e.itemId}: ${e.text}`);
+    expect(texts).toEqual(expect.arrayContaining([
+      "a: в таблице на 07.10.26 — с этой справки известна история",
+      "a: статус: В работе → На проверке",
+      "a: срок: 09.10.26 → 20.10.26 (+11 дн.)",
+      "a: ответственный: Майков Т.Г. → Сухов В.А.",
+      "c: появилась в таблице (справка от 14.10.26)",
+      "b: нет в таблице на 14.10.26 (удалена)",
+    ]));
+    expect(r.events.find((e) => e.kind === "deadline")?.slip).toBe(11);
+    // доска — состояние на последнюю справку
+    expect(r.rows.map((x) => [x.id, x.statusName])).toEqual([["a", "На проверке"], ["c", "В работе"]]);
+    expect(r.since).toBe("2026-10-07T10:00:00.000Z");
+  });
+  it("справка без снимка таблицы не считается «всё удалили»", () => {
+    const r = buildSentTracker([v("2026-10-07T10:00:00.000Z", [row({})]), v("2026-10-10T10:00:00.000Z", [])]);
+    expect(r.events.some((e) => e.kind === "archived")).toBe(false);
+    expect(r.rows).toHaveLength(1);
+  });
+  it("движение задачи: дни в колонке, переносы, простой, история", () => {
+    const e = buildEvents([ev({ action: "CREATE" }), ev({ fieldName: "statusId", before: "s1", after: "s2", timestamp: "2026-10-08T09:00:00.000Z" })], [], names);
+    const m = motionOf(e, "REVIEW", new Date("2026-10-12T09:00:00.000Z"));
+    expect(m).toMatchObject({ column: "REVIEW", inColumnDays: 4, slips: 0, idleDays: 4 });
+    expect(m.history[1]).toBe("08.10.26 — статус: В работе → На проверке (Майков Т.Г.)");
   });
 });

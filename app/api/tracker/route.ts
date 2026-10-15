@@ -3,14 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { requireActor, requireFreshSession } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
 import { canManageDirectory, canViewItems } from "@/lib/permissions";
-import { loadTracker } from "@/lib/tracker-load";
+import { loadSentTracker, loadTracker } from "@/lib/tracker-load";
 import { TRACKER_SETTING } from "@/lib/tracker";
 import { withApiErrors } from "@/lib/api-guard";
 
 // «Трекер»: позиции таблицы, колонки статусов, история (журнал + отправленные справки) и «горит».
-// Права — как у таблицы: ЗГД рабочих позиций не видит.
+// Права — как у таблицы; ЗГД рабочих позиций не видит — ему трекер по отправленным справкам (снимки таблиц), только чтение.
 async function GETHandler() {
   const actor = await requireActor();
+  if (actor.role === "EXECUTIVE") return NextResponse.json(await loadSentTracker());
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   return NextResponse.json(await loadTracker(requireDirectorate(actor)));
 }

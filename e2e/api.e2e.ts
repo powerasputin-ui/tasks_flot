@@ -2194,7 +2194,7 @@ describe("трекер: виды таблицы, «Выполнено» прин
   let version = 1;
   const patch = (a: Actor, body: Record<string, unknown>) => call(a, item.PATCH, `/api/items/${t}`, { method: "PATCH", id: t, body: { version, ...body } });
 
-  it("трекер видят те, у кого есть таблица; ЗГД — нет; чужая дирекция не видна", async () => {
+  it("трекер видят те, у кого есть таблица; ЗГД — по отправленным справкам, без черновиков; чужая дирекция не видна", async () => {
     const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача трекера` } });
     expect(c.status).toBe(201);
     t = c.data.row.id;
@@ -2204,7 +2204,11 @@ describe("трекер: виды таблицы, «Выполнено» прин
     expect(r.data.rows.some((x: { id: string }) => x.id === t)).toBe(true);
     expect(r.data.statuses.find((s: { name: string }) => s.name === "На проверке")?.trackerColumn).toBe("REVIEW");
     expect(r.data.events.some((e: { itemId: string; kind: string }) => e.itemId === t && e.kind === "created")).toBe(true);
-    expect((await call(management, tracker.GET, "/api/tracker")).status).toBe(403);
+    const z = await call(management, tracker.GET, "/api/tracker");
+    expect(z.status).toBe(200);
+    expect(z.data.mode).toBe("sent");
+    // свежей позиции нет ни в одной отправленной справке — ЗГД её не видит
+    expect(z.data.rows.some((x: { id: string }) => x.id === t)).toBe(false);
     const b = await call(directorB, tracker.GET, "/api/tracker");
     expect(b.data.rows.some((x: { id: string }) => x.id === t)).toBe(false);
   });
@@ -2228,9 +2232,9 @@ describe("трекер: виды таблицы, «Выполнено» прин
     expect(ev.map((e: { text: string }) => e.text)).toEqual(expect.arrayContaining([expect.stringMatching(/На проверке → Завершено$/)]));
   });
 
-  it("пункт меню: в bootstrap у руководителя есть, у ЗГД нет; скрыть может только админ", async () => {
+  it("пункт меню: в bootstrap у руководителя и ЗГД есть; скрыть может только админ", async () => {
     expect((await call(head, bootstrap.GET, "/api/bootstrap")).data.tracker).toBe(true);
-    expect((await call(management, bootstrap.GET, "/api/bootstrap")).data.tracker).toBeFalsy();
+    expect((await call(management, bootstrap.GET, "/api/bootstrap")).data.tracker).toBe(true);
     expect((await call(director, tracker.PATCH, "/api/tracker", { method: "PATCH", body: { enabled: false } })).status).toBe(403);
     const before = await prisma.appSetting.findUnique({ where: { key: "tracker.enabled" } });
     try {

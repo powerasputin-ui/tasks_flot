@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { canViewItems, type Actor } from "@/lib/permissions";
 import { readFiles } from "@/lib/item-files";
 import type { FactEvent, FactItem } from "@/lib/ai-table";
+import { buildEvents, columnOf, motionOf, type TrackerEvent } from "@/lib/tracker";
+import type { TrackerColumn } from "@prisma/client";
 
 const JOURNAL_DAYS = 14;
 
@@ -16,14 +18,14 @@ export async function loadTableFacts(actor: Actor, directorateId?: string | null
     prisma.operationalItem.findMany({
       where: { directorateId: dir },
       select: {
-        id: true, title: true, comment: true, cost: true, deadline: true, operFlag: true, archivedAt: true, createdAt: true, updatedAt: true, files: true,
+        id: true, statusId: true, title: true, comment: true, cost: true, deadline: true, operFlag: true, archivedAt: true, createdAt: true, updatedAt: true, files: true,
         segment: { select: { name: true } }, track: { select: { name: true } }, status: { select: { name: true } }, attractiveness: { select: { name: true } },
         responsible: { select: { name: true } }, createdBy: { select: { name: true } }, updatedBy: { select: { name: true } },
       },
     }),
     prisma.segment.findMany({ where: { directorateId: dir }, select: { name: true } }),
     prisma.track.findMany({ where: { directorateId: dir }, select: { name: true } }),
-    prisma.status.findMany({ select: { id: true, name: true } }),
+    prisma.status.findMany({ select: { id: true, name: true, trackerColumn: true } }),
     prisma.attractiveness.findMany({ select: { id: true, name: true } }),
     prisma.user.findMany({ where: { directorateId: dir }, select: { id: true, name: true } }),
   ]);
@@ -65,6 +67,33 @@ export async function loadTableFacts(actor: Actor, directorateId?: string | null
     before: ["STATUS_CHANGE", "OWNER_CHANGE", "ATTRACTIVENESS_CHANGE"].includes(a.action) ? nameOf(a.before) : a.before,
     after: ["STATUS_CHANGE", "OWNER_CHANGE", "ATTRACTIVENESS_CHANGE"].includes(a.action) ? nameOf(a.after) : a.after,
   }));
+  await attachMotion(items, rows.map((r) => ({ id: r.id, statusId: r.statusId })), statuses, [...statuses, ...users], dir);
   const owners = [...new Set(items.map((i) => i.owner).filter((x): x is string => !!x))];
   return { items, events, dict: { owners, segments: segments.map((s) => s.name), tracks: tracks.map((t) => t.name), statuses: statuses.map((s) => s.name) } };
+}
+
+/** Движение по «Трекеру» (весь журнал + отправленные справки) — в каждую позицию: колонка, переносы срока, простой, история. */
+async function attachMotion(items: FactItem[], rows: Array<{ id: string; statusId: string | null }>, statuses: Array<{ id: string; trackerColumn: TrackerColumn | null }>, named: Array<{ id: string; name: string }>, dir: string) {
+  const ids = rows.map((r) => r.id);
+  if (!ids.length) return;
+  const [audit, versions] = await Promise.all([
+    prisma.auditEvent.findMany({
+      where: { entityType: "OperationalItem", entityId: { in: ids } },
+      orderBy: { timestamp: "asc" },
+      select: { entityId: true, action: true, fieldName: true, before: true, after: true, timestamp: true, actor: { select: { name: true } } },
+    }),
+    prisma.memoVersion.findMany({ where: { directorateId: dir }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true } }),
+  ]);
+  const known = new Set(ids);
+  const names = new Map(named.map((x) => [x.id, x.name]));
+  const events = buildEvents(
+    audit.map((a) => ({ ...a, who: a.actor?.name ?? null })),
+    versions.map((v) => ({ at: v.sentAt, title: v.title, itemIds: (Array.isArray(v.sources) ? (v.sources as Array<{ id?: string }>) : []).map((x) => x.id ?? "").filter((id) => known.has(id)) })),
+    { status: names, user: names },
+  );
+  const byItem = new Map<string, TrackerEvent[]>();
+  for (const e of events) byItem.set(e.itemId, [...(byItem.get(e.itemId) ?? []), e]);
+  const cols = new Map(statuses.map((st) => [st.id, st.trackerColumn]));
+  const statusOf = new Map(rows.map((r) => [r.id, r.statusId]));
+  for (const i of items) i.motion = motionOf(byItem.get(i.id) ?? [], columnOf(statusOf.get(i.id), cols));
 }

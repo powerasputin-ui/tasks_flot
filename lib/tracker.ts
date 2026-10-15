@@ -41,6 +41,9 @@ export type TrackerEvent = {
   text: string;
   /** Срок сдвинули позже — главный сигнал для директора. */
   slip?: number;
+  /** Было → стало (названия/даты) — для журнала ИИ у ЗГД. */
+  before?: string | null;
+  after?: string | null;
 };
 
 /** Сырая запись журнала (как в audit_events), с именем того, кто правил. */
@@ -131,4 +134,40 @@ export function timelineRange(dates: Array<Date | string | null | undefined>, no
   const min = Math.min(now.getTime(), ...ts);
   const max = Math.max(now.getTime(), ...ts);
   return { from: monday(min), to: monday(max) + 14 * DAY };
+}
+
+/** Движение задачи для ИИ и списков: колонка и сколько дней в ней, переносы срока, простой, короткая история. */
+export type Motion = {
+  column: TrackerColumnKey;
+  /** Дней в текущей колонке (с последней смены статуса или с появления задачи); null — неизвестно. */
+  inColumnDays: number | null;
+  slips: number;
+  slipDays: number;
+  idleDays: number | null;
+  /** Последние события: «03.10.26 — статус: В работе → На проверке (Майков Т.Г.)». */
+  history: string[];
+};
+
+export function motionOf(events: TrackerEvent[], column: TrackerColumnKey, now: Date = new Date(), historyMax = 8): Motion {
+  const s = summarize(events, now);
+  const lastCol = [...events].reverse().find((e) => e.kind === "status" || e.kind === "created");
+  return {
+    column,
+    inColumnDays: lastCol ? Math.max(0, Math.floor((now.getTime() - new Date(lastCol.at).getTime()) / DAY)) : null,
+    slips: s.slips,
+    slipDays: s.slipDays,
+    idleDays: s.idleDays,
+    history: events.slice(-historyMax).map((e) => `${ruDay(e.at)} — ${e.text}${e.who ? ` (${e.who})` : ""}`),
+  };
+}
+
+/** Строка «трекер: …» в карточке позиции для модели. */
+export function motionText(m: Motion): string {
+  return [
+    `колонка «${COLUMN_LABEL[m.column]}»${m.inColumnDays !== null ? ` ${m.inColumnDays} дн.` : ""}`,
+    m.slips ? `срок переносили позже ${m.slips}× (+${m.slipDays} дн.)` : "срок не переносили",
+    m.idleDays !== null ? `последнее движение ${m.idleDays} дн. назад` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
 }

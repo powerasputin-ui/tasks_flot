@@ -51,7 +51,7 @@ export function AiText({ text: raw, docs, items }: { text: string; docs?: AiDocR
         if (!item) return <span key={i}>{p}</span>;
         // рядом с меткой — начало названия задачи: ответ из одних меток тоже читается
         return (
-          <a key={i} href={`/table?item=${item.i}`} target="_blank" rel="noreferrer" title={`Открыть позицию в таблице: «${item.t}…»`} className={chip}>
+          <a key={i} href={item.h === "t" ? `/tracker?view=timeline&item=${item.i}` : `/table?item=${item.i}`} target="_blank" rel="noreferrer" title={item.h === "t" ? `Открыть задачу в трекере: «${item.t}…»` : `Открыть позицию в таблице: «${item.t}…»`} className={chip}>
             <FileText size={12} className="shrink-0" />
             <span className="truncate">
               {item.l} · {item.t}…

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyQuery, cardLine, directAnswer, isListQuestion, itemRefs, journalBlock, labelItems, parseTableQuestion, signals, signalsBlock, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
+import { applyQuery, cardLine, trackerAnswer, trackerBlock, directAnswer, isListQuestion, itemRefs, journalBlock, labelItems, parseTableQuestion, signals, signalsBlock, summaryBlock, tableAnswer, tableContext, wantsJournal, type FactEvent, type FactItem } from "@/lib/ai-table";
 import { memoAssistContext } from "@/lib/memo-assist";
 import { guardStream, looksGarbage } from "@/lib/ai-guard";
 
@@ -187,5 +187,39 @@ describe("защита от мусорного ответа", () => {
     // узкие неразрывные пробелы в пути к файлу (экзамен, D1) — обычными, иначе путь не откроется
     const path = await guardStream(streamOf("Путь: \\\\10.10.51.51\\флот\\5. Развитие и приобретение\\x.pptx"), async () => streamOf(""));
     expect(await new Response(path).text()).toBe("Путь: \\\\10.10.51.51\\флот\\5. Развитие и приобретение\\x.pptx");
+  });
+});
+
+describe("ИИ по трекеру: движение задач считает программа", () => {
+  const mk = (title: string, motion: FactItem["motion"], o: Partial<FactItem> = {}) => item({ title, owner: "Сухов В.А.", status: "В работе", motion, ...o });
+  const tr = [
+    mk("Покупка MPSV Tidebon: ТКП", { column: "DOING", inColumnDays: 30, slips: 2, slipDays: 17, idleDays: 20, history: ["01.10.26 — задача создана (Майков Т.Г.)", "05.10.26 — срок: 09.10.26 → 20.10.26 (+11 дн.) (Майков Т.Г.)"] }),
+    mk("Модернизация Hai Qiang 18", { column: "REVIEW", inColumnDays: 4, slips: 0, slipDays: 0, idleDays: 4, history: ["10.10.26 — статус: В работе → На проверке (Козлов А.С.)"] }, { owner: "Козлов А.С.", status: "На проверке" }),
+    mk("Рамочный договор ГПЭ", { column: "DONE", inColumnDays: 2, slips: 0, slipDays: 0, idleDays: 2, history: [] }, { status: "Завершено" }),
+  ];
+  const labels = labelItems(tr);
+  it("блок «ТРЕКЕР»: колонки, ждут приёмки, переносы срока, простой, долго в одной колонке", () => {
+    const b = trackerBlock(tr, labels);
+    expect(b).toContain("В работе — 1");
+    expect(b).toContain("На проверке — 1");
+    expect(b).toMatch(/Ждут приёмки директором \(«На проверке»\): \[Т\d+\] 4 дн\./);
+    expect(b).toMatch(/Срок переносили позже: \[Т\d+\] 2× \(\+17 дн\.\)/);
+    expect(b).toMatch(/Без движения 14\+ дней \(не выполнены\): \[Т\d+\] 20 дн\./);
+    expect(b).toMatch(/Дольше 3 недель в одной колонке: \[Т\d+\] «В работе» 30 дн\./);
+  });
+  it("карточка позиции получает строку «трекер:»", () => {
+    expect(cardLine(tr[0], "Т1", TODAY)).toContain("трекер: колонка «В работе» 30 дн.; срок переносили позже 2× (+17 дн.); последнее движение 20 дн. назад");
+  });
+  it("прямые ответы: переносы срока, застрявшие, ждут приёмки, как двигалась задача", () => {
+    expect(trackerAnswer("Где переносили сроки?", tr, labels)).toMatch(/^Срок переносили позже у 1 задач:\n\[Т\d+\] «Покупка MPSV Tidebon: ТКП» — Сухов В\.А\.; 2× \(\+17 дн\.\)/);
+    expect(trackerAnswer("Что застряло?", tr, labels)).toContain("последнее движение 20 дн. назад");
+    expect(trackerAnswer("Что ждёт приёмки?", tr, labels)).toContain("«Модернизация Hai Qiang 18» — Козлов А.С.; на проверке 4 дн.");
+    const h = trackerAnswer("Как двигалась задача по Tidebon?", tr, labels)!;
+    expect(h).toContain("05.10.26 — срок: 09.10.26 → 20.10.26 (+11 дн.)");
+    expect(trackerAnswer("Какие задачи у Сухова?", tr, labels)).toBeNull();
+  });
+  it("без данных трекера (старые факты) — молчит, вопрос уходит обычной логике", () => {
+    expect(trackerAnswer("Что застряло?", items, labelItems(items))).toBeNull();
+    expect(trackerBlock(items, labelItems(items))).toBe("");
   });
 });

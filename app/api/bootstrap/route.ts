@@ -18,7 +18,8 @@ async function GETHandler() {
   // ЗГД дирекции не имеет: справочники дирекции ему не нужны
   if (actor.role === "EXECUTIVE") {
     const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true } });
-    return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, directorate: null, directorates: [], viewAs });
+    const trackerSetting = await prisma.appSetting.findUnique({ where: { key: TRACKER_SETTING } });
+    return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, directorate: null, directorates: [], viewAs, tracker: trackerSetting?.value !== false });
   }
   const directorateId = requireDirectorate(actor);
   const [user, segments, tracks, statuses, attractiveness, users, columns, layout, trackerSetting] = await Promise.all([

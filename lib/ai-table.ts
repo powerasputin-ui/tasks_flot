@@ -1,5 +1,6 @@
 import { normalizeText } from "@/lib/search";
 import { PROTECTED_STATUSES } from "@/lib/statuses";
+import { COLUMN_LABEL, motionText, type Motion } from "@/lib/tracker";
 
 /**
  * Движок фактов таблицы для ИИ-помощников. Экзамен (e2e/ai-exam) показал: модель, видя только тексты пунктов справки,
@@ -29,6 +30,10 @@ export type FactItem = {
   files: Array<{ name: string; path: string }>;
   createdAt: Date;
   updatedAt: Date;
+  /** Движение по «Трекеру» (колонка, переносы срока, простой, история) — считает программа (lib/tracker.ts). */
+  motion?: Motion;
+  /** Дирекция — у ЗГД, который видит все дирекции. */
+  directorate?: string | null;
 };
 
 export type FactEvent = { itemId: string; at: Date; who: string | null; action: string; field: string | null; before: string | null; after: string | null };
@@ -164,11 +169,14 @@ export function labelItems(items: FactItem[]): Map<string, string> {
   return new Map([...items].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((i, k) => [i.id, `Т${k + 1}`]));
 }
 
+const notable = (m: Motion) => m.slips > 0 || (m.column !== "DONE" && ((m.idleDays ?? 0) >= 14 || (m.inColumnDays ?? 0) >= 21)) || m.column === "REVIEW";
+
 export function cardLine(i: FactItem, label: string, today: number, titleLimit = 260): string {
   const deadline = i.deadline
     ? `${ru(i.deadline)}${isOverdue(i, today) ? ` — просрочен на ${Math.round((today - dayOf(i.deadline)) / DAY)} дн.` : isSoon(i, today) ? ` — через ${Math.round((dayOf(i.deadline) - today) / DAY)} дн.` : ""}`
     : "не указан";
   const parts = [
+    i.directorate ? `дирекция: ${i.directorate}` : null,
     `сегмент: ${i.segment ?? "не указан"}`,
     `трек: ${i.track ?? "не указан"}`,
     `ответственный: ${i.owner ?? "не указан"}`,
@@ -181,6 +189,8 @@ export function cardLine(i: FactItem, label: string, today: number, titleLimit =
     i.cost ? `оценка: ${i.cost}` : null,
     i.files.length ? `документы: ${i.files.map((f) => `«${f.name}»`).join(", ")}` : null,
     i.comment ? `комментарий: ${i.comment.length > 200 ? `${i.comment.slice(0, 200)}…` : i.comment}` : null,
+    // «трекер:» — только если есть что сказать (переносы, простой, ждёт приёмки, давно в колонке): окно модели не резиновое
+    i.motion && notable(i.motion) ? `трекер: ${motionText(i.motion)}` : null,
   ].filter(Boolean);
   // сокращение помечаем явно: иначе модель решает, что текст в таблице «обрезан» (экзамен, вопрос R1)
   const title = i.title.length > titleLimit ? `${i.title.slice(0, titleLimit)}… [в карточке сокращено, в таблице текст полный]` : i.title;
@@ -259,6 +269,8 @@ export function summaryBlock(items: FactItem[], labels: Map<string, string>, tod
 
 const ACTION: Record<string, (e: FactEvent) => string> = {
   CREATE: () => "создал позицию",
+  // у ЗГД журнал — разница между отправленными справками: событие уже описано словами (lib/tracker-sent.ts)
+  NOTE: (e) => e.field ?? "изменение",
   ARCHIVE: () => "удалил позицию",
   RESTORE: () => "вернул позицию из удалённых",
   OPER_FLAG_CHANGE: (e) => (e.after === "true" ? "подал в справку" : "отозвал из справки"),
@@ -297,6 +309,11 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
   const journal = wantsJournal(opts.question) ? journalBlock(opts.events, labels) : "";
   const sig = signals(opts.items, today);
   parts.push(signalsBlock(sig, labels));
+  const tb = wantsTracker(opts.question) || wantsSignals(opts.question) ? trackerBlock(opts.items, labels) : "";
+  if (tb) parts.push(tb);
+  // «как двигалась задача …» — история задач, о которых спросили
+  const asked = wantsTracker(opts.question) ? [...new Set([...matched, ...bySubject(opts.question, opts.items)])].filter((i) => i.motion?.history.length).slice(0, 6) : [];
+  if (asked.length) parts.push(historyBlock(asked, labels));
   // на «что горит» карточки сигнальных позиций — первыми (чтобы не отрезало окном)
   const hot = wantsSignals(opts.question) ? sig.map((s) => s.item) : [];
   const order = [...matched, ...hot, ...opts.items.filter((i) => opts.memoItemIds.includes(i.id)), ...opts.items];
@@ -421,6 +438,8 @@ function personLine(i: FactItem, label: string, today: number, memoNo?: number[]
 export function directAnswer(opts: Parameters<typeof tableContext>[0] & { memoBullets?: Map<string, number[]>; now?: Date }): string | null {
   const today = opts.today ?? todayMsk(opts.now);
   const labels = labelItems(opts.items);
+  const tracked = trackerAnswer(opts.question, opts.items, labels);
+  if (tracked) return tracked;
   const people = [...new Set([...opts.dict.owners, ...opts.items.map((i) => i.author).filter((x): x is string => !!x), ...opts.events.map((e) => e.who).filter((x): x is string => !!x)])];
   const jq = parseJournalQuestion(opts.question, people, opts.now);
   if (jq && (jq.actions || /(что|какие)\s.*(изменил|изменен)/.test(n(opts.question)))) return journalAnswer(opts.events, opts.items, labels, jq);
@@ -466,7 +485,8 @@ export function tableAnswer(opts: Parameters<typeof directAnswer>[0]): string | 
 }
 
 /** Метки [Т7] → позиции, для ссылок в чате (заголовок X-AI-Items): только показанные модели, коротко. */
-export type AiItemRef = { l: string; i: string; t: string };
+/** h: "t" — ссылка ведёт в «Трекер» (у ЗГД нет таблицы). */
+export type AiItemRef = { l: string; i: string; t: string; h?: "t" };
 export function itemRefs(opts: Omit<Parameters<typeof tableContext>[0], "budget">, max = 40): AiItemRef[] {
   // тот же порядок, что у карточек: выборка по вопросу, позиции справки, остальные — первые max (заголовок не раздуваем)
   const { shown, labels } = tableContext({ ...opts, budget: Number.MAX_SAFE_INTEGER });
@@ -483,5 +503,92 @@ export const TABLE_RULE = [
   "Если нужного поля нет или оно «не указано» — так и скажи. Никогда не утверждай того, чего нет в данных.",
   "«Что горит», «где вмешаться», «риски» — назови ВСЕ позиции из «СИГНАЛОВ «ГОРИТ»» в их порядке, с причиной и ответственным, и для каждой — что сделать (запросить новый срок, поторопить, принять решение, уточнить статус). Свои дополнительные наблюдения по тексту давай отдельно, с пометкой «Вывод:».",
   "Пометка у пункта справки «строка в таблице изменилась после сборки» — расхождение справки и таблицы: на вопрос о расхождениях назови такие пункты и в чём разница.",
+  "ТРЕКЕР — те же позиции в виде доски. Вопросы о движении задач (как двигалась, что застряло, где переносили сроки, что ждёт приёмки, сколько в работе) — ТОЛЬКО по блоку «ТРЕКЕР», строке «трекер:» в карточке и «ИСТОРИИ ЗАДАЧ». Событий, которых там нет, не придумывай; до первой записи история неизвестна — так и скажи. Выводы о динамике (затягивается, буксует, ждёт решения) давай с пометкой «Вывод:».",
   "Каждую позицию в ответе называй словами, а метку ставь рядом: «[Т7] расчёты БКК по консолидации — Майков, В работе, срок 09.10». Одни метки без названий не пиши: человек их не расшифрует. Удалённые помечай «удалена».",
 ].join("\n");
+
+// ---------- «Трекер»: движение задач (считает программа) ----------
+// Доска «Сделать → В работе → На проверке → Выполнено» — те же позиции; движение — из журнала правок (у ЗГД — из
+// разницы между отправленными справками). Модель не выдумывает историю: колонки, переносы срока и простой — готовые.
+
+const TRACK_Q = /(двигал|движени|застрял|завис|стоит на месте|перенос|сдвига|сдвинул|приемк|приёмк|принять|трекер|доск|таймлайн|динамик|как шл|как продвига|сколько раз|без движени|колонк|этап)/;
+export const wantsTracker = (question: string) => TRACK_Q.test(n(question));
+
+const STOP_SUBJ = new Set([...STOP_WHO, "как", "двигалась", "двигался", "двигалось", "шла", "шло", "история", "историю", "задачи", "что", "было", "происходило", "менялось", "трекер", "трекеру", "движение"]);
+
+/** Позиции, о которых спрашивают по предмету («как двигалась задача по Hai Qiang»): лучшие по совпадению основ слов. */
+function bySubject(question: string, items: FactItem[]): FactItem[] {
+  const subj = words(question).filter((w) => !STOP_SUBJ.has(w)).map(stem);
+  if (!subj.length) return [];
+  const scored = items
+    .filter((i) => !i.archived)
+    .map((i) => ({ i, s: subj.filter((w) => words(`${i.title} ${i.comment ?? ""}`).map(stem).includes(w)).length }))
+    .filter((x) => x.s > 0);
+  if (!scored.length) return [];
+  const best = Math.max(...scored.map((x) => x.s));
+  return scored.filter((x) => x.s === best).map((x) => x.i);
+}
+
+/** Блок «ТРЕКЕР» для модели: колонки, ждут приёмки, переносы срока, простой, дольше всех в одной колонке. */
+export function trackerBlock(items: FactItem[], labels: Map<string, string>): string {
+  const act = items.filter((i) => !i.archived && i.motion && i.motion.column !== "HIDDEN");
+  if (!act.length) return "";
+  const m = (i: FactItem) => i.motion!;
+  const lab = (i: FactItem) => `[${labels.get(i.id)}]`;
+  const col = (c: string) => act.filter((i) => m(i).column === c);
+  const review = col("REVIEW");
+  const slipped = act.filter((i) => m(i).slips > 0).sort((a, b) => m(b).slipDays - m(a).slipDays);
+  const idle = act.filter((i) => m(i).column !== "DONE" && (m(i).idleDays ?? 0) >= 14).sort((a, b) => (m(b).idleDays ?? 0) - (m(a).idleDays ?? 0));
+  const long = act.filter((i) => m(i).column !== "DONE" && (m(i).inColumnDays ?? 0) >= 21).sort((a, b) => (m(b).inColumnDays ?? 0) - (m(a).inColumnDays ?? 0));
+  const list = (xs: FactItem[], f: (i: FactItem) => string) => (xs.length ? xs.map((i) => `${lab(i)} ${f(i)}`).join("; ") : "нет");
+  return [
+    "ТРЕКЕР (доска «Сделать → В работе → На проверке → Выполнено», те же позиции; посчитано программой, полные):",
+    `Колонки: ${(["TODO", "DOING", "REVIEW", "DONE"] as const).map((c) => `${COLUMN_LABEL[c]} — ${col(c).length}${col(c).length ? ` (${col(c).map(lab).join(", ")})` : ""}`).join("; ")}.`,
+    `Ждут приёмки директором («На проверке»): ${list(review, (i) => `${m(i).inColumnDays ?? "?"} дн.`)}.`,
+    `Срок переносили позже: ${list(slipped, (i) => `${m(i).slips}× (+${m(i).slipDays} дн.)`)}.`,
+    `Без движения 14+ дней (не выполнены): ${list(idle, (i) => `${m(i).idleDays} дн.`)}.`,
+    `Дольше 3 недель в одной колонке: ${list(long, (i) => `«${COLUMN_LABEL[m(i).column]}» ${m(i).inColumnDays} дн.`)}.`,
+  ].join("\n");
+}
+
+/** История выбранных задач — события по порядку. */
+export function historyBlock(list: FactItem[], labels: Map<string, string>): string {
+  return [
+    "ИСТОРИЯ ЗАДАЧ (по журналу правок и справкам; раньше первой записи история неизвестна):",
+    ...list.map((i) => `[${labels.get(i.id)}] «${short(i.title, 90)}»:\n  ${i.motion!.history.join("\n  ")}`),
+  ].join("\n");
+}
+
+/**
+ * Прямые ответы по трекеру (без модели): «где переносили срок», «что застряло / без движения», «что ждёт приёмки»,
+ * «как двигалась задача …». null — не такой вопрос или трекера нет.
+ */
+export function trackerAnswer(question: string, items: FactItem[], labels: Map<string, string>): string | null {
+  if (!wantsTracker(question) || !items.some((i) => i.motion)) return null;
+  const q = n(question);
+  const act = items.filter((i) => !i.archived && i.motion && i.motion.column !== "HIDDEN");
+  const m = (i: FactItem) => i.motion!;
+  const line = (i: FactItem, extra: string) => `[${labels.get(i.id)}] «${short(i.title)}» — ${i.owner ?? "ответственный не указан"}; ${extra}`;
+  if (/(перенос|сдвига|сдвинул|сколько раз)/.test(q) && /срок/.test(q)) {
+    const xs = act.filter((i) => m(i).slips > 0).sort((a, b) => m(b).slipDays - m(a).slipDays);
+    return xs.length
+      ? [`Срок переносили позже у ${xs.length} задач:`, ...xs.map((i) => line(i, `${m(i).slips}× (+${m(i).slipDays} дн.), сейчас ${i.deadline ? `срок ${ru(i.deadline)}` : "срока нет"}`))].join("\n")
+      : "По истории трекера срок позже ни у одной задачи не переносили.";
+  }
+  if (/(застрял|завис|стоит на месте|без движени)/.test(q)) {
+    const xs = act.filter((i) => m(i).column !== "DONE" && (m(i).idleDays ?? 0) >= 14).sort((a, b) => (m(b).idleDays ?? 0) - (m(a).idleDays ?? 0));
+    return xs.length
+      ? [`Без движения 14 дней и больше (не выполнены) — ${xs.length}:`, ...xs.map((i) => line(i, `«${COLUMN_LABEL[m(i).column]}», последнее движение ${m(i).idleDays} дн. назад`))].join("\n")
+      : "Задач без движения 14 дней и больше нет: все невыполненные задачи менялись за последние две недели.";
+  }
+  if (/(приемк|приёмк|принять)/.test(q)) {
+    const xs = act.filter((i) => m(i).column === "REVIEW");
+    return xs.length ? [`Ждут приёмки директором («На проверке») — ${xs.length}:`, ...xs.map((i) => line(i, `на проверке ${m(i).inColumnDays ?? "?"} дн.`))].join("\n") : "На проверке (ждут приёмки директором) задач нет.";
+  }
+  if (/(двигал|движени|как шл|как продвига)/.test(q)) {
+    const xs = bySubject(question, items).filter((i) => i.motion?.history.length).slice(0, 3);
+    if (!xs.length) return null;
+    return xs.map((i) => [`[${labels.get(i.id)}] «${short(i.title)}» — сейчас ${motionText(m(i))}:`, ...m(i).history.map((h) => `  ${h}`)].join("\n")).join("\n\n");
+  }
+  return null;
+}

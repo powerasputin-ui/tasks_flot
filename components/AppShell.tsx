@@ -193,7 +193,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const withMemo = effRole === "HEAD" && me?.memoEditor ? [baseNav[0], { href: "/operativka", label: "Оперативка" }, ...baseNav.slice(1)] : baseNav;
   // «Трекер» — виды той же таблицы (доска, таймлайн): после «Таблицы»; админ может скрыть его в Настройках → Статусы
   const tableAt = withMemo.findIndex((n) => n.href === "/table");
-  const nav = tracker && tableAt >= 0 && effRole !== "SYSTEM_ADMIN" ? [...withMemo.slice(0, tableAt + 1), { href: "/tracker", label: "Трекер" }, ...withMemo.slice(tableAt + 1)] : withMemo;
+  // у ЗГД таблицы нет — «Трекер» после «Оперативки» (по отправленным справкам)
+  const trackerAt = tableAt >= 0 ? tableAt + 1 : withMemo.length;
+  const nav = tracker && effRole !== "SYSTEM_ADMIN" ? [...withMemo.slice(0, trackerAt), { href: "/tracker", label: "Трекер" }, ...withMemo.slice(trackerAt)] : withMemo;
 
   return (
     <>
