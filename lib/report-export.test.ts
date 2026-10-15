@@ -13,7 +13,7 @@ function row(o: Partial<TableRow>): TableRow {
     attractivenessId: null, attractivenessName: null, attractivenessColor: null, ownerId: "u1", ownerName: "Сухов В.А.", ownerRole: null,
     deadline: new Date("2026-10-01"), deadlineWeek: null, statusId: "st1", statusName: "В работе", statusColor: "#2563EB", operFlag: false,
     comment: null, version: 1, createdById: "u", changedAfterSubmission: false, customValues: {}, files: [], createdByName: "И",
-    updatedAt: new Date("2026-09-01"), staleWeeks: 0, archived: false, ...o,
+    updatedAt: new Date("2026-09-01"), staleWeeks: 0, archived: false, expectedResult: null, originalDeadline: null, blockedBy: null, blockedUntil: null, cancelReason: null, origin: null, assignedByName: null, zgdControl: false, publishedAt: null, ...o,
   };
 }
 

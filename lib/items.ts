@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canSetStatus, canViewItems, DONE_FORBIDDEN_MESSAGE, isSubmitter, type Actor } from "@/lib/permissions";
+import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canViewItems, isSubmitter, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts } from "@/lib/dictionaries";
+import { deadlineChangeError, directStatusError } from "@/lib/workflow";
 import { filesText, normalizeFiles, readFiles } from "@/lib/item-files";
 import { randomUUID } from "node:crypto";
 import type { ItemRecord } from "@/lib/table-view";
@@ -24,6 +25,10 @@ export type ItemFields = {
   statusId?: string | null;
   comment?: string | null;
   operFlag?: boolean;
+  /** Поручение: какой результат ожидается. */
+  expectedResult?: string | null;
+  /** Причина переноса срока (обязательна, если срок уже был и меняется) — в журнал, не в строку. */
+  deadlineReason?: string;
   customValues?: Record<string, string>;
   /** Ссылки на файлы общего диска: id у новых не нужен. */
   files?: Array<{ id?: string; path: string }>;
@@ -32,7 +37,7 @@ export type ItemFields = {
 /** ok-результат несёт сохранённую позицию, чтобы вызывающий вернул строку без повторного чтения из базы. */
 export type ItemResult =
   | { ok: true; id: string; record: ItemRecord }
-  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM" | "INVALID_FILES" | "LOCKED"; currentVersion?: number; message?: string };
+  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "ARCHIVED" | "INVALID_REFERENCE" | "INVALID_CUSTOM" | "INVALID_FILES" | "LOCKED" | "INVALID_INPUT"; currentVersion?: number; message?: string };
 
 function isForeignKeyError(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003";
@@ -61,11 +66,14 @@ async function refsInDirectorate(directorateId: string, f: { segmentId?: string 
   return okSeg && okTrack && okUser;
 }
 
-/** «Выполнено» ставит и снимает только директор/админ (колонка статуса в «Трекере», lib/permissions.ts canSetStatus). */
-async function statusAllowed(actor: Actor, from: string | null | undefined, to: string | null | undefined): Promise<boolean> {
+/**
+ * Прямая смена статуса: в «На проверке», «Выполнено», «Не актуально» и из них — только действиями трекера
+ * (сдать / принять / вернуть / отменить / переоткрыть, lib/workflow.ts). null — можно.
+ */
+async function statusError(from: string | null | undefined, to: string | null | undefined): Promise<string | null> {
   const d = await getDicts();
-  const col = (id: string | null | undefined) => (id ? d.statuses.get(id)?.trackerColumn : null);
-  return canSetStatus(actor.role, col(from), col(to));
+  const col = (id: string | null | undefined) => (id ? d.statuses.get(id)?.trackerColumn ?? "TODO" : "TODO");
+  return directStatusError(col(from), col(to));
 }
 
 export async function createItem(actor: Actor, input: ItemFields & { title: string }): Promise<ItemResult> {
@@ -78,9 +86,11 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
   if (!canAssignResponsible(actor, responsibleId)) return { ok: false, error: "FORBIDDEN" };
 
   if (!(await refsInDirectorate(directorateId, { ...input, responsibleId }))) return { ok: false, error: "INVALID_REFERENCE" };
-  if (!(await statusAllowed(actor, null, input.statusId))) return { ok: false, error: "FORBIDDEN", message: DONE_FORBIDDEN_MESSAGE };
+  const createStatusError = await statusError(null, input.statusId);
+  if (createStatusError) return { ok: false, error: "FORBIDDEN", message: createStatusError };
 
-  const { customValues, files, ...rest } = input;
+  const { customValues, files, deadlineReason: _reason, ...rest } = input;
+  void _reason;
   let nextFiles: ReturnType<typeof readFiles> = [];
   if (files) {
     const f = normalizeFiles(files, [], randomUUID);
@@ -96,7 +106,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
 
   try {
     const item = await prisma.operationalItem.create({
-      data: { ...rest, customValues: custom, files: nextFiles, responsibleId, directorateId, createdById: actor.id, updatedById: actor.id },
+      data: { ...rest, originalDeadline: rest.deadline ?? null, customValues: custom, files: nextFiles, responsibleId, directorateId, createdById: actor.id, updatedById: actor.id },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
     return { ok: true, id: item.id, record: item };
@@ -107,7 +117,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
 }
 
 export async function updateItem(actor: Actor, id: string, input: ItemFields & { version: number }): Promise<ItemResult> {
-  const { version, customValues, files, ...fields } = input;
+  const { version, customValues, files, deadlineReason, ...fields } = input;
   if (!canViewItems(actor.role)) return { ok: false, error: "NOT_FOUND" };
   const existing = await prisma.operationalItem.findUnique({ where: { id } });
   if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
@@ -120,8 +130,14 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   }
 
   if (!(await refsInDirectorate(actor.directorateId, fields))) return { ok: false, error: "INVALID_REFERENCE" };
-  if (fields.statusId !== undefined && fields.statusId !== existing.statusId && !(await statusAllowed(actor, existing.statusId, fields.statusId))) {
-    return { ok: false, error: "FORBIDDEN", message: DONE_FORBIDDEN_MESSAGE };
+  if (fields.statusId !== undefined && fields.statusId !== existing.statusId) {
+    const err = await statusError(existing.statusId, fields.statusId);
+    if (err) return { ok: false, error: "FORBIDDEN", message: err };
+  }
+  // перенос срока — с причиной; у поручения ЗГД и задачи на контроле руководитель только просит (решает директор)
+  if (fields.deadline !== undefined) {
+    const err = deadlineChangeError(actor, existing, fields.deadline, deadlineReason);
+    if (err) return { ok: false, error: existing.zgdControl || existing.origin === "ZGD" ? "FORBIDDEN" : "INVALID_INPUT", message: err };
   }
 
   // Значения своих колонок: проверяем тип и сливаем с уже сохранёнными.
@@ -146,7 +162,15 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.operationalItem.update({
         where: { id, version },
-        data: { ...fields, ...(nextCustom ? { customValues: nextCustom } : {}), ...(nextFiles ? { files: nextFiles } : {}), updatedById: actor.id, version: { increment: 1 } },
+        data: {
+          ...fields,
+          // исходный срок — первый поставленный, дальше не меняется
+          ...(fields.deadline && !existing.originalDeadline ? { originalDeadline: fields.deadline } : {}),
+          ...(nextCustom ? { customValues: nextCustom } : {}),
+          ...(nextFiles ? { files: nextFiles } : {}),
+          updatedById: actor.id,
+          version: { increment: 1 },
+        },
       });
       await recordFieldChanges(
         {
@@ -162,6 +186,10 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
         },
         tx
       );
+      // причина переноса — рядом с самим переносом в журнале
+      if (deadlineReason?.trim() && existing.deadline && row.deadline && existing.deadline.getTime() !== row.deadline.getTime()) {
+        await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: "UPDATE", fieldName: "deadlineReason", after: deadlineReason.trim().slice(0, 500) }, tx);
+      }
       return row;
     });
     const touched = changedFields(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>);
@@ -228,4 +256,5 @@ export const ITEM_ERROR_STATUS: Record<Exclude<ItemResult, { ok: true }>["error"
   INVALID_CUSTOM: 400,
   INVALID_FILES: 400,
   LOCKED: 409,
+  INVALID_INPUT: 400,
 };

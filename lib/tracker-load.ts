@@ -4,14 +4,14 @@ import { loadTableRows, type TableRow } from "@/lib/table-view";
 import { signals, todayMsk, type FactEvent, type FactItem } from "@/lib/ai-table";
 import { loadVersionTable } from "@/lib/archive-table-load";
 import { buildSentTracker, columnByName, type SentRow, type SentVersion } from "@/lib/tracker-sent";
-import { buildEvents, motionOf, type MemoSent, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
+import { buildEvents, columnOf, motionOf, type HotInfo, type MemoSent, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 
 export type TrackerData = {
   rows: TableRow[];
   statuses: Array<{ id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null }>;
   events: TrackerEvent[];
   /** «Горит» — то же правило, что у ИИ (lib/ai-table.ts signals): id позиции → причины. */
-  hot: Record<string, string[]>;
+  hot: Record<string, HotInfo>;
   /** С какого дня ведётся журнал — история раньше этой даты неизвестна. */
   since: string | null;
 };
@@ -35,6 +35,12 @@ const toFact = (r: TableRow): FactItem => ({
   files: r.files,
   createdAt: r.updatedAt,
   updatedAt: r.updatedAt,
+  blockedBy: r.blockedBy,
+  blockedUntil: r.blockedUntil,
+  expectedResult: r.expectedResult,
+  originalDeadline: r.originalDeadline,
+  origin: r.origin,
+  zgdControl: r.zgdControl,
 });
 
 /** Права проверяет маршрут (canViewItems); данные — только своей дирекции, только действующие позиции. */
@@ -64,7 +70,17 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
     memos,
     { status: new Map([...dicts.statuses].map(([id, s]) => [id, s.name])), user: new Map([...dicts.users].map(([id, u]) => [id, u.name])) },
   );
-  const hot = Object.fromEntries(signals(rows.map(toFact), todayMsk()).map((s) => [s.item.id, s.reasons]));
+  // сигналы: с движением по трекеру (ждёт приёмки) и открытыми запросами ЗГД
+  const byItem = new Map<string, TrackerEvent[]>();
+  for (const e of events) byItem.set(e.itemId, [...(byItem.get(e.itemId) ?? []), e]);
+  const cols = new Map(statuses.map((s) => [s.id, s.trackerColumn]));
+  const requests = ids.length ? await prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }) : [];
+  const facts = rows.map((r) => {
+    const rq = requests.filter((q) => q.itemId === r.id);
+    const due = rq.map((q) => q.dueAt).filter((x): x is Date => !!x).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+    return { ...toFact(r), motion: motionOf(byItem.get(r.id) ?? [], columnOf(r.statusId, cols)), openRequests: rq.length ? { count: rq.length, dueAt: due } : undefined };
+  });
+  const hot = Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
   return { rows, statuses, events, hot, since: audit[0]?.timestamp.toISOString() ?? null };
 }
 
@@ -145,7 +161,7 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent" }>
     asOf: r.asOf,
     inMemo: r.inMemo,
   }));
-  const hot = Object.fromEntries(signals(sent.rows.map(sentFact), todayMsk()).map((s) => [s.item.id, s.reasons]));
+  const hot = Object.fromEntries(signals(sent.rows.map(sentFact), todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
   return { mode: "sent", rows: rows as unknown as TableRow[], statuses, events: sent.events, hot, since: sent.since };
 }
 

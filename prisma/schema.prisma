@@ -20,20 +20,20 @@ enum UserRole {
 }
 
 model User {
-  id            String       @id @default(cuid())
-  name          String
-  email         String       @unique
-  passwordHash  String
-  role          UserRole
-  isActive      Boolean      @default(true)
+  id                 String       @id @default(cuid())
+  name               String
+  email              String       @unique
+  passwordHash       String
+  role               UserRole
+  isActive           Boolean      @default(true)
   sessionsValidAfter DateTime? // сессии, выданные раньше, недействительны (смена пароля/отключение/роли)
-  memoEditor    Boolean      @default(false) // составитель справки для ЗГД (назначает админ; директор и админ ведут справку по роли)
-  submits       Boolean      @default(false) // админ/директор, который ещё и подаёт свои позиции как руководитель (у руководителя — всегда)
-  tableColumns  Json? // личные настройки колонок таблицы (порядок, видимость, ширина, подписи)
-  directorateId String? // дирекция человека (пусто у ЗГД; у админа — «домашняя», рабочую он выбирает сам)
-  directorate   Directorate? @relation(fields: [directorateId], references: [id])
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  memoEditor         Boolean      @default(false) // составитель справки для ЗГД (назначает админ; директор и админ ведут справку по роли)
+  submits            Boolean      @default(false) // админ/директор, который ещё и подаёт свои позиции как руководитель (у руководителя — всегда)
+  tableColumns       Json? // личные настройки колонок таблицы (порядок, видимость, ширина, подписи)
+  directorateId      String? // дирекция человека (пусто у ЗГД; у админа — «домашняя», рабочую он выбирает сам)
+  directorate        Directorate? @relation(fields: [directorateId], references: [id])
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   responsibleItems OperationalItem[] @relation("ItemResponsible")
   createdItems     OperationalItem[] @relation("ItemCreatedBy")
@@ -79,15 +79,15 @@ model Attractiveness {
 }
 
 model Status {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  sortOrder Int      @default(0)
-  color     String?
-  isActive  Boolean  @default(true)
+  id            String         @id @default(cuid())
+  name          String         @unique
+  sortOrder     Int            @default(0)
+  color         String?
+  isActive      Boolean        @default(true)
   /// Колонка «Трекера» (Сделать / В работе / На проверке / Выполнено / не показывать); пусто — «Сделать».
   trackerColumn TrackerColumn?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   items OperationalItem[]
 
@@ -154,8 +154,30 @@ model OperationalItem {
   files            Json            @default("[]") // ссылки на файлы на общем диске: [{ id, path, name }] (сами файлы не грузим)
   directorateId    String?
   directorate      Directorate?    @relation(fields: [directorateId], references: [id])
+  /// Поручение (трекер): какой результат ожидается — по нему директор принимает работу.
+  expectedResult   String?
+  /// Срок, поставленный впервые: не меняется при переносах (видно, сорвали ли исходное обязательство).
+  originalDeadline DateTime?
+  /// Блокер: на чём ждём и до какой даты ожидаем (не статус, а отдельное поле — сигнал «Блокер»).
+  blockedBy        String?
+  blockedUntil     DateTime?
+  /// Отменена / неактуальна: причина (кто и когда — в журнале).
+  cancelReason     String?
+  /// Источник: "ZGD" — поручение ЗГД (кто дал и когда).
+  origin           String?
+  assignedById     String?
+  assignedByName   String?
+  assignedAt       DateTime?
+  /// ЗГД взял на контроль: перенос срока — только с согласия директора, ЗГД получает подтверждённые изменения.
+  zgdControl       Boolean         @default(false)
+  /// Когда директор последний раз подтвердил состояние для ЗГД.
+  publishedAt      DateTime?
 
-  notes ItemNote[]
+  notes            ItemNote[]
+  reviews          TaskReview[]
+  publications     ItemPublication[]
+  zgdRequests      ZgdRequest[]
+  deadlineRequests DeadlineRequest[]
 
   @@index([segmentId])
   @@index([trackId])
@@ -224,6 +246,14 @@ enum NotificationType {
   MEMO_RETURNED // ЗГД вернул справку директору
   DEADLINE_SOON // через 2 дня срок позиции (ответственному)
   DEADLINE_OVERDUE // срок позиции прошёл (ответственному; сводка — директору и админу)
+  REVIEW_SUBMITTED // задачу сдали на проверку (директору)
+  REVIEW_DECIDED // директор принял / вернул (сдавшему)
+  ZGD_REQUEST // ЗГД запросил статус (директору)
+  ZGD_ANSWER // директор ответил на запрос (ЗГД)
+  ZGD_ORDER // поручение ЗГД (директору)
+  ZGD_COMMENT // комментарий ЗГД к задаче (директору и ответственному)
+  DEADLINE_REQUEST // запрос / решение по переносу срока
+  ZGD_UPDATE // подтверждённое изменение задачи на контроле (ЗГД)
 }
 
 model Notification {
@@ -414,4 +444,82 @@ model RateLimit {
   count       Int      @default(0)
 
   @@map("rate_limits")
+}
+
+/// Трекер: сдача задачи на проверку и решение директора (принял / вернул с причиной).
+model TaskReview {
+  id              String          @id @default(cuid())
+  itemId          String
+  item            OperationalItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  submittedById   String
+  submittedByName String
+  submittedAt     DateTime        @default(now())
+  result          String
+  files           Json            @default("[]")
+  decision        String? // ACCEPTED | RETURNED
+  decidedById     String?
+  decidedByName   String?
+  decidedAt       DateTime?
+  comment         String?
+
+  @@index([itemId])
+  @@map("task_reviews")
+}
+
+/// Подтверждённое директором состояние задачи — то, что видит ЗГД (снимок полей + кто, когда, почему).
+model ItemPublication {
+  id              String          @id @default(cuid())
+  itemId          String
+  item            OperationalItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  directorateId   String
+  publishedAt     DateTime        @default(now())
+  publishedById   String
+  publishedByName String
+  reason          String
+  snapshot        Json
+
+  @@index([itemId, publishedAt])
+  @@index([directorateId])
+  @@map("item_publications")
+}
+
+/// Запрос статуса от ЗГД по задаче: идёт директору, ответ директора подтверждает состояние для ЗГД.
+model ZgdRequest {
+  id             String          @id @default(cuid())
+  itemId         String
+  item           OperationalItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  directorateId  String
+  askedById      String
+  askedByName    String
+  text           String
+  dueAt          DateTime?
+  createdAt      DateTime        @default(now())
+  answer         String?
+  answeredById   String?
+  answeredByName String?
+  answeredAt     DateTime?
+
+  @@index([itemId])
+  @@index([directorateId])
+  @@map("zgd_requests")
+}
+
+/// Запрос на перенос срока (поручение ЗГД или задача на контроле): руководитель просит, директор решает.
+model DeadlineRequest {
+  id              String          @id @default(cuid())
+  itemId          String
+  item            OperationalItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  requestedById   String
+  requestedByName String
+  newDeadline     DateTime
+  reason          String
+  createdAt       DateTime        @default(now())
+  decision        String? // APPROVED | REJECTED
+  decidedById     String?
+  decidedByName   String?
+  decidedAt       DateTime?
+  comment         String?
+
+  @@index([itemId])
+  @@map("deadline_requests")
 }

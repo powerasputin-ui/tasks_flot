@@ -4,6 +4,9 @@
  * история = журнал правок (audit_events) + отправленные справки (memo_versions). Чистые функции, без базы.
  */
 
+/** Сигналы задачи (lib/ai-table.ts signals): виды и причины «→ что сделать». */
+export type HotInfo = { kinds: Array<"overdue" | "soon" | "blocker" | "review" | "request" | "data" | "report">; reasons: string[] };
+
 /** Настройка (app_settings): false — пункт «Трекер» скрыт у всех. Откат без выкладки. */
 export const TRACKER_SETTING = "tracker.enabled";
 
@@ -29,7 +32,7 @@ export function statusForColumn(col: TrackerColumnKey, statuses: Array<{ id: str
   return statuses.find((s) => (s.trackerColumn ?? "TODO") === col)?.id ?? null;
 }
 
-export type TrackerEventKind = "created" | "status" | "deadline" | "text" | "submitted" | "unsubmitted" | "owner" | "files" | "edit" | "archived" | "restored" | "memo";
+export type TrackerEventKind = "created" | "status" | "deadline" | "text" | "submitted" | "unsubmitted" | "owner" | "files" | "edit" | "archived" | "restored" | "memo" | "workflow";
 
 export type TrackerEvent = {
   itemId: string;
@@ -52,7 +55,18 @@ export type RawAudit = { entityId: string; action: string; fieldName: string | n
 /** Отправленная справка: когда, как называлась и какие позиции в неё вошли. */
 export type MemoSent = { at: Date | string; title: string; itemIds: string[] };
 
-const FIELD_LABEL: Record<string, string> = { cost: "оценка", attractivenessId: "внимание", segmentId: "сегмент", trackId: "трек" };
+const FIELD_LABEL: Record<string, string> = { cost: "оценка", attractivenessId: "внимание", segmentId: "сегмент", trackId: "трек", expectedResult: "ожидаемый результат" };
+
+/** Действия трекера в журнале (fieldName "workflow:<действие>", after — результат / причина / на чём ждём). */
+const WORKFLOW_TEXT: Record<string, (t: string | null) => string> = {
+  submit: (t) => `сдана на проверку${t ? `: ${t}` : ""}`,
+  accept: (t) => `принята директором${t ? ` (${t})` : ""}`,
+  return: (t) => `возвращена на доработку${t ? `: ${t}` : ""}`,
+  block: (t) => `заблокирована${t ? `: ждём ${t}` : ""}`,
+  unblock: () => "блок снят",
+  cancel: (t) => `отменена${t ? `: ${t}` : ""}`,
+  reopen: (t) => `переоткрыта${t ? `: ${t}` : ""}`,
+};
 const DAY = 24 * 3600 * 1000;
 const iso = (d: Date | string) => (typeof d === "string" ? new Date(d) : d).toISOString();
 export const ruDay = (d: Date | string) => new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Moscow" });
@@ -87,6 +101,8 @@ export function buildEvents(audit: RawAudit[], memos: MemoSent[], names: { statu
     else if (f === "responsibleId") out.push({ ...base, kind: "owner", text: `ответственный: ${us(a.before)} → ${us(a.after)}` });
     else if (f === "title" || f === "comment") out.push({ ...base, kind: "text", text: f === "title" ? "обновлён текст задачи" : "обновлён комментарий" });
     else if (f === "files") out.push({ ...base, kind: "files", text: "изменены документы" });
+    else if (f?.startsWith("workflow:")) out.push({ ...base, kind: "workflow", text: (WORKFLOW_TEXT[f.slice(9)] ?? (() => f.slice(9)))(a.after ? a.after.slice(0, 160) : null) });
+    else if (f === "deadlineReason") out.push({ ...base, kind: "deadline", text: `причина переноса срока: ${a.after ?? "—"}` });
     else if (f) out.push({ ...base, kind: "edit", text: `изменено: ${FIELD_LABEL[f] ?? (f.startsWith("custom:") ? "своя колонка" : f)}` });
   }
   for (const m of memos) for (const id of m.itemIds) out.push({ itemId: id, at: iso(m.at), kind: "memo", who: null, text: `вошла в отправленную справку «${m.title}»` });
@@ -94,7 +110,7 @@ export function buildEvents(audit: RawAudit[], memos: MemoSent[], names: { statu
   // одно сохранение = одно событие на вид (заголовок и комментарий разом → «обновлён текст задачи»)
   const seen = new Set<string>();
   return out.filter((e) => {
-    const k = `${e.itemId}|${e.kind}|${e.at.slice(0, 16)}|${e.kind === "status" || e.kind === "deadline" || e.kind === "owner" || e.kind === "memo" ? e.text : ""}`;
+    const k = `${e.itemId}|${e.kind}|${e.at.slice(0, 16)}|${e.kind === "status" || e.kind === "deadline" || e.kind === "owner" || e.kind === "memo" || e.kind === "workflow" ? e.text : ""}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;

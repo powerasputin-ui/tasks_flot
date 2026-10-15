@@ -18,7 +18,7 @@ export async function loadTableFacts(actor: Actor, directorateId?: string | null
     prisma.operationalItem.findMany({
       where: { directorateId: dir },
       select: {
-        id: true, statusId: true, title: true, comment: true, cost: true, deadline: true, operFlag: true, archivedAt: true, createdAt: true, updatedAt: true, files: true,
+        id: true, statusId: true, title: true, comment: true, cost: true, blockedBy: true, blockedUntil: true, expectedResult: true, originalDeadline: true, origin: true, zgdControl: true, deadline: true, operFlag: true, archivedAt: true, createdAt: true, updatedAt: true, files: true,
         segment: { select: { name: true } }, track: { select: { name: true } }, status: { select: { name: true } }, attractiveness: { select: { name: true } },
         responsible: { select: { name: true } }, createdBy: { select: { name: true } }, updatedBy: { select: { name: true } },
       },
@@ -47,6 +47,12 @@ export async function loadTableFacts(actor: Actor, directorateId?: string | null
     files: readFiles(r.files).map((f) => ({ name: f.name, path: f.path })),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    blockedBy: r.blockedBy,
+    blockedUntil: r.blockedUntil,
+    expectedResult: r.expectedResult,
+    originalDeadline: r.originalDeadline,
+    origin: r.origin,
+    zgdControl: r.zgdControl,
   }));
   // в журнале статус, ответственный и «внимание» записаны id — показываем названиями
   const names = new Map<string, string>([...statuses, ...attractiveness, ...users].map((x) => [x.id, x.name]));
@@ -76,13 +82,14 @@ export async function loadTableFacts(actor: Actor, directorateId?: string | null
 async function attachMotion(items: FactItem[], rows: Array<{ id: string; statusId: string | null }>, statuses: Array<{ id: string; trackerColumn: TrackerColumn | null }>, named: Array<{ id: string; name: string }>, dir: string) {
   const ids = rows.map((r) => r.id);
   if (!ids.length) return;
-  const [audit, versions] = await Promise.all([
+  const [audit, versions, requests] = await Promise.all([
     prisma.auditEvent.findMany({
       where: { entityType: "OperationalItem", entityId: { in: ids } },
       orderBy: { timestamp: "asc" },
       select: { entityId: true, action: true, fieldName: true, before: true, after: true, timestamp: true, actor: { select: { name: true } } },
     }),
     prisma.memoVersion.findMany({ where: { directorateId: dir }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true } }),
+    prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }),
   ]);
   const known = new Set(ids);
   const names = new Map(named.map((x) => [x.id, x.name]));
@@ -95,5 +102,9 @@ async function attachMotion(items: FactItem[], rows: Array<{ id: string; statusI
   for (const e of events) byItem.set(e.itemId, [...(byItem.get(e.itemId) ?? []), e]);
   const cols = new Map(statuses.map((st) => [st.id, st.trackerColumn]));
   const statusOf = new Map(rows.map((r) => [r.id, r.statusId]));
-  for (const i of items) i.motion = motionOf(byItem.get(i.id) ?? [], columnOf(statusOf.get(i.id), cols));
+  for (const i of items) {
+    i.motion = motionOf(byItem.get(i.id) ?? [], columnOf(statusOf.get(i.id), cols));
+    const rq = requests.filter((q) => q.itemId === i.id);
+    if (rq.length) i.openRequests = { count: rq.length, dueAt: rq.map((q) => q.dueAt).filter((x): x is Date => !!x).sort((a, b) => a.getTime() - b.getTime())[0] ?? null };
+  }
 }

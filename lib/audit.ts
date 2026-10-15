@@ -48,6 +48,7 @@ export const TRACKED_ITEM_FIELDS = [
   "title",
   "cost",
   "comment",
+  "expectedResult",
   "segmentId",
   "trackId",
   "attractivenessId",

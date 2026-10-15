@@ -1057,6 +1057,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           labels={Object.fromEntries(columns.map((c) => [c.key, c.label]))}
           onTrackCreated={(t) => setRefs((r) => (r.tracks.some((x) => x.id === t.id) ? r : { ...r, tracks: [...r.tracks, t] }))}
           previewMode={!!preview}
+          actor={me ? { id: me.id, role: me.role } : null}
           onClose={() => setEditor(null)}
           onSaved={(saved) => {
             setEditor(null);

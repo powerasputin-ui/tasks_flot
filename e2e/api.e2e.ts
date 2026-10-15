@@ -52,6 +52,8 @@ import * as cycleReview from "@/app/api/cycles/[id]/review/route";
 import * as cycleExport from "@/app/api/cycles/[id]/export/route";
 import * as bootstrap from "@/app/api/bootstrap/route";
 import * as tracker from "@/app/api/tracker/route";
+import * as transition from "@/app/api/items/[id]/transition/route";
+import * as workflow from "@/app/api/items/[id]/workflow/route";
 import * as report from "@/app/api/report/route";
 import * as templates from "@/app/api/report-templates/route";
 import * as template from "@/app/api/report-templates/[id]/route";
@@ -2213,23 +2215,58 @@ describe("трекер: виды таблицы, «Выполнено» прин
     expect(b.data.rows.some((x: { id: string }) => x.id === t)).toBe(false);
   });
 
-  it("руководитель доводит до «На проверке», но не ставит и не снимает «Выполнено»", async () => {
-    const review = await patch(head, { statusId: await status("На проверке") });
-    expect(review.status).toBe(200);
-    version = review.data.row.version;
-    const done = await patch(head, { statusId: await status("Завершено") });
-    expect(done.status).toBe(403);
-    expect(done.data.message).toContain("директор");
-    const accepted = await patch(director, { statusId: await status("Завершено") });
+  it("формальная приёмка: прямо статус «На проверке»/«Завершено» не ставится; сдать с результатом → вернуть с причиной → сдать → принять", async () => {
+    const tr = (a: Actor, body: Record<string, unknown>) => call(a, transition.POST, `/api/items/${t}/transition`, { method: "POST", id: t, body: { version, ...body } });
+    const take = (r: { status: number; data: { row?: { version: number } } }) => {
+      if (r.data.row) version = r.data.row.version;
+      return r;
+    };
+    // прямая смена статуса в колонки приёмки — нельзя ни руководителю, ни директору
+    expect((await patch(head, { statusId: await status("На проверке") })).status).toBe(403);
+    expect((await patch(director, { statusId: await status("Завершено") })).status).toBe(403);
+    // сдать без результата — 400; с результатом — ок
+    expect((await tr(head, { action: "submit", result: "" })).status).toBe(400);
+    expect(take(await tr(head, { action: "submit", result: "ТКП получено, письмо №12 в документах" })).status).toBe(200);
+    // руководитель не принимает; директор возвращает только с причиной
+    expect((await tr(head, { action: "accept" })).status).toBe(403);
+    expect((await tr(director, { action: "return", comment: "" })).status).toBe(400);
+    expect(take(await tr(director, { action: "return", comment: "Нет сравнения цен" })).status).toBe(200);
+    expect(take(await tr(head, { action: "submit", result: "Добавлено сравнение цен (таблица в документах)" })).status).toBe(200);
+    const accepted = take(await tr(director, { action: "accept" }));
     expect(accepted.status).toBe(200);
-    version = accepted.data.row.version;
-    expect((await patch(head, { statusId: await status("В работе") })).status).toBe(403);
-    // правка без смены статуса у принятой задачи руководителю по-прежнему доступна
-    const edit = await patch(head, { comment: "итог по задаче" });
-    expect(edit.status).toBe(200);
-    version = edit.data.row.version;
-    const ev = (await call(director, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === t);
-    expect(ev.map((e: { text: string }) => e.text)).toEqual(expect.arrayContaining([expect.stringMatching(/На проверке → Завершено$/)]));
+    expect((accepted.data.row as { statusName?: string } | undefined)?.statusName).toBe("Завершено");
+    // закрытую задачу руководитель не переоткрывает; история приёмки — в журнале и в «Ходе работы»
+    expect((await tr(head, { action: "reopen", reason: "ещё раз" })).status).toBe(403);
+    const wf = await call(director, workflow.GET, `/api/items/${t}/workflow`, { id: t });
+    expect(wf.data.reviews.map((r: { decision: string }) => r.decision)).toEqual(["ACCEPTED", "RETURNED"]);
+    expect(wf.data.publication?.reason).toBe("принять");
+    const ev = (await call(director, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === t).map((e: { text: string }) => e.text);
+    expect(ev).toEqual(expect.arrayContaining(["возвращена на доработку: Нет сравнения цен", expect.stringMatching(/^принята директором/)]));
+    // директору пришло уведомление о сдаче
+    expect(await prisma.notification.count({ where: { userId: director.id, type: "REVIEW_SUBMITTED" } })).toBeGreaterThan(0);
+  });
+
+  it("блокер — отдельным действием с причиной; перенос срока — только с причиной, исходный срок сохраняется", async () => {
+    const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача со сроком`, deadline: "2026-11-01" } });
+    const id = c.data.row.id;
+    created.items.push(id);
+    let v = c.data.row.version;
+    const tr = async (body: Record<string, unknown>) => {
+      const r = await call(head, transition.POST, `/api/items/${id}/transition`, { method: "POST", id, body: { version: v, ...body } });
+      if (r.data.row) v = r.data.row.version;
+      return r;
+    };
+    expect((await tr({ action: "block", blockedBy: "" })).status).toBe(400);
+    const b = await tr({ action: "block", blockedBy: "решение ПАО", blockedUntil: "2026-10-20" });
+    expect(b.status).toBe(200);
+    expect(b.data.row.blockedBy).toBe("решение ПАО");
+    expect((await tr({ action: "unblock" })).data.row.blockedBy).toBeNull();
+    const noReason = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, deadline: "2026-11-15" } });
+    expect(noReason.status).toBe(400);
+    const moved = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, deadline: "2026-11-15", deadlineReason: "ждём поставку" } });
+    expect(moved.status).toBe(200);
+    expect(String(moved.data.row.originalDeadline).slice(0, 10)).toBe("2026-11-01");
+    expect(await prisma.auditEvent.count({ where: { entityId: id, fieldName: "deadlineReason", after: "ждём поставку" } })).toBe(1);
   });
 
   it("пункт меню: в bootstrap у руководителя и ЗГД есть; скрыть может только админ", async () => {

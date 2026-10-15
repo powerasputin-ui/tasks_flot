@@ -31,6 +31,7 @@ function row(overrides: Partial<TableRow>): TableRow {
     updatedAt: new Date("2026-01-01"),
     staleWeeks: 0,
     archived: false,
+    expectedResult: null, originalDeadline: null, blockedBy: null, blockedUntil: null, cancelReason: null, origin: null, assignedByName: null, zgdControl: false, publishedAt: null,
     ...overrides,
   };
 }

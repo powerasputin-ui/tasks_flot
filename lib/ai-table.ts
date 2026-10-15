@@ -34,6 +34,15 @@ export type FactItem = {
   motion?: Motion;
   /** Дирекция — у ЗГД, который видит все дирекции. */
   directorate?: string | null;
+  /** Поручение (трекер): блокер, ожидаемый результат, исходный срок, источник ЗГД, контроль ЗГД. */
+  blockedBy?: string | null;
+  blockedUntil?: Date | null;
+  expectedResult?: string | null;
+  originalDeadline?: Date | null;
+  origin?: string | null;
+  zgdControl?: boolean;
+  /** Открытые запросы ЗГД: сколько и самый ранний срок ответа. */
+  openRequests?: { count: number; dueAt: Date | null };
 };
 
 export type FactEvent = { itemId: string; at: Date; who: string | null; action: string; field: string | null; before: string | null; after: string | null };
@@ -191,6 +200,12 @@ export function cardLine(i: FactItem, label: string, today: number, titleLimit =
     i.comment ? `комментарий: ${i.comment.length > 200 ? `${i.comment.slice(0, 200)}…` : i.comment}` : null,
     // «трекер:» — только если есть что сказать (переносы, простой, ждёт приёмки, давно в колонке): окно модели не резиновое
     i.motion && notable(i.motion) ? `трекер: ${motionText(i.motion)}` : null,
+    i.expectedResult ? `ожидаемый результат: ${i.expectedResult.slice(0, 160)}` : null,
+    i.blockedBy ? `заблокировано: ждём ${i.blockedBy}${i.blockedUntil ? ` (ожидаем к ${ru(i.blockedUntil)})` : ""}` : null,
+    i.originalDeadline && i.deadline && dayOf(i.originalDeadline) !== dayOf(i.deadline) ? `исходный срок: ${ru(i.originalDeadline)}` : null,
+    i.origin === "ZGD" ? "поручение ЗГД" : null,
+    i.zgdControl ? "на контроле ЗГД" : null,
+    i.openRequests?.count ? `запрос ЗГД без ответа${i.openRequests.dueAt ? ` (ответ к ${ru(i.openRequests.dueAt)})` : ""}` : null,
   ].filter(Boolean);
   // сокращение помечаем явно: иначе модель решает, что текст в таблице «обрезан» (экзамен, вопрос R1)
   const title = i.title.length > titleLimit ? `${i.title.slice(0, titleLimit)}… [в карточке сокращено, в таблице текст полный]` : i.title;
@@ -216,27 +231,49 @@ const WAITING = /(ожида|жд[её]м|ждут|подрядчик|верф|�
 const HOT_Q = /(горит|горящ|вмешат|риск|проблем|узк|срочн|эскал|тревож|под угроз|красн|на что обратить)/;
 export const wantsSignals = (question: string) => HOT_Q.test(n(question));
 
-export type Signal = { item: FactItem; reasons: string[]; weight: number };
+/**
+ * Сигналы — раздельно (разбор GPT: одно «горит» смешивало просрочку, качество данных и отчётность). У каждого — причина
+ * и следующее действие. Вид: просрочка, скоро срок, блокер, ждёт приёмки, запрос ЗГД без ответа, нет данных, отчётность.
+ */
+export type SignalKind = "overdue" | "soon" | "blocker" | "review" | "request" | "data" | "report";
+export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", soon: "Скоро срок", blocker: "Блокер", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Нет данных", report: "Отчётность" };
+export type Signal = { item: FactItem; reasons: string[]; weight: number; kinds: SignalKind[] };
 
 export function signals(items: FactItem[], today: number): Signal[] {
   const out: Signal[] = [];
   for (const i of items) {
     if (i.archived || closed(i)) continue;
     const reasons: string[] = [];
+    const kinds: SignalKind[] = [];
     let weight = 0;
-    const add = (reason: string, w: number) => {
-      reasons.push(reason);
+    const add = (kind: SignalKind, reason: string, action: string, w: number) => {
+      reasons.push(`${SIGNAL_LABEL[kind]}: ${reason} → ${action}`);
+      if (!kinds.includes(kind)) kinds.push(kind);
       weight += w;
     };
     const days = i.deadline ? Math.round((dayOf(i.deadline) - today) / DAY) : null;
-    if (days !== null && days < 0) add(`просрочено на ${-days} дн.`, 4 + Math.min(3, Math.floor(-days / 7)));
-    else if (days !== null && days <= 3) add(days === 0 ? "срок сегодня" : `срок через ${days} дн.`, 3);
-    const wait = WAITING.exec(n(`${i.title} ${i.comment ?? ""}`));
+    const review = i.motion?.column === "REVIEW";
+    // исходный срок сорван, даже если текущий перенесли
+    const origMissed = i.originalDeadline && i.deadline && dayOf(i.originalDeadline) < dayOf(i.deadline) && dayOf(i.originalDeadline) < today ? ` (исходный срок ${ru(i.originalDeadline)} сорван)` : "";
+    if (days !== null && days < 0) add("overdue", `просрочено на ${-days} дн.${origMissed}`, review ? "директору принять или вернуть" : "согласовать новый срок с причиной или закрыть", 4 + Math.min(3, Math.floor(-days / 7)));
+    else if (days !== null && days <= 3 && !review) add("soon", days === 0 ? "срок сегодня" : `срок через ${days} дн.${origMissed}`, "проверить готовность у ответственного", 3);
+    if (i.blockedBy) {
+      const late = i.blockedUntil && dayOf(i.blockedUntil) < today;
+      add("blocker", `ждём ${i.blockedBy}${i.blockedUntil ? `${late ? ", ожидали к " : " до "}${ru(i.blockedUntil)}` : ", дата не указана"}`, late || !i.blockedUntil ? "поднять вопрос выше / уточнить дату" : "следить за датой", late ? 3 : 2);
+    }
+    if (review && (i.motion?.inColumnDays ?? 0) >= 3) add("review", `на проверке ${i.motion!.inColumnDays} дн.`, "директору принять или вернуть с замечанием", 2);
+    if (i.openRequests?.count) {
+      const late = i.openRequests.dueAt && dayOf(i.openRequests.dueAt) < today;
+      add("request", `запрос ЗГД без ответа${i.openRequests.dueAt ? ` (ответ ${late ? "ждали" : "нужен"} к ${ru(i.openRequests.dueAt)})` : ""}`, "директору ответить ЗГД", late ? 4 : 2);
+    }
+    // без структурного блокера — подсказка из текста, но как качество данных, а не «горит»
+    const wait = !i.blockedBy ? WAITING.exec(n(`${i.title} ${i.comment ?? ""}`)) : null;
     const waitWord = wait ? (n(`${i.title} ${i.comment ?? ""}`).match(new RegExp(`[а-яё]*${wait[0]}[а-яё]*`))?.[0] ?? wait[0]) : "";
-    if (wait && (days === null || days < 0)) add(`ждём чужого решения/результата («${waitWord}»)${days === null ? ", срока нет" : ""}`, 2);
-    if (!i.deadline && !i.status) add("нет ни срока, ни статуса", 2);
-    if (!i.submitted && days !== null && days >= 0 && days <= 7) add("не подана в справку, а срок близко", 1);
-    if (reasons.length) out.push({ item: i, reasons, weight });
+    const missing = [!i.deadline ? "срока" : "", !i.owner ? "ответственного" : "", i.origin === "ZGD" && !i.expectedResult ? "ожидаемого результата" : ""].filter(Boolean);
+    if (missing.length) add("data", `нет ${missing.join(", ")}`, "заполнить в карточке", 1);
+    if (wait && (days === null || days < 0)) add("data", `в тексте «${waitWord}», а блокер не отмечен`, "если ждём — отметить «Заблокировано» с датой", 1);
+    if (!i.submitted && days !== null && days >= 0 && days <= 7) add("report", "не подана в справку, а срок близко", "ответственному подать строку", 1);
+    if (reasons.length) out.push({ item: i, reasons, weight, kinds });
   }
   return out.sort((a, b) => b.weight - a.weight);
 }
@@ -244,7 +281,7 @@ export function signals(items: FactItem[], today: number): Signal[] {
 export function signalsBlock(sig: Signal[], labels: Map<string, string>): string {
   if (!sig.length) return "СИГНАЛЫ «ГОРИТ» (по правилу программы): нет — просрочек, сроков на носу, зависших ожиданий и позиций без срока и статуса нет.";
   return [
-    "СИГНАЛЫ «ГОРИТ» (посчитано программой по правилу: просрочено; срок ≤ 3 дн.; ждём чужого решения без срока или после срока; нет ни срока, ни статуса; не подана при сроке ≤ 7 дн.), сначала самое серьёзное:",
+    "СИГНАЛЫ «ГОРИТ» (посчитано программой; у каждого — вид, причина и «→ что сделать»; виды: Просрочка, Скоро срок, Блокер, Ждёт приёмки, Запрос ЗГД, Нет данных, Отчётность), сначала самое серьёзное:",
     ...sig.map((s) => `[${labels.get(s.item.id)}] ${s.reasons.join("; ")} — ответственный: ${s.item.owner ?? "не указан"}`),
   ].join("\n");
 }
@@ -268,6 +305,8 @@ export function summaryBlock(items: FactItem[], labels: Map<string, string>, tod
   ].join("\n");
 }
 
+const WF_JOURNAL: Record<string, string> = { submit: "сдал на проверку", accept: "принял", return: "вернул на доработку", block: "заблокировал", unblock: "снял блок", cancel: "отменил задачу", reopen: "переоткрыл" };
+
 const ACTION: Record<string, (e: FactEvent) => string> = {
   CREATE: () => "создал позицию",
   // у ЗГД журнал — разница между отправленными справками: событие уже описано словами (lib/tracker-sent.ts)
@@ -279,7 +318,7 @@ const ACTION: Record<string, (e: FactEvent) => string> = {
   DEADLINE_CHANGE: (e) => `сменил срок: ${e.before ? e.before.slice(0, 10) : "—"} → ${e.after ? e.after.slice(0, 10) : "—"}`,
   OWNER_CHANGE: (e) => `сменил ответственного: ${e.before ?? "—"} → ${e.after ?? "—"}`,
   ATTRACTIVENESS_CHANGE: (e) => `сменил «внимание»: ${e.before ?? "—"} → ${e.after ?? "—"}`,
-  UPDATE: (e) => (e.field === "title" ? "изменил текст задачи" : e.field === "comment" ? "изменил комментарий" : e.field === "files" ? `изменил документы (${e.after ?? "—"})` : `изменил поле ${e.field ?? ""}`),
+  UPDATE: (e) => (e.field?.startsWith("workflow:") ? `${WF_JOURNAL[e.field.slice(9)] ?? e.field.slice(9)}${e.after ? `: ${e.after.slice(0, 120)}` : ""}` : e.field === "deadlineReason" ? `указал причину переноса срока: ${e.after ?? "—"}` : e.field === "expectedResult" ? "изменил ожидаемый результат" : e.field === "title" ? "изменил текст задачи" : e.field === "comment" ? "изменил комментарий" : e.field === "files" ? `изменил документы (${e.after ?? "—"})` : `изменил поле ${e.field ?? ""}`),
 };
 
 /** Журнал правок за период — «кто, когда, что». Новые сверху. */

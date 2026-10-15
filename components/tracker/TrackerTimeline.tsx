@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { columnOf, ruDay, timelineRange, type TrackerColumnKey, type TrackerEvent, type TrackerEventKind } from "@/lib/tracker";
+import { columnOf, ruDay, timelineRange, type HotInfo, type TrackerColumnKey, type TrackerEvent, type TrackerEventKind } from "@/lib/tracker";
 import { overdue, type TRow } from "@/components/tracker/TrackerView";
 
 const DAY = 24 * 3600 * 1000;
@@ -22,6 +22,7 @@ const KIND_COLOR: Record<TrackerEventKind, string> = {
   memo: "#16a34a",
   archived: "#dc2626",
   restored: "#16a34a",
+  workflow: "#7c3aed",
 };
 const LEGEND: Array<[string, string]> = [
   ["создана", KIND_COLOR.created],
@@ -30,6 +31,7 @@ const LEGEND: Array<[string, string]> = [
   ["срок сдвинули позже", "#dc2626"],
   ["подана в справку", KIND_COLOR.submitted],
   ["в отправленной справке", KIND_COLOR.memo],
+  ["сдача / приёмка / блок", KIND_COLOR.workflow],
   ["правка текста", KIND_COLOR.text],
 ];
 
@@ -37,7 +39,7 @@ const LEGEND: Array<[string, string]> = [
  * Таймлайн: строка = задача (сегмент → трек), ось — недели, линия «сегодня», ромб — текущий срок.
  * Точка — день, когда с задачей что-то произошло (несколько событий за день — одна точка с числом); подсказка — что и кто.
  */
-export function TrackerTimeline({ rows, colOf, hot, events, colors, onOpen }: { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, string[]>; events: Map<string, TrackerEvent[]>; colors: Map<string, string>; onOpen: (r: TRow) => void }) {
+export function TrackerTimeline({ rows, colOf, hot, events, colors, onOpen }: { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; events: Map<string, TrackerEvent[]>; colors: Map<string, string>; onOpen: (r: TRow) => void }) {
   const [now] = useState(() => Date.now()); // «сегодня» — на момент открытия страницы
   const range = useMemo(() => timelineRange([...rows.flatMap((r) => (events.get(r.id) ?? []).map((e) => e.at)), ...rows.map((r) => r.deadline)]), [rows, events]);
   // ширина блока: шкала занимает всё место справа от названий, но не уже PX_DAY на день (тогда — прокрутка)
@@ -115,7 +117,7 @@ export function TrackerTimeline({ rows, colOf, hot, events, colors, onOpen }: { 
   );
 }
 
-function TimelineRow({ row, col, hot, events, x, width, weeks, today, onOpen }: { row: TRow; col: TrackerColumnKey; hot?: string[]; events: TrackerEvent[]; x: (d: string | number | Date) => number; width: number; weeks: number[]; today: number; onOpen: (r: TRow) => void }) {
+function TimelineRow({ row, col, hot, events, x, width, weeks, today, onOpen }: { row: TRow; col: TrackerColumnKey; hot?: HotInfo; events: TrackerEvent[]; x: (d: string | number | Date) => number; width: number; weeks: number[]; today: number; onOpen: (r: TRow) => void }) {
   // события одного дня — одна точка
   const days = new Map<string, TrackerEvent[]>();
   for (const e of events) {
@@ -130,7 +132,7 @@ function TimelineRow({ row, col, hot, events, x, width, weeks, today, onOpen }: 
     <div className="flex border-b border-outline-variant/50 hover:bg-surface-low">
       <button onClick={() => onOpen(row)} className="sticky left-0 z-[5] shrink-0 border-r border-outline-variant bg-surface px-4 py-2 text-left hover:bg-surface-low" style={{ width: NAME_W }} title={row.name}>
         <span className="line-clamp-2 text-[12px] leading-4 text-on-surface">
-          {hot && <span className="mr-1 font-bold text-status-red" title={hot.join("; ")}>●</span>}
+          {hot && <span className="mr-1 font-bold text-status-red" title={hot.reasons.join("\n")}>●</span>}
           {row.name}
         </span>
         <span className="mt-0.5 block truncate text-[11px] text-outline">
@@ -152,7 +154,7 @@ function TimelineRow({ row, col, hot, events, x, width, weeks, today, onOpen }: 
         )}
         {[...days].map(([day, evs]) => {
           const slip = evs.some((e) => e.slip);
-          const main = evs.find((e) => e.kind === "status") ?? evs.find((e) => e.kind === "deadline") ?? evs.find((e) => e.kind === "memo") ?? evs[0];
+          const main = evs.find((e) => e.kind === "workflow") ?? evs.find((e) => e.kind === "status") ?? evs.find((e) => e.kind === "deadline") ?? evs.find((e) => e.kind === "memo") ?? evs[0];
           const color = slip ? "#dc2626" : KIND_COLOR[main.kind];
           return (
             <button

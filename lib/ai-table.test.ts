@@ -149,7 +149,7 @@ describe("ссылки [Т…] и итоги по справке", () => {
 });
 
 describe("«что горит»: сигналы по правилу программы", () => {
-  it("просрочено, срок на носу, ждём чужого без срока, нет ни срока ни статуса; закрытые и удалённые — нет", () => {
+  it("раздельные сигналы с причиной и действием: просрочка, скоро срок, нет данных, текст «ждём» без блокера; закрытые и удалённые — нет", () => {
     const extra = [
       ...items,
       item({ title: "В БКК направлены запросы; ожидается обратная связь", owner: "Майков Т.Г.", status: "В работе", deadline: d("2026-10-11") }),
@@ -158,13 +158,30 @@ describe("«что горит»: сигналы по правилу програ
     const s = signals(extra, TODAY);
     const by = (t: string) => s.find((x) => x.item.title.startsWith(t))?.reasons.join("; ");
     expect(s[0].item.title).toMatch(/^Hai Qiang/); // просрочка — первой
-    expect(by("Hai Qiang")).toContain("просрочено на 2 дн.");
-    expect(by("В БКК")).toContain("срок через 2 дн.");
-    expect(by("Ожидаем расчёты")).toContain("ждём чужого решения/результата («ожидаем»), срока нет");
-    expect(by("ШК типов")).toContain("нет ни срока, ни статуса");
+    expect(by("Hai Qiang")).toContain("Просрочка: просрочено на 2 дн. → согласовать новый срок с причиной или закрыть");
+    expect(by("В БКК")).toContain("Скоро срок: срок через 2 дн.");
+    expect(by("Ожидаем расчёты")).toContain("Нет данных: в тексте «ожидаем», а блокер не отмечен → если ждём — отметить «Заблокировано» с датой");
+    expect(by("ШК типов")).toContain("Нет данных: нет срока → заполнить в карточке");
     expect(by("Материалы ГПФ")).toBeUndefined(); // «Завершено»
     expect(by("тест")).toBeUndefined(); // удалена
     expect(signalsBlock(s, labelItems(extra))).toMatch(/^СИГНАЛЫ «ГОРИТ»/);
+  });
+  it("блокер — по полю (просроченная дата ожидания тяжелее), ждёт приёмки, запрос ЗГД без ответа, исходный срок сорван", () => {
+    const motion = (column: "REVIEW" | "DOING", inColumnDays: number) => ({ column, inColumnDays, slips: 0, slipDays: 0, idleDays: inColumnDays, history: [] });
+    const s = signals(
+      [
+        item({ title: "Блок", owner: "Сухов В.А.", status: "В работе", deadline: d("2026-10-30"), blockedBy: "решение ПАО", blockedUntil: d("2026-10-05") }),
+        item({ title: "Сдана", owner: "Сухов В.А.", status: "На проверке", deadline: d("2026-10-30"), motion: motion("REVIEW", 4) }),
+        item({ title: "Запрос", owner: "Сухов В.А.", status: "В работе", deadline: d("2026-10-30"), openRequests: { count: 1, dueAt: d("2026-10-08") } }),
+        item({ title: "Перенос", owner: "Сухов В.А.", status: "В работе", deadline: d("2026-10-08"), originalDeadline: d("2026-10-01") }),
+      ],
+      TODAY,
+    );
+    const by = (t: string) => s.find((x) => x.item.title === t);
+    expect(by("Блок")?.reasons[0]).toBe("Блокер: ждём решение ПАО, ожидали к 05.10.2026 → поднять вопрос выше / уточнить дату");
+    expect(by("Сдана")?.kinds).toEqual(["review"]);
+    expect(by("Запрос")?.reasons[0]).toContain("запрос ЗГД без ответа (ответ ждали к 08.10.2026) → директору ответить ЗГД");
+    expect(by("Перенос")?.reasons[0]).toContain("(исходный срок 01.10.2026 сорван)");
   });
   it("пункт справки, у которого строка в таблице изменилась, помечен", () => {
     const b = { id: "b1", text: "Пункт", itemIds: ["x"], origin: "auto" as const, edited: false, hidden: false, sourceHash: "" };

@@ -28,6 +28,8 @@ export const createItemSchema = z.object({
   statusId: idOrNull,
   comment: commentOrNull,
   operFlag: z.boolean().optional(),
+  expectedResult: z.string().max(2000, "Ожидаемый результат — не длиннее 2000 символов").nullable().optional(),
+  deadlineReason: z.string().max(500).optional(),
   // значения своих колонок: { <id колонки>: значение } (проверка типа — на сервере, lib/custom-columns)
   customValues: z.record(z.string(), z.string()).optional(),
   // ссылки на файлы общего диска: [{ id?, path }] (разбор и проверка пути — lib/item-files)

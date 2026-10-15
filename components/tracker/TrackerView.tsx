@@ -7,6 +7,9 @@ import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
 import { Panel } from "@/components/ui/Panel";
+import { askText } from "@/components/ui/Dialog";
+import { ASK } from "@/components/WorkflowSection";
+import { ACTION_LABEL, type WorkflowAction } from "@/lib/workflow";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
@@ -14,7 +17,8 @@ import { isDirectorial } from "@/lib/permissions";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import { usePreviewAs } from "@/lib/preview-as";
 import { useIsMobile } from "@/lib/use-mobile";
-import { BOARD_COLUMNS, columnOf, ruDay, statusForColumn, summarize, type TaskSummary, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
+import { SIGNAL_LABEL, type SignalKind } from "@/lib/ai-table";
+import { BOARD_COLUMNS, columnOf, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
 import { Operativshchik } from "@/components/Operativshchik";
@@ -33,7 +37,7 @@ export type TRow = ItemRow & {
   inMemo?: boolean;
 };
 type Status = { id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null };
-type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, string[]>; since: string | null; mode?: "sent" };
+type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, HotInfo>; since: string | null; mode?: "sent" };
 type View = "list" | "board" | "timeline";
 
 const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
@@ -42,6 +46,22 @@ const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
   { key: "timeline", label: "Таймлайн", icon: CalendarClock },
 ];
 const VIEW_KEY = "operativka.tracker.view";
+
+// сигналы: порядок, цвет (красный — исполнение под угрозой, жёлтый — внимание, серый — данные и отчётность), подсказка-определение
+const SIGNAL_ORDER: SignalKind[] = ["overdue", "blocker", "request", "review", "soon", "data", "report"];
+const RED = { on: "bg-status-red text-white", off: "bg-status-red/10 text-status-red" };
+const AMBER = { on: "bg-[#b45309] text-white", off: "bg-status-amber/15 text-[#b45309]" };
+const GRAY = { on: "bg-on-surface-variant text-white", off: "bg-surface-high text-on-surface-variant" };
+const SIGNAL_TONE: Record<SignalKind, { on: string; off: string }> = { overdue: RED, blocker: RED, request: RED, review: AMBER, soon: AMBER, data: GRAY, report: GRAY };
+const SIGNAL_HINT: Record<SignalKind, string> = {
+  overdue: "Срок прошёл, задача не выполнена (и исходный срок, если его переносили)",
+  blocker: "Отмечено «Заблокировано»: ждём чужого решения / документа (дата ожидания прошла — серьёзнее)",
+  request: "ЗГД запросил статус — директор ещё не ответил",
+  review: "Сдана на проверку 3+ дня назад — директор не принял и не вернул",
+  soon: "До срока 3 дня или меньше",
+  data: "Нет срока / ответственного / ожидаемого результата у поручения; или в тексте «ждём», а блокер не отмечен",
+  report: "Не подана в справку, а срок в ближайшие 7 дней",
+};
 
 /** Просрочено: срок прошёл, а задача не «Выполнено»/«Не показывать». */
 export function overdue(r: TRow, col: TrackerColumnKey): boolean {
@@ -58,7 +78,8 @@ export function TrackerView() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [view, setView] = useState<View>("list");
   const [mine, setMine] = useState(false);
-  const [hotOnly, setHotOnly] = useState(false);
+  // фильтр по виду сигнала (просрочка, блокер, ждёт приёмки…) — вместо одного «горит»
+  const [kind, setKind] = useState<SignalKind | null>(null);
   const [slipOnly, setSlipOnly] = useState(false);
   const [segmentIds, setSegmentIds] = useState<string[]>([]);
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
@@ -141,14 +162,14 @@ export function TrackerView() {
       .filter((r) => {
       if (columnOf(r.statusId, colOf) === "HIDDEN") return false;
       if (mine && r.ownerId !== me?.id && !(directorial && !r.ownerId && r.createdById === me?.id)) return false;
-      if (hotOnly && !data?.hot[r.id]) return false;
+      if (kind && !data?.hot[r.id]?.kinds.includes(kind)) return false;
       if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, hotOnly, slipOnly, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);
+  }, [data, colOf, mine, kind, slipOnly, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);
 
   const refs: Refs = useMemo(
     () => ({
@@ -162,9 +183,26 @@ export function TrackerView() {
   );
 
   // перенос карточки на доске = смена статуса через обычное сохранение позиции (журнал, справка, права — как в таблице)
+  // перенос в «На проверке» / «Выполнено» / обратно — действие трекера с диалогом (результат, замечание, причина)
   async function move(row: TRow, col: TrackerColumnKey) {
     if (!data || columnOf(row.statusId, colOf) === col) return;
     if (preview) return setError("В режиме просмотра менять задачи нельзя.");
+    const from = columnOf(row.statusId, colOf);
+    const action: WorkflowAction | null =
+      col === "REVIEW" ? "submit" : col === "DONE" && from === "REVIEW" ? "accept" : from === "REVIEW" ? "return" : from === "DONE" || from === "HIDDEN" ? "reopen" : null;
+    if (col === "DONE" && from !== "REVIEW") return setError("Выполненной задача становится после приёмки: сначала перенесите её в «На проверке» с результатом.");
+    if (action) {
+      setError(null);
+      const ask = ASK[action];
+      const text = ask ? await askText({ title: ACTION_LABEL[action], message: `«${row.name.slice(0, 160)}»
+${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.optional, maxLength: 2000, okLabel: ACTION_LABEL[action] }) : "";
+      if (text === null) return;
+      const res = await fetch(`/api/items/${row.id}/transition`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, version: row.version, ...(ask ? { [ask.field]: text } : {}) }) });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) setError(d?.message ?? "Не удалось выполнить действие.");
+      setTick((t) => t + 1);
+      return;
+    }
     const statusId = statusForColumn(col, data.statuses);
     if (!statusId) return setError("Для этой колонки не назначен ни один статус (Настройки → Статусы).");
     const prev = data;
@@ -182,7 +220,11 @@ export function TrackerView() {
   }
 
   const counts = useMemo(() => Object.fromEntries(BOARD_COLUMNS.map((c) => [c.key, rows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [rows, colOf]);
-  const hotCount = rows.filter((r) => data?.hot[r.id]).length;
+  const kindCounts = useMemo(() => {
+    const m = new Map<SignalKind, number>();
+    for (const r of data?.rows ?? []) if (columnOf(r.statusId, colOf) !== "HIDDEN") for (const k of data?.hot[r.id]?.kinds ?? []) m.set(k, (m.get(k) ?? 0) + 1);
+    return m;
+  }, [data, colOf]);
   const slipped = rows.filter((r) => (summaries.get(r.id)?.slips ?? 0) > 0).length;
 
   return (
@@ -226,9 +268,11 @@ export function TrackerView() {
             {c.label}: <span className="text-on-surface">{counts[c.key] ?? 0}</span>
           </span>
         ))}
-        <button onClick={() => setHotOnly((v) => !v)} aria-pressed={hotOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${hotOnly ? "bg-status-red text-white" : "bg-status-red/10 text-status-red"}`} title="Правило: просрочено; срок ≤ 3 дн.; ждём чужого решения без срока; нет ни срока, ни статуса; не подана при сроке ≤ 7 дн.">
-          <Flame size={13} /> Горит: {hotCount}
-        </button>
+        {SIGNAL_ORDER.filter((k) => kindCounts.get(k) || kind === k).map((k) => (
+          <button key={k} onClick={() => setKind((v) => (v === k ? null : k))} aria-pressed={kind === k} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${kind === k ? SIGNAL_TONE[k].on : SIGNAL_TONE[k].off}`} title={SIGNAL_HINT[k]}>
+            {k === "overdue" && <Flame size={13} />} {SIGNAL_LABEL[k]}: {kindCounts.get(k) ?? 0}
+          </button>
+        ))}
         {(slipped > 0 || slipOnly) && (
           <button onClick={() => setSlipOnly((v) => !v)} aria-pressed={slipOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${slipOnly ? "bg-[#b45309] text-white" : "bg-status-amber/15 text-[#b45309]"}`} title="Задачи, у которых срок переносили позже — нажмите, чтобы показать только их">
             <Timer size={13} /> Срок сдвигали: {slipped}
@@ -276,6 +320,7 @@ export function TrackerView() {
           canDelete={false}
           customColumns={boot?.columns ?? []}
           previewMode={!!preview}
+          actor={me ? { id: me.id, role: me.role } : null}
           onClose={() => {
             setEditor(null);
             if (params.get("item")) router.replace("/tracker");
@@ -291,7 +336,7 @@ export function TrackerView() {
   );
 }
 
-type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, string[]>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void };
+type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void };
 
 /** Сегмент → трек → задачи, в порядке появления. */
 function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
@@ -307,14 +352,15 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
 }
 
 /** Метки задачи: горит, срок сдвигали, давно без движения. */
-function Marks({ row, hot, summary, done }: { row: TRow; hot?: string[]; summary?: TaskSummary; done?: boolean }) {
+function Marks({ row, hot, summary, done }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean }) {
   return (
     <>
-      {hot && (
-        <span className="inline-flex items-center gap-1 rounded-sm bg-status-red/10 px-1.5 py-px text-[11px] font-semibold text-status-red" title={hot.join("; ")}>
-          <Flame size={11} /> горит
+      {/* сигнал = вид + причина и «что сделать» в подсказке */}
+      {hot?.kinds.map((k) => (
+        <span key={k} className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-[11px] font-semibold ${SIGNAL_TONE[k].off}`} title={hot.reasons.filter((x) => x.startsWith(SIGNAL_LABEL[k])).join("\n")}>
+          {k === "overdue" && <Flame size={11} />} {SIGNAL_LABEL[k].toLowerCase()}
         </span>
-      )}
+      ))}
       {summary && summary.slips > 0 && (
         <span className="rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="Срок переносили позже">
           срок сдвигали {summary.slips}× (+{summary.slipDays} дн.)
@@ -379,7 +425,8 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen }: Common) {
 function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
   const [drag, setDrag] = useState<TRow | null>(null);
   const [over, setOver] = useState<TrackerColumnKey | null>(null);
-  const allowed = (r: TRow, col: TrackerColumnKey) => canDone || (col !== "DONE" && columnOf(r.statusId, colOf) !== "DONE");
+  // руководитель: свои задачи до «На проверке»; сданную и выполненную двигает только директор (принять / вернуть / переоткрыть)
+  const allowed = (r: TRow, col: TrackerColumnKey) => canDone || (col !== "DONE" && !["DONE", "REVIEW", "HIDDEN"].includes(columnOf(r.statusId, colOf)));
   return (
     <div className="flex gap-3 overflow-x-auto pb-2">
       {BOARD_COLUMNS.map((c) => {
@@ -453,7 +500,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
 }
 
 /** Карточка задачи у ЗГД: только чтение — поля из последней справки и история от справки к справке. */
-function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEvent[]; hot?: string[]; onClose: () => void }) {
+function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEvent[]; hot?: HotInfo; onClose: () => void }) {
   const fields: Array<[string, string]> = [
     ["Дирекция", row.directorateName ?? "—"],
     ["Сегмент · трек", [row.segmentName, row.trackName].filter(Boolean).join(" · ") || "—"],
@@ -465,7 +512,13 @@ function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEv
   return (
     <Panel title={row.name} subtitle="Только просмотр: данные из отправленных справок" onClose={onClose}>
       <div className="space-y-4 px-5 py-4 text-[13px]">
-        {hot && <p className="rounded-md bg-status-red/10 px-3 py-2 text-status-red">Горит: {hot.join("; ")}</p>}
+        {hot && (
+          <ul className="space-y-1 rounded-md bg-status-red/10 px-3 py-2 text-status-red">
+            {hot.reasons.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        )}
         <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5">
           {fields.map(([k, v]) => (
             <Fragment key={k}>
@@ -491,3 +544,4 @@ function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEv
     </Panel>
   );
 }
+

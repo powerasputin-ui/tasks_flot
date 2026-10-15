@@ -47,6 +47,16 @@ export type TableRow = {
   /** Недель с последнего обновления — подсветка «давно не трогали». */
   staleWeeks: number;
   archived: boolean;
+  /** Поручение (трекер): ожидаемый результат, исходный срок, блокер, отмена, источник ЗГД, контроль ЗГД, подтверждение для ЗГД. */
+  expectedResult: string | null;
+  originalDeadline: Date | null;
+  blockedBy: string | null;
+  blockedUntil: Date | null;
+  cancelReason: string | null;
+  origin: string | null;
+  assignedByName: string | null;
+  zgdControl: boolean;
+  publishedAt: Date | null;
 };
 
 export type ArchiveMode = "active" | "archived" | "all";
@@ -114,6 +124,15 @@ export function toTableRow(i: ItemRecord, dicts: Dicts, changedAfterSubmission =
     updatedAt: i.updatedAt,
     staleWeeks: weeksSince(i.updatedAt),
     archived: i.archivedAt !== null,
+    expectedResult: i.expectedResult,
+    originalDeadline: i.originalDeadline,
+    blockedBy: i.blockedBy,
+    blockedUntil: i.blockedUntil,
+    cancelReason: i.cancelReason,
+    origin: i.origin,
+    assignedByName: i.assignedByName,
+    zgdControl: i.zgdControl,
+    publishedAt: i.publishedAt,
   };
 }
 

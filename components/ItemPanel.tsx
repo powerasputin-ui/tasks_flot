@@ -16,6 +16,9 @@ import { ItemFiles } from "@/components/ItemFiles";
 import type { ItemFile } from "@/lib/item-files";
 import { FIELD_LABEL } from "@/lib/audit-format";
 import { DEFAULT_LABEL } from "@/lib/table-columns";
+import { WorkflowSection } from "@/components/WorkflowSection";
+import { WORKFLOW_COLUMNS as WF_COLS } from "@/lib/workflow";
+import type { TrackerColumnKey } from "@/lib/tracker";
 
 /** Поле истории → колонка таблицы, по чьей подписи его называем. */
 const HIST_KEY: Record<string, string> = { title: "name", cost: "cost", trackId: "track", attractivenessId: "attractiveness", responsibleId: "owner", deadline: "deadline", statusId: "status", comment: "comment" };
@@ -48,6 +51,15 @@ export type ItemRow = {
   createdByName: string;
   customValues?: Record<string, string>;
   files?: ItemFile[];
+  /** Поручение (трекер). */
+  expectedResult?: string | null;
+  originalDeadline?: string | null;
+  blockedBy?: string | null;
+  blockedUntil?: string | null;
+  cancelReason?: string | null;
+  origin?: string | null;
+  assignedByName?: string | null;
+  zgdControl?: boolean;
 };
 
 type FormState = {
@@ -65,6 +77,10 @@ type FormState = {
   custom: Record<string, string>;
   /** ссылки на файлы общего диска */
   files: ItemFile[];
+  /** ожидаемый результат поручения */
+  expectedResult: string;
+  /** причина переноса срока (если срок уже был и меняется) */
+  deadlineReason: string;
 };
 
 export type CustomColumnRef = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
@@ -96,6 +112,8 @@ const fromRow = (r: ItemRow | null, defaultResponsibleId: string, prefill?: Item
   operFlag: r?.operFlag ?? false,
   custom: { ...(r?.customValues ?? {}) },
   files: [...(r?.files ?? [])],
+  expectedResult: r?.expectedResult ?? "",
+  deadlineReason: "",
 });
 
 export function ItemPanel({
@@ -113,6 +131,7 @@ export function ItemPanel({
   onClose,
   onSaved,
   onRowUpdated,
+  actor = null,
 }: {
   row: ItemRow | null;
   refs: Refs;
@@ -134,6 +153,8 @@ export function ItemPanel({
   onSaved: (row?: ItemRow) => void;
   /** Позицию сохранили, не закрывая карточку (например, прикрепили документ) — обновить строку в таблице. */
   onRowUpdated?: (row: ItemRow) => void;
+  /** Кто смотрит — для действий трекера (сдать, принять, вернуть…). */
+  actor?: { id: string; role: string } | null;
 }) {
   const [base, setBase] = useState<ItemRow | null>(row);
   const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId, prefill));
@@ -154,6 +175,12 @@ export function ItemPanel({
     [refs.tracks, form.segmentId]
   );
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(fromRow(base, defaultResponsibleId, prefill)), [form, base, defaultResponsibleId, prefill]);
+  // колонка трекера по статусу (справочник статусов из bootstrap несёт trackerColumn)
+  const colOfStatus = (id: string): TrackerColumnKey => ((refs.statuses.find((x) => x.id === id) as { trackerColumn?: TrackerColumnKey | null } | undefined)?.trackerColumn ?? "TODO");
+  // срок уже был и меняется — нужна причина (сервер тоже требует)
+  const deadlineMoved = !!base?.deadline && form.deadline !== base.deadline.slice(0, 10);
+  // поручение ЗГД / на контроле ЗГД: руководитель срок не переносит (lib/workflow.ts deadlineChangeError)
+  const deadlineLocked = lockResponsible && !!base && !!base.deadline && (!!base.zgdControl || base.origin === "ZGD");
 
   useEffect(() => {
     if (tab !== "history" || !base) return;
@@ -177,6 +204,8 @@ export function ItemPanel({
     operFlag: form.operFlag,
     customValues: form.custom,
     files: form.files.map((f) => ({ id: f.id.startsWith("new-") ? undefined : f.id, path: f.path })),
+    expectedResult: nul(form.expectedResult),
+    ...(deadlineMoved ? { deadlineReason: form.deadlineReason } : {}),
   });
 
   async function save() {
@@ -416,6 +445,33 @@ export function ItemPanel({
             </Field>
           </Section>
 
+          <Section title="Поручение и ход работы">
+            <Field label="Ожидаемый результат">
+              {disabled ? (
+                <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
+                  <ExpandableText text={form.expectedResult || "не указан"} lines={4} />
+                </div>
+              ) : (
+                <AutoTextarea value={form.expectedResult} onChange={(e) => set("expectedResult", e.target.value)} maxLength={2000} placeholder="Что должно получиться: документ, решение, договор…" />
+              )}
+            </Field>
+            {base && !isNew && (
+              <WorkflowSection
+                row={base}
+                column={colOfStatus(base.statusId ?? "")}
+                actor={actor}
+                readOnly={previewMode || dirty}
+                onChanged={(r) => {
+                  const next = r as ItemRow;
+                  setBase(next);
+                  setForm(fromRow(next, defaultResponsibleId, prefill));
+                  onRowUpdated?.(next);
+                }}
+              />
+            )}
+            {base && !isNew && dirty && <p className="text-[11px] text-on-surface-variant">Сначала сохраните изменения — потом действия по задаче.</p>}
+          </Section>
+
           <Section title="Ответственность и срок">
             <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <div className="col-span-2">
@@ -424,11 +480,21 @@ export function ItemPanel({
                 </Field>
               </div>
               <Field label={L("deadline")}>
-                <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled} className="input w-full" />
+                <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)} disabled={disabled || deadlineLocked} className="input w-full" title={deadlineLocked ? "Срок под контролем ЗГД: перенос — только с согласия директора" : undefined} />
+                {deadlineLocked && <p className="mt-1 text-[11px] text-on-surface-variant">Под контролем ЗГД: перенос — через директора.</p>}
               </Field>
               <Field label={L("status")}>
-                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={lockResponsible ? refs.statuses.filter((s) => (s as { trackerColumn?: string | null }).trackerColumn !== "DONE" || s.id === form.statusId) : refs.statuses} disabled={disabled || (lockResponsible && (refs.statuses.find((s) => s.id === base?.statusId) as { trackerColumn?: string | null } | undefined)?.trackerColumn === "DONE")} />
+                {/* «На проверке», «Выполнено», «Не актуально» — только действиями ниже (сдать / принять / отменить) */}
+                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={refs.statuses.filter((s) => !WF_COLS.includes(colOfStatus(s.id)) || s.id === form.statusId)} disabled={disabled || WF_COLS.includes(colOfStatus(base?.statusId ?? ""))} />
+                {WF_COLS.includes(colOfStatus(base?.statusId ?? "")) && <p className="mt-1 text-[11px] text-on-surface-variant">Меняется действиями в «Ходе работы».</p>}
               </Field>
+              {deadlineMoved && (
+                <div className="col-span-2 max-sm:col-span-1">
+                  <Field label="Причина переноса срока *">
+                    <input value={form.deadlineReason} onChange={(e) => set("deadlineReason", e.target.value)} maxLength={500} className="input w-full" placeholder="Почему срок сдвигается" />
+                  </Field>
+                </div>
+              )}
             </div>
           </Section>
 
