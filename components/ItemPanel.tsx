@@ -53,6 +53,7 @@ export type ItemRow = {
   files?: ItemFile[];
   /** Поручение (трекер). */
   expectedResult?: string | null;
+  statusColumn?: string | null;
   originalDeadline?: string | null;
   blockedBy?: string | null;
   blockedUntil?: string | null;
@@ -181,6 +182,8 @@ export function ItemPanel({
   const deadlineMoved = !!base?.deadline && form.deadline !== base.deadline.slice(0, 10);
   // поручение ЗГД / на контроле ЗГД: руководитель срок не переносит (lib/workflow.ts deadlineChangeError)
   const deadlineLocked = lockResponsible && !!base && !!base.deadline && (!!base.zgdControl || !!base.origin);
+  // формулировку поручения и ожидаемый результат задаёт тот, кто поручил: исполнитель их не переписывает (сервер тоже)
+  const orderLocked = lockResponsible && !!base?.origin;
 
   useEffect(() => {
     if (tab !== "history" || !base) return;
@@ -289,7 +292,10 @@ export function ItemPanel({
       method: base.archived ? "POST" : "DELETE",
     });
     if (res.ok) onSaved((await res.json().catch(() => null))?.row);
-    else setError(base.archived ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
+    else {
+      const body = await res.json().catch(() => null);
+      setError(body?.message ?? (base.archived ? "Не удалось вернуть позицию." : res.status === 403 ? "Не удалось удалить позицию: удалять может только тот, кто её заполняет." : "Не удалось удалить позицию."));
+    }
   }
 
   const name = (list: Ref[], id: string | null) => (id ? list.find((x) => x.id === id)?.name ?? "—" : "—");
@@ -426,7 +432,7 @@ export function ItemPanel({
 
           <Section title="Основное">
             <Field label={`${L("name")} *`}>
-              {disabled ? (
+              {disabled || orderLocked ? (
                 <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
                   <ExpandableText text={form.title || "—"} lines={4} />
                 </div>
@@ -447,9 +453,10 @@ export function ItemPanel({
 
           <Section title="Поручение и ход работы">
             <Field label="Ожидаемый результат">
-              {disabled ? (
+              {disabled || orderLocked ? (
                 <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
                   <ExpandableText text={form.expectedResult || "не указан"} lines={4} />
+                  {orderLocked && !disabled && <p className="mt-1 text-[11px] text-on-surface-variant">Поручение: формулировку и ожидаемый результат меняет директор.</p>}
                 </div>
               ) : (
                 <AutoTextarea value={form.expectedResult} onChange={(e) => set("expectedResult", e.target.value)} maxLength={2000} placeholder="Что должно получиться: документ, решение, договор…" />

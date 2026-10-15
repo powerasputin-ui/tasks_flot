@@ -36,7 +36,7 @@ async function DELETEHandler(_request: NextRequest, { params }: { params: Promis
   const actor = await requireActor();
   const { id } = await params;
   const result = await setItemArchived(actor, id, true);
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: ITEM_ERROR_STATUS[result.error] });
+  if (!result.ok) return NextResponse.json({ error: result.error, message: result.message }, { status: ITEM_ERROR_STATUS[result.error] });
   return NextResponse.json({ row: await rowFromRecord(result.record) });
 }
 

@@ -1,4 +1,5 @@
 import type { TableRow } from "@/lib/table-view";
+import { isOverdueRow } from "@/lib/overdue";
 import { ATTRACTIVENESS_LABEL, attractivenessRank, attractivenessText } from "@/lib/attractiveness";
 import { COLUMN_LABEL, GROUP_LABEL, resolveConfig, type GroupKey, type ReportConfig, type StdColumn } from "@/lib/report-config";
 
@@ -61,14 +62,12 @@ export type ReportModel = {
 };
 
 const NO_VALUE: Record<GroupKey, string> = { segment: "Без сегмента", track: "Без трека", owner: "Без ответственного", status: "Без статуса" };
-const DONE_STATUSES = ["Завершено", "Не актуально"];
 
 const ruDate = (d: Date) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-export function isOverdue(r: Pick<TableRow, "deadline" | "statusName" | "archived">, now: Date): boolean {
-  if (!r.deadline || r.archived) return false;
-  if (r.statusName && DONE_STATUSES.includes(r.statusName)) return false;
-  return new Date(r.deadline) < now;
+/** Одно правило с таблицей, аналитикой и ИИ — lib/overdue.ts (в сам день срока ещё не просрочено). */
+export function isOverdue(r: Pick<TableRow, "deadline" | "statusName" | "statusColumn" | "archived">, now: Date): boolean {
+  return isOverdueRow(r, now);
 }
 
 function groupValue(r: TableRow, key: GroupKey): { id: string; label: string } {

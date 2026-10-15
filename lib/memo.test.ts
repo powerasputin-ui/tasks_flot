@@ -143,6 +143,30 @@ describe("связь с источниками", () => {
     expect(r.doc.sections[0].bullets).toHaveLength(2);
   });
 
+  it("правленый пункт помечается и когда сменились срок, статус или ответственный (иначе ЗГД уйдёт прежняя дата)", () => {
+    const base = item("a", { comment: "Текст", deadline: "2026-10-20T00:00:00Z", statusName: "В работе", ownerName: "Сухов В.А." });
+    const doc = buildDraft([base], defs);
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: "Моя версия", edited: true };
+    const id = doc.sections[0].bullets[0].id;
+    expect(syncWithSources(doc, [base]).flags.get(id)?.sourceChanged).toBe(false);
+    expect(syncWithSources(doc, [{ ...base, deadline: "2026-11-05T00:00:00Z" }]).flags.get(id)?.sourceChanged).toBe(true);
+    expect(syncWithSources(doc, [{ ...base, statusName: "Завершено" }]).flags.get(id)?.sourceChanged).toBe(true);
+    expect(syncWithSources(doc, [{ ...base, ownerName: "Майков Т.Г." }]).flags.get(id)?.sourceChanged).toBe(true);
+  });
+
+  it("пункт из справки по прежнему правилу (хэш одного комментария) без изменений не помечается и тихо переводится на новое", async () => {
+    const { hashText } = await import("@/lib/memo");
+    const src = item("a", { comment: "Текст", deadline: "2026-10-20T00:00:00Z" });
+    const doc = buildDraft([src], defs);
+    doc.sections[0].bullets[0] = { ...doc.sections[0].bullets[0], text: "Моя версия", edited: true, sourceHash: hashText("Текст") };
+    const r = syncWithSources(doc, [src]);
+    expect(r.flags.get(doc.sections[0].bullets[0].id)?.sourceChanged).toBe(false);
+    expect(r.autoUpdated).toBe(1);
+    expect(r.doc.sections[0].bullets[0].sourceHash.startsWith("2.")).toBe(true);
+    // а если комментарий успел измениться — пометка, как и раньше
+    expect(syncWithSources(doc, [{ ...src, comment: "Другое" }]).flags.get(doc.sections[0].bullets[0].id)?.sourceChanged).toBe(true);
+  });
+
   it("ручные пункты без источников не помечаются", () => {
     const doc = { sections: [{ id: "s1", title: "Р", kind: "section" as const, bullets: [manualBullet("Текст")] }] };
     expect(syncWithSources(doc, []).flags.size).toBe(0);

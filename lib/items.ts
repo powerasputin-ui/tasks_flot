@@ -4,7 +4,7 @@ import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPur
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
-import { getDicts } from "@/lib/dictionaries";
+import { getDicts, invalidateDicts, type Dicts } from "@/lib/dictionaries";
 import { deadlineChangeError, directStatusError } from "@/lib/workflow";
 import { filesText, normalizeFiles, readFiles } from "@/lib/item-files";
 import { randomUUID } from "node:crypto";
@@ -59,11 +59,23 @@ async function lockedForHead(actor: Actor, existing: { operFlag: boolean }): Pro
 
 /** Сегмент, трек и ответственный должны быть из дирекции актора: иначе через чужой id можно «привязаться» к чужой дирекции. */
 async function refsInDirectorate(directorateId: string, f: { segmentId?: string | null; trackId?: string | null; responsibleId?: string | null }): Promise<boolean> {
-  const d = await getDicts();
-  const okSeg = !f.segmentId || d.segments.get(f.segmentId)?.directorateId === directorateId;
-  const okTrack = !f.trackId || d.tracks.get(f.trackId)?.directorateId === directorateId;
-  const okUser = !f.responsibleId || d.users.get(f.responsibleId)?.directorateId === directorateId;
-  return okSeg && okTrack && okUser;
+  const ok = (d: Dicts) =>
+    (!f.segmentId || d.segments.get(f.segmentId)?.directorateId === directorateId) &&
+    (!f.trackId || d.tracks.get(f.trackId)?.directorateId === directorateId) &&
+    (!f.responsibleId || d.users.get(f.responsibleId)?.directorateId === directorateId);
+  if (ok(await getDicts())) return true;
+  // справочник в памяти живёт минуту и у каждого сервера свой: сотрудника, сегмент или трек могли завести только что
+  // на другом — перечитываем один раз, прежде чем отказать
+  invalidateDicts();
+  return ok(await getDicts());
+}
+
+/** Значения своих колонок; колонку могли добавить только что на другом сервере — при отказе справочник перечитывается. */
+async function mergeCustom(directorateId: string, existing: Record<string, string>, patch: Record<string, string>) {
+  const first = mergeCustomValues(await activeColumnDefs(directorateId), existing, patch);
+  if (first.ok) return first;
+  invalidateDicts();
+  return mergeCustomValues(await activeColumnDefs(directorateId), existing, patch);
 }
 
 /**
@@ -99,7 +111,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
   }
   let custom: Record<string, string> = {};
   if (customValues) {
-    const merged = mergeCustomValues(await activeColumnDefs(directorateId), {}, customValues);
+    const merged = await mergeCustom(directorateId, {}, customValues);
     if (!merged.ok) return { ok: false, error: "INVALID_CUSTOM", message: merged.error };
     custom = merged.values;
   }
@@ -124,6 +136,13 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   if (!canEditItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   if (existing.archivedAt) return { ok: false, error: "ARCHIVED" };
   if (await lockedForHead(actor, existing)) return { ok: false, error: "LOCKED", message: "Идёт сборка директором: поданные позиции сейчас не меняются. Дождитесь возврата с замечанием." };
+  // Формулировку поручения (ЗГД или директора) и ожидаемый результат задаёт тот, кто поручил: исполнитель их не
+  // переписывает — иначе принимать работу пришлось бы уже не по тому, что поручали. Ход работы — в комментарии.
+  if (existing.origin && !isDirectorial(actor.role)) {
+    const titleChanged = fields.title !== undefined && fields.title.trim() !== existing.title.trim();
+    const resultChanged = fields.expectedResult !== undefined && (fields.expectedResult ?? "").trim() !== (existing.expectedResult ?? "").trim();
+    if (titleChanged || resultChanged) return { ok: false, error: "FORBIDDEN", message: "Это поручение: формулировку и ожидаемый результат меняет директор. Ход работы пишите в комментарии." };
+  }
   // Сменить ответственного на другого может только куратор.
   if (fields.responsibleId !== undefined && !canAssignResponsible(actor, fields.responsibleId)) {
     return { ok: false, error: "FORBIDDEN" };
@@ -144,7 +163,7 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   const existingCustom = (existing.customValues ?? {}) as Record<string, string>;
   let nextCustom: Record<string, string> | undefined;
   if (customValues) {
-    const merged = mergeCustomValues(await activeColumnDefs(actor.directorateId), existingCustom, customValues);
+    const merged = await mergeCustom(actor.directorateId, existingCustom, customValues);
     if (!merged.ok) return { ok: false, error: "INVALID_CUSTOM", message: merged.error };
     nextCustom = merged.values;
   }

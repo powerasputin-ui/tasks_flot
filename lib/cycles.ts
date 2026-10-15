@@ -177,9 +177,15 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   if (created === "CHANGED") return { ok: false, error: "CHANGED", message: "Пока готовилась отправка, кто-то подал или снял позицию. Проверьте справку и отправьте ещё раз." };
   // отправленная справка — подтверждение для ЗГД всех строк дирекции: таблица — в memo_versions.rows, полный снимок
   // каждой задачи (блокер, отмена, сдача) — в item_publications; updatedAt не трогаем
+  // справка к этому моменту уже отправлена: сбой здесь не должен оставить ЗГД без уведомления, а директора — с ошибкой
+  // (повторная отправка всё равно невозможна); трекер ЗГД в худшем случае опирается на саму справку
   if (cycle.directorateId) {
-    const items = await prisma.operationalItem.findMany({ where: { directorateId: cycle.directorateId, archivedAt: null } });
-    await publishAll(items, { id: actor.id, name: actor.name }, MEMO_PUBLICATION);
+    try {
+      const items = await prisma.operationalItem.findMany({ where: { directorateId: cycle.directorateId, archivedAt: null } });
+      await publishAll(items, { id: actor.id, name: actor.name }, MEMO_PUBLICATION);
+    } catch (e) {
+      console.error("memo publish for ZGD failed", e);
+    }
   }
 
   await logMemoEvent({ id: actor.id, name: actor.name, role: actor.role }, cycle, "sent", `${actor.name} отправил справку ЗГД (оперативка №${cycle.number}${cycle.revision > 1 ? `, ред. ${cycle.revision}` : ""}).`);
@@ -215,8 +221,8 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
     await createNotification({
       userId: existing.responsibleId,
       type: "ITEM_RETURNED",
-      message: `Куратор вернул позицию «${existing.title}»: ${text}`,
-      link: "/table",
+      message: `Позицию «${existing.title}» вернули с замечанием: ${text}`,
+      link: `/table?item=${itemId}`,
       directorateId: existing.directorateId,
     });
   }

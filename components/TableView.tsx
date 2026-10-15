@@ -12,6 +12,7 @@ import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { TableExportMenu } from "@/components/TableExportMenu";
 import { CycleStrip } from "@/components/CycleStrip";
 import { WeekSelect } from "@/components/WeekSelect";
+import { isOverdueRow } from "@/lib/overdue";
 import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
@@ -187,14 +188,17 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       if (d?.row) applyRow(d.row);
       else setRefetchTick((t) => t + 1);
       setFeedTick((t) => t + 1);
-    } else setError(action === "restore" ? "Не удалось вернуть позицию." : "Не удалось удалить позицию: удалять может только тот, кто её заполняет.");
+    } else {
+      const body = await res.json().catch(() => null);
+      setError(body?.message ?? (action === "restore" ? "Не удалось вернуть позицию." : res.status === 403 ? "Не удалось удалить позицию: удалять может только тот, кто её заполняет." : "Не удалось удалить позицию."));
+    }
   }
 
   async function returnRow(row: Row) {
     setCtx(null);
     if (preview) return previewBlock();
     const comment = await askText({
-      title: "Вернуть на доработку",
+      title: "Вернуть с замечанием",
       message: `Что нужно исправить в «${row.name}»? Комментарий увидит ответственный.`,
       placeholder: "Например: уточните срок и добавьте оценку",
       okLabel: "Вернуть",
@@ -213,7 +217,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       if (d?.row) applyRow(d.row);
       else setRefetchTick((t) => t + 1);
       setFeedTick((t) => t + 1);
-    } else setError("Не удалось вернуть позицию.");
+    } else setError((await res.json().catch(() => null))?.message ?? "Не удалось вернуть позицию.");
   }
 
   const canDeleteRow = useCallback(
@@ -360,15 +364,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       return;
     }
     applyRow(row); // не вышло — возвращаем как было
-    setError(res.status === 409 ? "Позиция была изменена другим пользователем — список обновлён." : "Не удалось изменить отметку «Опер».");
-    if (res.status === 409) revalidate();
+    const body = await res.json().catch(() => null);
+    // 409 — не только «изменили другие»: во время сборки справки поданное заморожено (LOCKED), у удалённой — ARCHIVED
+    const conflict = res.status === 409 && body?.error === "CONFLICT";
+    setError(conflict ? "Позиция была изменена другим пользователем — список обновлён." : body?.message ?? "Не удалось изменить отметку «Опер».");
+    if (conflict) revalidate();
   }
 
-  const isOverdue = useCallback((row: Row) => {
-    if (!row.deadline || row.archived) return false;
-    if (row.statusName === "Завершено" || row.statusName === "Не актуально") return false;
-    return new Date(row.deadline) < new Date();
-  }, []);
+  // одно правило с аналитикой, отчётом и ИИ: в сам день срока ещё не просрочено, закрытая по колонке трекера — нет
+  const isOverdue = useCallback((row: Row) => isOverdueRow(row), []);
 
   const canCompile = !!me && (isDirectorial(me.role) || !!me.memoEditor);
   useEffect(() => {
@@ -1001,7 +1005,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               )}
               {me && isDirectorial(me.role) && ctx.row.operFlag && !ctx.row.archived && (
                 <button onClick={() => returnRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
-                  <Undo2 size={14} className="text-outline" /> Вернуть на доработку
+                  <Undo2 size={14} className="text-outline" /> Вернуть с замечанием
                 </button>
               )}
               {ctx.row.archived && canEditRow(ctx.row) && (

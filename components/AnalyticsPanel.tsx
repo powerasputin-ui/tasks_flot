@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { isOverdueRow } from "@/lib/overdue";
 import { attractivenessText } from "@/lib/attractiveness";
 import { Panel } from "@/components/ui/Panel";
 
 export type AnalyticsRow = {
   statusName: string | null;
+  statusColumn?: string | null;
   statusColor: string | null;
   attractivenessName: string | null;
   attractivenessColor: string | null;
@@ -35,9 +37,7 @@ export function AnalyticsPanel({ rows, title, onClose }: { rows: AnalyticsRow[];
   const stats = useMemo(() => {
     const now = new Date();
     const active = rows.filter((r) => !r.archived);
-    const overdue = active.filter(
-      (r) => r.deadline && new Date(r.deadline) < now && r.statusName !== "Завершено" && r.statusName !== "Не актуально"
-    ).length;
+    const overdue = active.filter((r) => isOverdueRow(r, now)).length;
     return {
       total: rows.length,
       sent: rows.filter((r) => r.operFlag).length,

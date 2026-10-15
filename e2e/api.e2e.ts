@@ -410,6 +410,7 @@ describe("удаление, возврат, замечания", () => {
     expect(note?.text).toContain("уточните сумму");
     const notif = await prisma.notification.findFirst({ where: { userId: head.id, type: "ITEM_RETURNED", message: { contains: TAG } } });
     expect(notif?.type).toBe("ITEM_RETURNED");
+    expect(notif?.link).toContain(headItem); // ведёт сразу к позиции, а не на всю таблицу
   });
 
   it("«изменено после отправки»: правка отправленной позиции ставит пометку", async () => {
@@ -1032,7 +1033,9 @@ describe("руководитель, который заполняет табли
     const blocked = await call(headB, item.PATCH, `/api/items/${itemId}`, { method: "PATCH", id: itemId, body: { version: cur, comment: "правка во время сборки" } });
     expect(blocked.status).toBe(409);
     expect(blocked.data.error).toBe("LOCKED");
-    expect((await call(headB, item.DELETE, `/api/items/${itemId}`, { method: "DELETE", id: itemId })).status).toBe(409);
+    const delLocked = await call(headB, item.DELETE, `/api/items/${itemId}`, { method: "DELETE", id: itemId });
+    expect(delLocked.status).toBe(409);
+    expect(delLocked.data.message).toMatch(/сборка/); // таблица показывает причину, а не «удалять может только автор»
     // и действием трекера (заблокировать, сдать) — тоже нет: иначе запрет обходится через доску
     const viaTracker = await call(headB, transition.POST, `/api/items/${itemId}/transition`, { method: "POST", id: itemId, body: { version: cur, action: "block", blockedBy: "жду ответа" } });
     expect(viaTracker.status).toBe(409);
@@ -2477,6 +2480,22 @@ describe("ЗГД в трекере: только подтверждённое д
     // на запрос ЗГД отвечают один раз
     const answered = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: id, answeredAt: { not: null } } });
     expect((await zgdAct(director, { action: "answer", requestId: answered.id, answer: "ещё один ответ" })).status).toBe(409);
+  });
+
+  it("исполнитель не переписывает формулировку и ожидаемый результат поручения; ход работы — в комментарии; директор может", async () => {
+    const o = await zgdAct(director, { action: "director-order", responsibleId: head.id, title: `${TAG} поручение с формулировкой`, expectedResult: "Справка по флоту", deadline: "2026-12-10" });
+    expect(o.status).toBe(200);
+    const oid = o.data.id as string;
+    created.items.push(oid);
+    let cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id: oid } });
+    const put = (a: Actor, body: Record<string, unknown>) => call(a, item.PATCH, `/api/items/${oid}`, { method: "PATCH", id: oid, body: { version: cur.version, ...body } });
+    expect((await put(head, { title: "Сделать что-то попроще" })).status).toBe(403);
+    expect((await put(head, { expectedResult: "Устный доклад" })).status).toBe(403);
+    // та же формулировка (карточка шлёт все поля) и комментарий — можно
+    const ok = await put(head, { title: `${TAG} поручение с формулировкой`, expectedResult: "Справка по флоту", comment: "Собрали данные по 3 судам" });
+    expect(ok.status).toBe(200);
+    cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id: oid } });
+    expect((await put(director, { expectedResult: "Справка по флоту и предложения" })).status).toBe(200);
   });
 
   it("админ, который сам ведёт позиции, свою сданную задачу не принимает — принимает директор", async () => {

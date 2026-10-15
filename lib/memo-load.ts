@@ -150,6 +150,12 @@ export async function loadMemo(cycle: Cycle): Promise<MemoState> {
       if (saved.count === 1) version += 1;
     }
   }
+  // отправленная оперативка: документ — как был, без подтягивания нынешних данных таблицы (иначе выгрузка старой
+  // справки показала бы сегодняшние сроки и статусы)
+  if (!editable) {
+    const dirRow = await prisma.directorate.findUnique({ where: { id: directorateId }, select: { name: true, shortName: true } });
+    return { cycle, doc, version, flags: {}, sources, title: resolveTitle(doc, { name: dirRow?.name ?? "", shortName: dirRow?.shortName }, cycle.meetingDate), defs };
+  }
   const synced = syncWithSources(doc, sources);
   const resynced = resyncSections(synced.doc, sources, defs);
   // у зафиксированной справки подачу уже сбросили при отправке ЗГД — там прятать нечего, смотрим как есть

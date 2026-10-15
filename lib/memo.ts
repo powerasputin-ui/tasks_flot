@@ -57,6 +57,10 @@ export type SourceItem = {
   createdAt?: Date | string;
   /** Готовый текст заготовки пункта, собранный по «виду справки» дирекции (поля таблицы). Если не задан — комментарий или название. */
   text?: string;
+  /** Факты строки для пометки «источник изменился» (не зависят от «Вида справки»): срок, статус, ответственный. */
+  deadline?: string | Date | null;
+  statusName?: string | null;
+  ownerName?: string | null;
 };
 
 /**
@@ -195,6 +199,20 @@ function rawSourceText(item: Pick<SourceItem, "title" | "comment">): string {
   return clean(item.comment ?? "") || clean(item.title);
 }
 
+/**
+ * Хэш источника для пометки «источник изменился» у правленого пункта: название, комментарий и факты строки — срок,
+ * статус, ответственный. Иначе директор правил текст, руководитель перенёс срок — а ЗГД уходит прежняя дата без
+ * всякого предупреждения. Не зависит от «Вида справки» (смена галочек — не изменение источника).
+ * Префикс — версия правила: у пунктов из прежних справок хэш одного комментария (см. syncWithSources).
+ */
+const HASH_V = "2.";
+function factsText(item: SourceItem): string {
+  return [clean(item.title), clean(item.comment ?? ""), item.deadline ? ruDay(item.deadline) : "", item.statusName ?? "", item.ownerName ?? ""].join("#");
+}
+function sourceHashOf(itemIds: string[], byId: Map<string, SourceItem>): string {
+  return HASH_V + hashText(itemIds.map((id) => byId.get(id)).filter((x): x is SourceItem => !!x).map(factsText).join(" | "));
+}
+
 const isEligible = (i: SourceItem) => i.operFlag && !i.archived;
 
 /**
@@ -213,7 +231,7 @@ let counter = 0;
 const newId = (prefix: string) => `${prefix}_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 function bulletFor(item: SourceItem): MemoBullet {
-  return { id: newId("b"), text: sourceText(item), itemIds: [item.id], origin: "auto", edited: false, hidden: false, sourceHash: hashText(rawSourceText(item)) };
+  return { id: newId("b"), text: sourceText(item), itemIds: [item.id], origin: "auto", edited: false, hidden: false, sourceHash: sourceHashOf([item.id], new Map([[item.id, item]])) };
 }
 
 /**
@@ -298,7 +316,7 @@ export function refreshDraft(doc: MemoDoc, items: SourceItem[], defs: SectionDef
 }
 
 export type BulletFlags = {
-  /** Источник (комментарий) изменился после того, как пункт был собран/принят. */
+  /** Источник (название, комментарий, срок, статус, ответственный) изменился после того, как пункт был собран/принят. */
   sourceChanged: boolean;
   /** Почему источник недоступен (см. `missingReason`): false, если всё на месте. */
   sourceMissing: false | "unsubmitted" | "archived";
@@ -316,8 +334,8 @@ function combinedRawSource(itemIds: string[], byId: Map<string, SourceItem>): st
 /**
  * Свежие данные → документ: пункты, которые никто не правил и у которых один источник, обновляются сами (и по
  * данным, и по «виду справки» — эта часть не зависит от того, что именно изменилось); остальные помечаются
- * («источник изменился»), только если правда изменилось содержание строки (комментарий), а не «вид справки» —
- * текст директора не перезаписывается.
+ * («источник изменился»), только если правда изменилась строка (название, комментарий, срок, статус, ответственный),
+ * а не «вид справки» — текст директора не перезаписывается.
  */
 export function syncWithSources(doc: MemoDoc, items: SourceItem[]): { doc: MemoDoc; flags: Map<string, BulletFlags>; autoUpdated: number } {
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -337,10 +355,21 @@ export function syncWithSources(doc: MemoDoc, items: SourceItem[]): { doc: MemoD
         const composedNow = combinedSource(b.itemIds, byId);
         flags.set(b.id, { sourceChanged: false, sourceMissing });
         if (composedNow !== b.text) autoUpdated++;
-        return { ...b, text: composedNow, sourceHash: hashText(rawNow) };
+        return { ...b, text: composedNow, sourceHash: sourceHashOf(b.itemIds, byId) };
       }
-      const changed = !!rawNow && hashText(rawNow) !== b.sourceHash;
-      flags.set(b.id, { sourceChanged: changed, sourceMissing });
+      if (!rawNow) {
+        flags.set(b.id, { sourceChanged: false, sourceMissing });
+        return b;
+      }
+      // пункт из справки, собранной по прежнему правилу (хэш одного комментария): не менялся — тихо переводим на новое
+      if (!b.sourceHash.startsWith(HASH_V)) {
+        const same = hashText(rawNow) === b.sourceHash;
+        flags.set(b.id, { sourceChanged: !same, sourceMissing });
+        if (!same) return b;
+        autoUpdated++;
+        return { ...b, sourceHash: sourceHashOf(b.itemIds, byId) };
+      }
+      flags.set(b.id, { sourceChanged: sourceHashOf(b.itemIds, byId) !== b.sourceHash, sourceMissing });
       return b;
     }),
   }));
@@ -432,7 +461,7 @@ export function resyncSections(doc: MemoDoc, items: SourceItem[], defs: SectionD
 /** Принять новый источник: пометка «источник изменился» снимается (текст остаётся как есть). */
 export function acceptSource(doc: MemoDoc, bulletId: string, items: SourceItem[]): MemoDoc {
   const byId = new Map(items.map((i) => [i.id, i]));
-  return { ...doc, sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.id === bulletId ? { ...b, sourceHash: hashText(combinedRawSource(b.itemIds, byId)) } : b)) })) };
+  return { ...doc, sections: doc.sections.map((s) => ({ ...s, bullets: s.bullets.map((b) => (b.id === bulletId ? { ...b, sourceHash: sourceHashOf(b.itemIds, byId) } : b)) })) };
 }
 
 /** Объединить пункт `bId` в пункт `aId` того же раздела: тексты склеиваются, источники объединяются. */
@@ -452,7 +481,7 @@ export function mergeBullets(doc: MemoDoc, sectionId: string, aId: string, bId: 
         itemIds,
         edited: true,
         hidden: a.hidden && b.hidden,
-        sourceHash: hashText(combinedRawSource(itemIds, byId)),
+        sourceHash: sourceHashOf(itemIds, byId),
       };
       return { ...s, bullets: s.bullets.filter((x) => x.id !== bId).map((x) => (x.id === aId ? merged : x)) };
     }),
@@ -462,7 +491,7 @@ export function mergeBullets(doc: MemoDoc, sectionId: string, aId: string, bId: 
 /** Новый пункт, написанный вручную (в раздел или из строки, которая не вошла в справку). */
 export function manualBullet(text = "", itemIds: string[] = [], items: SourceItem[] = []): MemoBullet {
   const byId = new Map(items.map((i) => [i.id, i]));
-  return { id: newId("b"), text, itemIds, origin: "manual", edited: true, hidden: false, sourceHash: hashText(combinedRawSource(itemIds, byId)) };
+  return { id: newId("b"), text, itemIds, origin: "manual", edited: true, hidden: false, sourceHash: sourceHashOf(itemIds, byId) };
 }
 
 /** Строки, которые не вошли в справку: не податься или не попали ни в один пункт. */
@@ -557,7 +586,7 @@ export function setIncluded(doc: MemoDoc, item: SourceItem, include: boolean, de
         if (!b.itemIds.includes(item.id)) return b;
         if (b.itemIds.length === 1) return { ...b, hidden: true };
         const itemIds = b.itemIds.filter((id) => id !== item.id);
-        return { ...b, itemIds, sourceHash: hashText(combinedRawSource(itemIds, byId)) };
+        return { ...b, itemIds, sourceHash: sourceHashOf(itemIds, byId) };
       }),
     })),
   };

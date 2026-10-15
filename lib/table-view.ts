@@ -32,6 +32,8 @@ export type TableRow = {
   statusId: string | null;
   statusName: string | null;
   statusColor: string | null;
+  /** Колонка трекера статуса: «Выполнено» / «Не показывать» — позиция закрыта, просрочкой не считается. */
+  statusColumn?: string | null;
   operFlag: boolean;
   comment: string | null;
   version: number;
@@ -113,6 +115,7 @@ export function toTableRow(i: ItemRecord, dicts: Dicts, changedAfterSubmission =
     statusId: i.statusId,
     statusName: status?.name ?? null,
     statusColor: status?.color ?? null,
+    statusColumn: status?.trackerColumn ?? null,
     operFlag: i.operFlag,
     comment: i.comment,
     version: i.version,
