@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { columnOf, ruDay, timelineRange, type TrackerColumnKey, type TrackerEvent, type TrackerEventKind } from "@/lib/tracker";
 import { overdue, type TRow } from "@/components/tracker/TrackerView";
 
 const DAY = 24 * 3600 * 1000;
-const PX_DAY = 14; // ширина дня: неделя ≈ 100 px
+const PX_DAY = 14; // минимальная ширина дня (неделя ≈ 100 px); на широком экране шкала растягивается на всю ширину
 const NAME_W = 300;
 
 /** Цвет точки по виду события; сдвиг срока позже — красный. */
@@ -40,8 +40,22 @@ const LEGEND: Array<[string, string]> = [
 export function TrackerTimeline({ rows, colOf, hot, events, colors, onOpen }: { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, string[]>; events: Map<string, TrackerEvent[]>; colors: Map<string, string>; onOpen: (r: TRow) => void }) {
   const [now] = useState(() => Date.now()); // «сегодня» — на момент открытия страницы
   const range = useMemo(() => timelineRange([...rows.flatMap((r) => (events.get(r.id) ?? []).map((e) => e.at)), ...rows.map((r) => r.deadline)]), [rows, events]);
-  const width = Math.round((range.to - range.from) / DAY) * PX_DAY;
-  const x = (d: string | number | Date) => Math.round(((new Date(d).getTime() - range.from) / DAY) * PX_DAY);
+  // ширина блока: шкала занимает всё место справа от названий, но не уже PX_DAY на день (тогда — прокрутка)
+  const box = useRef<HTMLDivElement>(null);
+  const [boxW, setBoxW] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setBoxW(el.clientWidth);
+    measure(); // сразу, не дожидаясь первой отрисовки
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const days = Math.round((range.to - range.from) / DAY);
+  const pxDay = Math.max(PX_DAY, (boxW - NAME_W) / days);
+  const width = Math.floor(days * pxDay);
+  const x = (d: string | number | Date) => Math.round(((new Date(d).getTime() - range.from) / DAY) * pxDay);
   const weeks: number[] = [];
   for (let t = range.from; t < range.to; t += 7 * DAY) weeks.push(t);
   const today = x(now);
@@ -70,7 +84,7 @@ export function TrackerTimeline({ rows, colOf, hot, events, colors, onOpen }: { 
           <span className="h-2.5 w-2.5 rotate-45 border-2 border-on-surface bg-surface" /> текущий срок
         </span>
       </div>
-      <div className="overflow-x-auto">
+      <div ref={box} className="overflow-x-auto">
         <div className="relative" style={{ width: NAME_W + width }}>
           {/* шкала недель */}
           <div className="sticky top-0 z-10 flex border-b border-outline-variant bg-surface-low">

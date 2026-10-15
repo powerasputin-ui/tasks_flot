@@ -353,7 +353,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
               if (drag && droppable) onMove(drag, c.key);
               setDrag(null);
             }}
-            className={`flex w-72 shrink-0 flex-col rounded-lg border bg-surface-low p-2 transition-colors ${over === c.key ? "border-primary bg-primary-soft" : "border-outline-variant"} ${drag && !droppable ? "opacity-60" : ""}`}
+            className={`flex min-w-64 flex-1 basis-0 flex-col rounded-lg border bg-surface-low p-2 transition-colors ${over === c.key ? "border-primary bg-primary-soft" : "border-outline-variant"} ${drag && !droppable ? "opacity-60" : ""}`}
           >
             <header className="mb-2 flex items-center justify-between px-1">
               <span className="text-[13px] font-bold text-on-surface">{c.label}</span>
