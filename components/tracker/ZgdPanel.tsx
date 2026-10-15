@@ -79,13 +79,13 @@ export function ZgdPanel({ row, events, hot, onClose, onChanged }: { row: TRow; 
             </Fragment>
           ))}
         </dl>
-        {row.blockedBy && <p className="rounded-md bg-status-red/10 px-3 py-2 text-status-red">Заблокировано: ждём {row.blockedBy}{row.blockedUntil ? ` (ожидают к ${ruDay(row.blockedUntil)})` : ""}</p>}
+        {row.blockedBy && <p className="rounded-md bg-status-red/10 px-3 py-2 text-status-red">На стопе: ждём {row.blockedBy}{row.blockedUntil ? ` (ожидают к ${ruDay(row.blockedUntil)})` : ""}</p>}
         {row.cancelReason && <p className="rounded-md bg-surface-high px-3 py-2 text-on-surface-variant">Отменена: {row.cancelReason}</p>}
         {rv && (
           <div className="rounded-md border border-outline-variant px-3 py-2">
-            <p className="text-on-surface-variant">Сдано на проверку</p>
+            <p className="text-on-surface-variant">{rv.decision === "ACCEPTED" ? "Итог — принят директором" : "Результат, сданный на проверку"}</p>
             <p className="mt-0.5 whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{rv.result}</p>
-            {rv.decision && <p className={`mt-1 ${rv.decision === "ACCEPTED" ? "text-status-emerald" : "text-status-red"}`}>{rv.decision === "ACCEPTED" ? "Принято" : "Возвращено"} — {rv.decidedByName}{rv.comment ? `: ${rv.comment}` : ""}</p>}
+            {rv.decision && <p className={`mt-1 ${rv.decision === "ACCEPTED" ? "text-status-emerald" : "text-status-red"}`}>{rv.decision === "ACCEPTED" ? "Принято" : "Возвращено на доработку"} — {rv.decidedByName}{rv.comment ? `: ${rv.comment}` : ""}</p>}
           </div>
         )}
         {row.comment && <p className="whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{row.comment}</p>}

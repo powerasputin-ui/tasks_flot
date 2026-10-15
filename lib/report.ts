@@ -133,7 +133,7 @@ function sortRows(rows: TableRow[], sort: { by: string; dir: "asc" | "desc" }): 
       case "name":
         return r.name.toLowerCase();
       case "status":
-        return r.statusName ?? "";
+        return r.statusOrder ?? Number.MAX_SAFE_INTEGER;
       case "owner":
         return r.ownerName ?? "";
       case "updatedAt":

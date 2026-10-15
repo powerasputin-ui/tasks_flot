@@ -42,6 +42,8 @@ export type TRow = ItemRow & {
   openRequest?: boolean;
   /** Директор: когда последний раз подтверждено для ЗГД (позже правили — «не подтверждено»). */
   publishedAt?: string | null;
+  /** ЗГД: кто дал поручение (фильтр «Мои поручения»). */
+  assignedById?: string | null;
 };
 type Status = { id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null };
 type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, HotInfo>; since: string | null; mode?: "sent"; directorates?: Array<{ id: string; name: string }>; people?: Array<{ id: string; name: string; directorateId: string; role: string }> };
@@ -64,11 +66,11 @@ const SIGNAL_HINT: Record<SignalKind, string> = {
   overdue: "Срок прошёл, задача не выполнена (и исходный срок, если его переносили)",
   slipped: "Исходный срок прошёл, задачу перенесли — текущий срок ещё не наступил",
   deadlineRequest: "Ответственный попросил перенести срок — директор ещё не решил",
-  blocker: "Отмечено «Заблокировано»: ждём чужого решения / документа (дата ожидания прошла — серьёзнее)",
+  blocker: "Задача «На стопе»: ждём чужого решения / документа (дата ожидания прошла — серьёзнее)",
   request: "ЗГД запросил статус — директор ещё не ответил",
   review: "Сдана на проверку 3+ дня назад — директор не принял и не вернул",
   soon: "До срока 3 дня или меньше",
-  data: "Нет срока / ответственного / ожидаемого результата у поручения; или в тексте «ждём», а блокер не отмечен",
+  data: "Нет срока / ответственного / ожидаемого результата у поручения; или в тексте «ждём», а задача не на стопе",
   report: "Не подана в справку, а срок в ближайшие 7 дней",
 };
 
@@ -91,7 +93,7 @@ export function TrackerView() {
   const [kind, setKind] = useState<SignalKind | null>(null);
   const [slipOnly, setSlipOnly] = useState(false);
   // охват: все / на контроле ЗГД / поручения ЗГД / ждут ответа на запрос ЗГД
-  const [scope, setScope] = useState<"all" | "control" | "orders" | "waiting">("all");
+  const [scope, setScope] = useState<"all" | "control" | "orders" | "mine" | "waiting">("all");
   const [ordering, setOrdering] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [segmentIds, setSegmentIds] = useState<string[]>([]);
@@ -174,6 +176,7 @@ export function TrackerView() {
       if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
       if (scope === "control" && !r.zgdControl) return false;
       if (scope === "orders" && !r.origin) return false;
+      if (scope === "mine" && !(r.origin === "ZGD" && r.assignedById === me?.id)) return false;
       if (scope === "waiting" && !(r.openRequest || data?.hot[r.id]?.kinds.includes("request"))) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
@@ -320,6 +323,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             ["all", "Все"],
             ["control", "На контроле"],
             ["orders", "Поручения"],
+            ...(sent ? ([["mine", "Мои поручения"]] as const) : []),
             ["waiting", sent ? "Ждут ответа" : "Запросы ЗГД"],
           ] as const).map(([k, label]) => (
             <button key={k} onClick={() => setScope(k)} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>

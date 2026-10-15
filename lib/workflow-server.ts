@@ -8,6 +8,7 @@ import { normalizeFiles, readFiles } from "@/lib/item-files";
 import { statusForColumn, type TrackerColumnKey } from "@/lib/tracker";
 import { checkAction, DECISION_TEXT, TARGET_COLUMN, type WorkflowAction, type WorkflowInput } from "@/lib/workflow";
 import type { ItemRecord } from "@/lib/table-view";
+import { STOP_STATUS } from "@/lib/statuses";
 import { randomUUID } from "node:crypto";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -34,7 +35,15 @@ export type PublishedSnapshot = {
   zgdControl: boolean;
   submitted: boolean;
   review: { result: string; submittedByName: string; submittedAt: string; decision: string | null; decidedByName: string | null; comment: string | null } | null;
+  /** Решение директора: ЗГД применяет только эти поля (статус, приёмка, стоп, отмена, срок); нет — весь снимок. */
+  only?: string[];
 };
+
+/** Поля, которые меняет решение по задаче (принять, вернуть, отменить, переоткрыть, стоп). */
+export const DECISION_FIELDS = ["statusName", "statusColor", "review", "cancelReason", "blockedBy", "blockedUntil"];
+
+/** До этого изменения у задачи не было неподтверждённых для ЗГД правок. */
+export const wasConfirmed = (item: { publishedAt: Date | null; updatedAt: Date }) => !!item.publishedAt && item.updatedAt.getTime() <= item.publishedAt.getTime();
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -93,13 +102,17 @@ export async function publishAll(items: ItemRecord[], actor: { id: string; name:
   await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" IN (${Prisma.join(ids)})`;
 }
 
-export async function publishItem(item: ItemRecord, actor: { id: string; name: string }, reason: string, db: Db = prisma, skipUserIds: string[] = []): Promise<void> {
+export async function publishItem(item: ItemRecord, actor: { id: string; name: string }, reason: string, opts: { db?: Db; skip?: string[]; only?: string[]; wasConfirmed?: boolean } = {}): Promise<void> {
   if (!item.directorateId) return;
-  const snapshot = await snapshotOf(item, db);
+  const db = opts.db ?? prisma;
+  const skipUserIds = opts.skip ?? [];
+  // решение директора уходит ЗГД без черновых правок карточки: снимок полный (для истории), применяются только поля решения
+  const snapshot: PublishedSnapshot = { ...(await snapshotOf(item, db)), ...(opts.only ? { only: opts.only } : {}) };
   const now = new Date();
   await db.itemPublication.create({ data: { itemId: item.id, directorateId: item.directorateId, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snapshot as unknown as Prisma.InputJsonValue, publishedAt: now } });
-  // напрямую: обычный update сдвинул бы updatedAt («давно не трогали» и «не подтверждено» сравнивают с ним)
-  await db.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" = ${item.id}`;
+  // напрямую: обычный update сдвинул бы updatedAt («давно не трогали» и «не подтверждено» сравнивают с ним).
+  // Только решение, а в карточке остались неподтверждённые правки — у директора она по-прежнему «не подтверждена»
+  if (!opts.only || opts.wasConfirmed) await db.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" = ${item.id}`;
   // ЗГД, взявший задачу на контроль, узнаёт о подтверждённом изменении
   if (item.zgdControl) {
     const zgd = await db.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
@@ -131,18 +144,24 @@ export async function performTransition(actor: Actor, id: string, action: Workfl
   if (item.version !== input.version) return { ok: false, status: 409, error: "CONFLICT", message: "Задачу только что изменил кто-то другой — обновите и повторите." };
   const d = await getDicts();
   const column: TrackerColumnKey = (item.statusId ? d.statuses.get(item.statusId)?.trackerColumn : null) ?? "TODO";
-  const err = checkAction(actor, { column, responsibleId: item.responsibleId, createdById: item.createdById, blocked: !!item.blockedBy, archived: !!item.archivedAt }, action, input);
+  const onStop = !!item.statusId && d.statuses.get(item.statusId)?.name === STOP_STATUS;
+  const err = checkAction(actor, { column, responsibleId: item.responsibleId, createdById: item.createdById, blocked: !!item.blockedBy || onStop, archived: !!item.archivedAt }, action, input);
   if (err) return { ok: false, status: err.startsWith("Укажите") || err.startsWith("Опишите") || err.startsWith("Напишите") ? 400 : 403, error: err.startsWith("Укажите") || err.startsWith("Опишите") || err.startsWith("Напишите") ? "INVALID_INPUT" : "FORBIDDEN", message: err };
 
   // как и обычная правка: пока директор собирает справку, руководитель не меняет поданные позиции
   if (actor.role === "HEAD" && item.operFlag && (await prisma.cycle.findFirst({ where: { directorateId: item.directorateId ?? "-", status: "IN_REVIEW" }, select: { id: true } })))
-    return { ok: false, status: 409, error: "LOCKED", message: "Идёт сборка справки директором: поданные позиции сейчас не меняются. Дождитесь отправки или возврата с замечанием." };
+    return { ok: false, status: 409, error: "LOCKED", message: "Идёт сборка справки директором: поданные позиции сейчас не меняются. Дождитесь отправки справки или возврата позиции директором." };
   const me = { id: actor.id, name: d.users.get(actor.id)?.name ?? "—" };
-  const statuses = [...d.statuses].map(([sid, s]) => ({ id: sid, trackerColumn: s.trackerColumn }));
+  const statuses = [...d.statuses].map(([sid, s]) => ({ id: sid, name: s.name, trackerColumn: s.trackerColumn }));
   const target = TARGET_COLUMN[action];
-  // «Принять» / «Вернуть» / «Отменить» — в первый статус колонки по порядку (Настройки → Статусы)
-  const ordered = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
-  const statusId = target ? statusForColumn(target, ordered.length ? ordered : statuses) : undefined;
+  // «Принять» / «Вернуть» / «Отменить» — в первый статус колонки по порядку (Настройки → Статусы), не «На стопе»
+  const ordered = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, trackerColumn: true } });
+  const pool = ordered.length ? ordered : statuses;
+  const working = pool.filter((s) => s.name !== STOP_STATUS);
+  let statusId = target ? statusForColumn(target, working) : undefined;
+  // «Поставить на стоп» — статус «На стопе» (если он заведён); «Снять со стопа» — обратно «В работе»
+  if (action === "block") statusId = pool.find((s) => s.name === STOP_STATUS)?.id;
+  if (action === "unblock" && onStop) statusId = statusForColumn("DOING", working);
   if (target && !statusId) return { ok: false, status: 400, error: "INVALID_INPUT", message: "Для этого шага не настроен статус (Настройки → Статусы → колонки трекера)." };
 
   let files: ReturnType<typeof readFiles> = [];
@@ -173,7 +192,8 @@ export async function performTransition(actor: Actor, id: string, action: Workfl
       const note = action === "submit" ? text(input.result) : action === "return" || action === "accept" ? text(input.comment) : action === "block" ? text(input.blockedBy) : action === "cancel" || action === "reopen" ? text(input.reason) : "";
       await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: "UPDATE", fieldName: `workflow:${action}`, after: note || null }, tx);
       // решение директора — подтверждённое состояние для ЗГД
-      if (isDirectorial(actor.role) && action !== "submit") await publishItem(row, me, DECISION_TEXT[action], tx);
+      // решение директора — ЗГД видит само решение (статус, приёмку, стоп, отмену), без черновых правок карточки
+      if (isDirectorial(actor.role) && action !== "submit") await publishItem(row, me, DECISION_TEXT[action], { db: tx, only: DECISION_FIELDS, wasConfirmed: wasConfirmed(item) });
       return row;
     });
 

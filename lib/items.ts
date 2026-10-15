@@ -5,7 +5,8 @@ import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audi
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts, invalidateDicts, type Dicts } from "@/lib/dictionaries";
-import { deadlineChangeError, directStatusError } from "@/lib/workflow";
+import { deadlineChangeError, directStatusError, stopStatusError } from "@/lib/workflow";
+import { STOP_STATUS } from "@/lib/statuses";
 import { filesText, normalizeFiles, readFiles } from "@/lib/item-files";
 import { randomUUID } from "node:crypto";
 import type { ItemRecord } from "@/lib/table-view";
@@ -85,8 +86,16 @@ async function mergeCustom(directorateId: string, existing: Record<string, strin
 async function statusError(from: string | null | undefined, to: string | null | undefined): Promise<string | null> {
   const d = await getDicts();
   const col = (id: string | null | undefined) => (id ? d.statuses.get(id)?.trackerColumn ?? "TODO" : "TODO");
-  return directStatusError(col(from), col(to));
+  const stop = (id: string | null | undefined) => !!id && d.statuses.get(id)?.name === STOP_STATUS;
+  return directStatusError(col(from), col(to)) ?? stopStatusError(stop(from), stop(to));
 }
+
+/** Колонка трекера по статусу позиции. */
+async function columnOfStatus(id: string | null): Promise<string> {
+  return (id ? (await getDicts()).statuses.get(id)?.trackerColumn : null) ?? "TODO";
+}
+
+const REVIEW_LOCK = "Задача на проверке у директора: правки — после его решения (принять или вернуть на доработку).";
 
 export async function createItem(actor: Actor, input: ItemFields & { title: string }): Promise<ItemResult> {
   if (!canCreateItem(actor.role)) return { ok: false, error: "FORBIDDEN" };
@@ -135,7 +144,13 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   if (!existing || !actor.directorateId || existing.directorateId !== actor.directorateId) return { ok: false, error: "NOT_FOUND" };
   if (!canEditItem(actor, existing)) return { ok: false, error: "FORBIDDEN" };
   if (existing.archivedAt) return { ok: false, error: "ARCHIVED" };
-  if (await lockedForHead(actor, existing)) return { ok: false, error: "LOCKED", message: "Идёт сборка директором: поданные позиции сейчас не меняются. Дождитесь возврата с замечанием." };
+  if (await lockedForHead(actor, existing)) return { ok: false, error: "LOCKED", message: "Идёт сборка директором: поданные позиции сейчас не меняются. Дождитесь отправки справки или возврата позиции директором." };
+  // сдана на проверку: до решения директора исполнитель задачу не правит — директор принимает то, что сдали;
+  // отметку «в справку» («Опер») менять можно
+  if (!isDirectorial(actor.role) && (await columnOfStatus(existing.statusId)) === "REVIEW") {
+    const onlyOper = Object.entries(fields).every(([k, v]) => k === "operFlag" || v === undefined) && !customValues && !files;
+    if (!onlyOper) return { ok: false, error: "LOCKED", message: REVIEW_LOCK };
+  }
   // Формулировку поручения (ЗГД или директора) и ожидаемый результат задаёт тот, кто поручил: исполнитель их не
   // переписывает — иначе принимать работу пришлось бы уже не по тому, что поручали. Ход работы — в комментарии.
   if (existing.origin && !isDirectorial(actor.role)) {
@@ -236,6 +251,7 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
   if (!(archived ? canDeleteItem(actor, existing) : canRestoreItem(actor, existing))) return { ok: false, error: "FORBIDDEN" };
   if (archived === (existing.archivedAt !== null)) return { ok: true, id, record: existing }; // уже в нужном состоянии
   if (await lockedForHead(actor, existing)) return { ok: false, error: "LOCKED", message: "Идёт сборка директором: поданные позиции сейчас не меняются." };
+  if (archived && !isDirectorial(actor.role) && (await columnOfStatus(existing.statusId)) === "REVIEW") return { ok: false, error: "LOCKED", message: REVIEW_LOCK };
 
   const record = await prisma.$transaction(async (tx) => {
     const row = await tx.operationalItem.update({

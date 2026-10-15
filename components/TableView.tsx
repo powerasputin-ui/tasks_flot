@@ -198,15 +198,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setCtx(null);
     if (preview) return previewBlock();
     const comment = await askText({
-      title: "Вернуть с замечанием",
-      message: `Что нужно исправить в «${row.name}»? Комментарий увидит ответственный.`,
+      title: "Вернуть руководителю",
+      message: `«${row.name}» вернётся руководителю: «Опер» снимется, позицию можно будет поправить и подать снова. Замечание — по желанию, его увидит ответственный.`,
       placeholder: "Например: уточните срок и добавьте оценку",
       okLabel: "Вернуть",
       multiline: true,
-      required: true,
+      required: false,
       maxLength: 2000,
     });
-    if (!comment?.trim()) return;
+    if (comment === null) return;
     const res = await fetch(`/api/items/${row.id}/return`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1005,7 +1005,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
               )}
               {me && isDirectorial(me.role) && ctx.row.operFlag && !ctx.row.archived && (
                 <button onClick={() => returnRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
-                  <Undo2 size={14} className="text-outline" /> Вернуть с замечанием
+                  <Undo2 size={14} className="text-outline" /> Вернуть руководителю
                 </button>
               )}
               {ctx.row.archived && canEditRow(ctx.row) && (
@@ -1114,7 +1114,7 @@ const SORT_GROUPS: Array<{ title: string; col?: keyof typeof DEFAULT_LABEL; choi
   { title: "Внимание", col: "attractiveness", choices: [{ label: "От высокого к низкому", field: "attractiveness", dir: "desc" }, { label: "От низкого к высокому", field: "attractiveness", dir: "asc" }] },
   { title: "Ответственный", col: "owner", choices: [{ label: "От А до Я", field: "owner", dir: "asc" }, { label: "От Я до А", field: "owner", dir: "desc" }] },
   { title: "Трек", col: "track", choices: [{ label: "От А до Я", field: "track", dir: "asc" }, { label: "От Я до А", field: "track", dir: "desc" }] },
-  { title: "Статус", col: "status", choices: [{ label: "От А до Я", field: "status", dir: "asc" }, { label: "От Я до А", field: "status", dir: "desc" }] },
+  { title: "Статус", col: "status", choices: [{ label: "По порядку статусов", field: "status", dir: "asc" }, { label: "В обратном порядке", field: "status", dir: "desc" }] },
   { title: "Дата обновления", choices: [{ label: "Сначала новые", field: "updatedAt", dir: "desc" }, { label: "Сначала старые", field: "updatedAt", dir: "asc" }] },
 ];
 

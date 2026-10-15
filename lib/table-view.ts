@@ -34,6 +34,8 @@ export type TableRow = {
   statusColor: string | null;
   /** Колонка трекера статуса: «Выполнено» / «Не показывать» — позиция закрыта, просрочкой не считается. */
   statusColumn?: string | null;
+  /** Место статуса в списке (Настройки → Статусы): сортировка «по статусу» идёт в этом порядке, а не по алфавиту. */
+  statusOrder?: number | null;
   operFlag: boolean;
   comment: string | null;
   version: number;
@@ -116,6 +118,7 @@ export function toTableRow(i: ItemRecord, dicts: Dicts, changedAfterSubmission =
     statusName: status?.name ?? null,
     statusColor: status?.color ?? null,
     statusColumn: status?.trackerColumn ?? null,
+    statusOrder: status?.sortOrder ?? null,
     operFlag: i.operFlag,
     comment: i.comment,
     version: i.version,
@@ -228,7 +231,8 @@ export function applyTableSort(rows: TableRow[], sort: TableSort): TableRow[] {
       case "deadlineWeek":
         return r.deadlineWeek ?? null;
       case "status":
-        return r.statusName ?? "";
+        // по порядку статусов из настроек (Не начато → В работе → … ), без статуса — в конце
+        return r.statusOrder ?? null;
       case "attractiveness": {
         // Шкала P100 / P70 / P50 / P10 / P0 сортируется по месту в шкале, а не как текст (и после переименования в слова).
         return attractivenessRank(r.attractivenessName);

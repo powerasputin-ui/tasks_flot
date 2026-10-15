@@ -35,7 +35,7 @@ async function GETHandler() {
       if ((was.deadline ?? "").slice(0, 10) !== (now.deadline ?? "").slice(0, 10)) diff.push(`срок: ${ru(was.deadline)} → ${ru(now.deadline)}`);
       if ((was.ownerName ?? null) !== now.ownerName) diff.push(`ответственный: ${was.ownerName ?? "—"} → ${now.ownerName ?? "—"}`);
       if ((was.expectedResult ?? "") !== (now.expectedResult ?? "")) diff.push("изменён ожидаемый результат");
-      if ((was.blockedBy ?? "") !== (now.blockedBy ?? "")) diff.push(now.blockedBy ? `блокер: ${now.blockedBy}` : "блок снят");
+      if ((was.blockedBy ?? "") !== (now.blockedBy ?? "")) diff.push(now.blockedBy ? `на стопе: ${now.blockedBy}` : "снята со стопа");
     }
     // правки, которых ЗГД не видит в карточке (подача в справку, документы, свои поля) — тоже показываем, чтобы счётчик сходился
     if (!diff.length) diff.push("служебные изменения (подача в справку, документы, доп. поля) — ЗГД это не меняет");

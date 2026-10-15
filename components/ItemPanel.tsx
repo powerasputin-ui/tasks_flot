@@ -18,6 +18,7 @@ import { describeAuditAction, FIELD_LABEL, isTrackerEvent } from "@/lib/audit-fo
 import { DEFAULT_LABEL } from "@/lib/table-columns";
 import { WorkflowSection } from "@/components/WorkflowSection";
 import { WORKFLOW_COLUMNS as WF_COLS } from "@/lib/workflow";
+import { STOP_STATUS } from "@/lib/statuses";
 import type { TrackerColumnKey } from "@/lib/tracker";
 
 /** Поле истории → колонка таблицы, по чьей подписи его называем. */
@@ -182,6 +183,9 @@ export function ItemPanel({
   const deadlineMoved = !!base?.deadline && form.deadline !== base.deadline.slice(0, 10);
   // поручение ЗГД / на контроле ЗГД: руководитель срок не переносит (lib/workflow.ts deadlineChangeError)
   const deadlineLocked = lockResponsible && !!base && !!base.deadline && (!!base.zgdControl || !!base.origin);
+  // сдана на проверку: до решения директора руководитель её не правит (сервер тоже)
+  const reviewLocked = lockResponsible && !!base && !base.archived && colOfStatus(base.statusId ?? "") === "REVIEW";
+  const isStop = (id: string | null | undefined) => !!id && refs.statuses.find((x) => x.id === id)?.name === STOP_STATUS;
   // формулировку поручения и ожидаемый результат задаёт тот, кто поручил: исполнитель их не переписывает (сервер тоже)
   const orderLocked = lockResponsible && !!base?.origin;
 
@@ -313,7 +317,7 @@ export function ItemPanel({
     }
   };
 
-  const disabled = !canEdit || (base?.archived ?? false);
+  const disabled = !canEdit || (base?.archived ?? false) || reviewLocked;
   const editable = canEdit && !(base?.archived ?? false) && !previewMode;
 
   // подтверждение удаления занимает всю панель вместо кнопок — иначе на узкой карточке «Нет» уезжает за край
@@ -430,6 +434,7 @@ export function ItemPanel({
             </div>
           </Section>
 
+          {reviewLocked && <p className="rounded-md bg-status-amber/15 px-3 py-2 text-[13px] text-[#b45309]">Задача на проверке у директора: правки — после его решения (принять или вернуть на доработку).</p>}
           <Section title="Основное">
             <Field label={`${L("name")} *`}>
               {disabled || orderLocked ? (
@@ -494,7 +499,8 @@ export function ItemPanel({
               </Field>
               <Field label={L("status")}>
                 {/* «На проверке», «Выполнено», «Не актуально» — только действиями ниже (сдать / принять / отменить) */}
-                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={refs.statuses.filter((s) => !WF_COLS.includes(colOfStatus(s.id)) || s.id === form.statusId)} disabled={disabled || WF_COLS.includes(colOfStatus(base?.statusId ?? ""))} />
+                <Sel value={form.statusId} onChange={(v) => set("statusId", v)} options={refs.statuses.filter((s) => (!WF_COLS.includes(colOfStatus(s.id)) && s.name !== STOP_STATUS) || s.id === form.statusId)} disabled={disabled || WF_COLS.includes(colOfStatus(base?.statusId ?? "")) || isStop(base?.statusId)} />
+                {isStop(base?.statusId) && !disabled && <p className="mt-1 text-[11px] text-on-surface-variant">На стопе: снимите кнопкой «Снять со стопа» в «Ходе работы».</p>}
                 {WF_COLS.includes(colOfStatus(base?.statusId ?? "")) && <p className="mt-1 text-[11px] text-on-surface-variant">Меняется действиями в «Ходе работы».</p>}
               </Field>
               {deadlineMoved && (

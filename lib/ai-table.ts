@@ -205,7 +205,7 @@ export function cardLine(i: FactItem, label: string, today: number, titleLimit =
     // «трекер:» — только если есть что сказать (переносы, простой, ждёт приёмки, давно в колонке): окно модели не резиновое
     i.motion && notable(i.motion) ? `трекер: ${motionText(i.motion)}` : null,
     i.expectedResult ? `ожидаемый результат: ${i.expectedResult.slice(0, 160)}` : null,
-    i.blockedBy ? `заблокировано: ждём ${i.blockedBy}${i.blockedUntil ? ` (ожидаем к ${ru(i.blockedUntil)})` : ""}` : null,
+    i.blockedBy ? `на стопе: ждём ${i.blockedBy}${i.blockedUntil ? ` (ожидаем к ${ru(i.blockedUntil)})` : ""}` : null,
     i.originalDeadline && i.deadline && dayOf(i.originalDeadline) !== dayOf(i.deadline) ? `исходный срок: ${ru(i.originalDeadline)}` : null,
     i.origin === "ZGD" ? "поручение ЗГД" : i.origin === "DIRECTOR" ? "поручение директора" : null,
     i.confirmed ? `подтверждено: ${i.confirmed}` : null,
@@ -241,7 +241,7 @@ export const wantsSignals = (question: string) => HOT_Q.test(n(question));
  * и следующее действие. Вид: просрочка, скоро срок, блокер, ждёт приёмки, запрос ЗГД без ответа, нет данных, отчётность.
  */
 export type SignalKind = "overdue" | "slipped" | "deadlineRequest" | "soon" | "blocker" | "review" | "request" | "data" | "report";
-export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", slipped: "Исходный срок нарушен", deadlineRequest: "Перенос ждёт решения", soon: "Скоро срок", blocker: "Блокер", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Нет данных", report: "Отчётность" };
+export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", slipped: "Исходный срок нарушен", deadlineRequest: "Перенос ждёт решения", soon: "Скоро срок", blocker: "На стопе", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Нет данных", report: "Отчётность" };
 export type Signal = { item: FactItem; reasons: string[]; weight: number; kinds: SignalKind[] };
 
 export function signals(items: FactItem[], today: number): Signal[] {
@@ -280,7 +280,7 @@ export function signals(items: FactItem[], today: number): Signal[] {
     const waitWord = wait ? (n(`${i.title} ${i.comment ?? ""}`).match(new RegExp(`[а-яё]*${wait[0]}[а-яё]*`))?.[0] ?? wait[0]) : "";
     const missing = [!i.deadline ? "срока" : "", !i.owner ? "ответственного" : "", i.origin && !i.expectedResult ? "ожидаемого результата" : ""].filter(Boolean);
     if (missing.length) add("data", `нет ${missing.join(", ")}`, "заполнить в карточке", 1);
-    if (wait && (days === null || days < 0)) add("data", `в тексте «${waitWord}», а блокер не отмечен`, "если ждём — отметить «Заблокировано» с датой", 1);
+    if (wait && (days === null || days < 0)) add("data", `в тексте «${waitWord}», а задача не на стопе`, "если ждём — «Поставить на стоп» с датой", 1);
     if (!i.submitted && days !== null && days >= 0 && days <= 7) add("report", "не подана в справку, а срок близко", "ответственному подать строку", 1);
     if (reasons.length) out.push({ item: i, reasons, weight, kinds });
   }
@@ -314,7 +314,7 @@ export function summaryBlock(items: FactItem[], labels: Map<string, string>, tod
   ].join("\n");
 }
 
-const WF_JOURNAL: Record<string, string> = { submit: "сдал на проверку", accept: "принял", return: "вернул на доработку", block: "заблокировал", unblock: "снял блок", cancel: "отменил задачу", reopen: "переоткрыл" };
+const WF_JOURNAL: Record<string, string> = { submit: "сдал на проверку", accept: "принял", return: "вернул на доработку", block: "поставил на стоп", unblock: "снял со стопа", cancel: "отменил задачу", reopen: "переоткрыл" };
 
 const ACTION: Record<string, (e: FactEvent) => string> = {
   CREATE: () => "создал позицию",

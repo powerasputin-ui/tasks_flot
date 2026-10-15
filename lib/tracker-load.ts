@@ -111,6 +111,7 @@ async function loadZgdSources(): Promise<{ versions: SentVersion[]; publications
         deadline: sn.deadline, submitted: sn.submitted, expectedResult: sn.expectedResult, originalDeadline: sn.originalDeadline, blockedBy: sn.blockedBy, blockedUntil: sn.blockedUntil,
         cancelReason: sn.cancelReason, origin: sn.origin, zgdControl: sn.zgdControl, review: sn.review ? { result: sn.review.result, decision: sn.review.decision, decidedByName: sn.review.decidedByName, comment: sn.review.comment } : null,
       },
+      only: sn.only,
     };
   });
   return { versions, publications };
@@ -182,7 +183,7 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; d
   // «на контроле» и поручения — пометки самого ЗГД: берём живые; удалённые дирекцией задачи у ЗГД не показываем
   const ids = built.rows.map((r) => r.id);
   const [live, requests] = await Promise.all([
-    ids.length ? prisma.operationalItem.findMany({ where: { id: { in: ids } }, select: { id: true, zgdControl: true, origin: true, archivedAt: true } }) : [],
+    ids.length ? prisma.operationalItem.findMany({ where: { id: { in: ids } }, select: { id: true, zgdControl: true, origin: true, assignedById: true, archivedAt: true } }) : [],
     ids.length ? prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }) : [],
   ]);
   const liveById = new Map(live.map((l) => [l.id, l]));
@@ -223,6 +224,7 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; d
     origin: r.origin,
     zgdControl: r.zgdControl,
     review: r.review,
+    assignedById: liveById.get(r.id)?.assignedById ?? null,
   }));
   // движение по истории подтверждений: «на проверке N дн.», закрыта ли по колонке — как у директора, но по тому, что видит ЗГД
   const cols = new Map(statuses.map((st) => [st.name, st.trackerColumn]));

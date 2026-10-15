@@ -24,6 +24,8 @@ export type Publication = {
   who: string;
   reason: string;
   state: Partial<SentState> & { name: string };
+  /** Решение директора: применяются только эти поля (остальная карточка у ЗГД — прежняя). */
+  only?: string[];
 };
 
 /** Подтверждённое состояние задачи (общие поля снимка справки и подтверждения директора). */
@@ -76,8 +78,8 @@ function diff(itemId: string, p: SentState, r: SentState, at: string, who: strin
   const ev = (kind: TrackerEvent["kind"], text: string, slip?: number, before?: string | null, after?: string | null) =>
     out.push({ itemId, at, kind, who, text, ...(slip ? { slip } : {}), ...(before !== undefined || after !== undefined ? { before: before ?? null, after: after ?? null } : {}) });
   if (table) tableDiff(p, r, ev);
-  if (!p.blockedBy && r.blockedBy) ev("workflow", `заблокирована: ждём ${r.blockedBy}`);
-  if (p.blockedBy && !r.blockedBy) ev("workflow", "блок снят");
+  if (!p.blockedBy && r.blockedBy) ev("workflow", `на стопе: ждём ${r.blockedBy}`);
+  if (p.blockedBy && !r.blockedBy) ev("workflow", "снята со стопа");
 }
 
 function tableDiff(p: SentState, r: SentState, ev: (kind: TrackerEvent["kind"], text: string, slip?: number, before?: string | null, after?: string | null) => void) {
@@ -129,8 +131,11 @@ export function buildZgdTracker(versions: SentVersion[], publications: Publicati
       }
     } else if (s.pub) {
       const p = s.pub;
-      const state: SentState = { ...EMPTY, ...(cur.get(p.itemId)?.state ?? {}), ...p.state };
       const prev = cur.get(p.itemId);
+      // решение директора меняет у ЗГД только свои поля (статус, приёмка, стоп, отмена, срок) — черновые правки карточки
+      // ЗГД не видит; задача, которой у ЗГД ещё не было, приходит целиком
+      const own = prev && p.only ? Object.fromEntries(p.only.filter((k) => k in p.state).map((k) => [k, (p.state as Record<string, unknown>)[k]])) : p.state;
+      const state = { ...EMPTY, ...(prev?.state ?? {}), ...own } as SentState;
       const who = p.who;
       // полный снимок при отправке справки: поля таблицы уже сравнены по самой справке — уточняет только поля поручения
       // (блокер, отмена, сдача), без события «директор: …»

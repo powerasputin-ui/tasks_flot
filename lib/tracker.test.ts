@@ -110,10 +110,24 @@ describe("трекер ЗГД: история по отправленным сп
       ],
     );
     const texts = r.events.map((e) => e.text);
-    expect(texts).toContain("блок снят");
+    expect(texts).toContain("снята со стопа");
     expect(texts.filter((t) => t.includes(MEMO_PUBLICATION))).toEqual([]);
     expect(texts).not.toContain("обновлён текст задачи");
     expect(r.rows[0]).toMatchObject({ blockedBy: null, confirmedBy: "справка от 14.10.26" });
+  });
+  it("решение директора уходит ЗГД без черновых правок карточки: меняются только статус, приёмка, стоп", () => {
+    const r = buildZgdTracker(
+      [v("2026-10-07T10:00:00.000Z", [row({ comment: "подтверждённый текст" })])],
+      [{ itemId: "a", directorateId: "d", directorateName: "РФ и КЭ", at: "2026-10-09T10:00:00.000Z", who: "Директор Д.Д.", reason: "принял(а) задачу", only: ["statusName", "statusColor", "review", "cancelReason", "blockedBy", "blockedUntil"],
+        state: { name: "Задача (черновик руководителя)", comment: "черновой текст", statusName: "Завершено", review: { result: "Отчёт", decision: "ACCEPTED", decidedByName: "Директор Д.Д.", comment: null } } }],
+    );
+    expect(r.rows[0]).toMatchObject({ name: "Задача", comment: "подтверждённый текст", statusName: "Завершено" });
+    expect(r.rows[0].review?.decision).toBe("ACCEPTED");
+    expect(r.events.map((e) => e.text)).not.toContain("обновлён текст задачи");
+  });
+  it("перенос в колонку не выбирает «На стопе» — его ставят только действием с причиной", () => {
+    const st = [{ id: "stop", name: "На стопе", trackerColumn: "DOING" as const }, { id: "work", name: "В работе", trackerColumn: "DOING" as const }];
+    expect(statusForColumn("DOING", st)).toBe("work");
   });
   it("справка без снимка таблицы не считается «всё удалили»", () => {
     const r = buildSentTracker([v("2026-10-07T10:00:00.000Z", [row({})]), v("2026-10-10T10:00:00.000Z", [])]);

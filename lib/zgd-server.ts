@@ -4,7 +4,7 @@ import { recordAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications";
 import { isDirectorial, type Actor } from "@/lib/permissions";
 import { statusForColumn } from "@/lib/tracker";
-import { directorsOf, publishItem, trackerLink } from "@/lib/workflow-server";
+import { directorsOf, publishItem, wasConfirmed, trackerLink } from "@/lib/workflow-server";
 import { canEditItem } from "@/lib/permissions";
 
 /**
@@ -61,7 +61,8 @@ export async function answerRequest(actor: Actor, requestId: string, answer: unk
   const done = await prisma.zgdRequest.updateMany({ where: { id: requestId, answeredAt: null }, data: { answer: a, answeredById: me.id, answeredByName: me.name, answeredAt: new Date() } });
   if (!done.count) return fail(409, "На запрос уже ответили.", "CONFLICT");
   await recordAudit({ entityType: "OperationalItem", entityId: r.itemId, actorId: actor.id, action: "UPDATE", fieldName: "zgdAnswer", after: a });
-  await publishItem(r.item, me, `ответил(а) на запрос ЗГД: ${a.slice(0, 200)}`, undefined, [r.askedById]);
+  // ответ — само решение: ЗГД видит ответ, карточка у него остаётся в последнем подтверждённом виде
+  await publishItem(r.item, me, `ответил(а) на запрос ЗГД: ${a.slice(0, 200)}`, { skip: [r.askedById], only: [], wasConfirmed: wasConfirmed(r.item) });
   await createNotification({ userId: r.askedById, type: "ZGD_ANSWER", message: `${me.name} ответил(а) по «${r.item.title.slice(0, 90)}»: ${a.slice(0, 160)}`, link: zgdLink(r.itemId) });
   return { ok: true, data: { id: requestId } };
 }
@@ -174,7 +175,7 @@ export async function decideDeadline(actor: Actor, requestId: string, approve: b
     item = await prisma.operationalItem.update({ where: { id: r.itemId }, data: { deadline: r.newDeadline, originalDeadline: r.item.originalDeadline ?? r.item.deadline, updatedById: me.id, version: { increment: 1 } } });
     await recordAudit({ entityType: "OperationalItem", entityId: r.itemId, actorId: actor.id, action: "DEADLINE_CHANGE", fieldName: "deadline", before: r.item.deadline?.toISOString() ?? null, after: r.newDeadline.toISOString() });
     await recordAudit({ entityType: "OperationalItem", entityId: r.itemId, actorId: actor.id, action: "UPDATE", fieldName: "deadlineReason", after: r.reason });
-    await publishItem(item, me, `согласовал(а) перенос срока: ${r.reason.slice(0, 160)}`);
+    await publishItem(item, me, `согласовал(а) перенос срока: ${r.reason.slice(0, 160)}`, { only: ["deadline", "originalDeadline"], wasConfirmed: wasConfirmed(r.item) });
   }
   await createNotification({ userId: r.requestedById, type: "DEADLINE_REQUEST", message: `${me.name} ${approve ? "согласовал(а)" : "не согласовал(а)"} перенос срока «${r.item.title.slice(0, 90)}»${c ? `: ${c.slice(0, 120)}` : ""}`, link: trackerLink(r.item) });
   return { ok: true, data: { id: requestId } };

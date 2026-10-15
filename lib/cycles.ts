@@ -197,11 +197,10 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   return { ok: true, count: sent.length };
 }
 
-/** Куратор возвращает отправленную позицию: галка снимается, к позиции — замечание, ответственному — уведомление. */
+/** Директор возвращает поданную позицию руководителю: «Опер» снимается (её снова можно править и подать), замечание — по желанию. */
 export async function returnItem(actor: Actor, itemId: string, comment: string): Promise<CycleResult> {
   if (!isCurator(actor)) return { ok: false, error: "FORBIDDEN" };
-  const text = comment.trim();
-  if (!text) return { ok: false, error: "INVALID_INPUT" };
+  const text = comment.trim().slice(0, 2000);
   const existing = await prisma.operationalItem.findFirst({ where: { id: itemId, directorateId: actor.directorateId ?? "" } });
   if (!existing) return { ok: false, error: "NOT_FOUND" };
   if (!existing.operFlag || existing.archivedAt) return { ok: false, error: "BAD_STATE" };
@@ -211,7 +210,7 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
       where: { id: itemId },
       data: { operFlag: false, updatedById: actor.id, version: { increment: 1 } },
     });
-    await tx.itemNote.create({ data: { itemId, authorId: actor.id, text } });
+    if (text) await tx.itemNote.create({ data: { itemId, authorId: actor.id, text } });
     await recordFieldChanges(
       { entityType: "OperationalItem", entityId: itemId, actorId: actor.id, before: existing, after: updated, trackedFields: TRACKED_ITEM_FIELDS },
       tx
@@ -221,7 +220,7 @@ export async function returnItem(actor: Actor, itemId: string, comment: string):
     await createNotification({
       userId: existing.responsibleId,
       type: "ITEM_RETURNED",
-      message: `Позицию «${existing.title}» вернули с замечанием: ${text}`,
+      message: text ? `Позицию «${existing.title}» вернули с замечанием: ${text}` : `Позицию «${existing.title}» вернули вам: её можно поправить и подать снова`,
       link: `/table?item=${itemId}`,
       directorateId: existing.directorateId,
     });

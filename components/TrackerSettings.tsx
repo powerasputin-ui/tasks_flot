@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
-import { PROTECTED_STATUSES } from "@/lib/statuses";
+import { SYSTEM_STATUSES } from "@/lib/statuses";
 import { COLUMN_LABEL, type TrackerColumnKey } from "@/lib/tracker";
 
 type S = { id: string; name: string; trackerColumn: TrackerColumnKey | null };
@@ -52,7 +52,7 @@ export function TrackerSettings({ reloadKey }: { reloadKey: number }) {
       )}
       <ul className="surface mt-3 divide-y divide-outline-variant/60">
         {statuses.map((s) => {
-          const fixed = PROTECTED_STATUSES.includes(s.name);
+          const fixed = SYSTEM_STATUSES.includes(s.name);
           return (
             <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2 text-[13px]">
               <span className="text-on-surface">{s.name}</span>

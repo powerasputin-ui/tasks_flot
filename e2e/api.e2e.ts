@@ -393,13 +393,12 @@ describe("удаление, возврат, замечания", () => {
     expect(r.data.row.archived).toBe(false);
   });
 
-  it("возврат отправленной позиции: только куратор и только с комментарием; галка снимается, уведомление уходит", async () => {
+  it("возврат отправленной позиции: только куратор, замечание по желанию; галка снимается, уведомление уходит", async () => {
     const cur = (await call(curator, items.GET, `/api/items?q=${q(TAG)}`)).data.rows.find((r: { id: string }) => r.id === headItem);
     const send = await call(head, item.PATCH, `/api/items/${headItem}`, { method: "PATCH", id: headItem, body: { version: cur.version, operFlag: true } });
     expect(send.status).toBe(200);
 
     expect((await call(head, ret.POST, `/api/items/${headItem}/return`, { method: "POST", id: headItem, body: { comment: "x" } })).status).toBe(403);
-    expect((await call(curator, ret.POST, `/api/items/${headItem}/return`, { method: "POST", id: headItem, body: { comment: "  " } })).status).toBe(400);
 
     const ok = await call(curator, ret.POST, `/api/items/${headItem}/return`, { method: "POST", id: headItem, body: { comment: `${TAG} уточните сумму` } });
     expect(ok.status).toBe(200);
@@ -411,6 +410,16 @@ describe("удаление, возврат, замечания", () => {
     const notif = await prisma.notification.findFirst({ where: { userId: head.id, type: "ITEM_RETURNED", message: { contains: TAG } } });
     expect(notif?.type).toBe("ITEM_RETURNED");
     expect(notif?.link).toContain(headItem); // ведёт сразу к позиции, а не на всю таблицу
+
+    // без замечания — тоже можно: позиция просто возвращается руководителю
+    const again = (await call(head, items.GET, `/api/items?q=${q(TAG)}`)).data.rows.find((r: { id: string }) => r.id === headItem);
+    expect((await call(head, item.PATCH, `/api/items/${headItem}`, { method: "PATCH", id: headItem, body: { version: again.version, operFlag: true } })).status).toBe(200);
+    const notes = await prisma.itemNote.count({ where: { itemId: headItem } });
+    const bare = await call(curator, ret.POST, `/api/items/${headItem}/return`, { method: "POST", id: headItem, body: { comment: "  " } });
+    expect(bare.status).toBe(200);
+    expect(bare.data.row.operFlag).toBe(false);
+    expect(await prisma.itemNote.count({ where: { itemId: headItem } })).toBe(notes); // пустое замечание не пишется
+    expect(await prisma.notification.count({ where: { userId: head.id, type: "ITEM_RETURNED", message: { contains: "можно поправить и подать снова" }, link: { contains: headItem } } })).toBe(1);
   });
 
   it("«изменено после отправки»: правка отправленной позиции ставит пометку", async () => {
@@ -513,6 +522,13 @@ describe("справочники: переименование и удалени
     expect(st.status).toBe(201);
     const sid = st.data.status.id as string;
     expect((await call(director, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: `${TAG}-x` } })).status).toBe(403);
+    // «На проверке» и «На стопе» — системные статусы трекера: не переименовываются, колонка закреплена
+    for (const name of ["На проверке", "На стопе"]) {
+      const sys = await prisma.status.findFirstOrThrow({ where: { name } });
+      expect((await call(curator, statusOne.PATCH, `/api/statuses/${sys.id}`, { method: "PATCH", id: sys.id, body: { name: `${TAG}-sys` } })).status).toBe(409);
+      expect((await call(curator, statusOne.PATCH, `/api/statuses/${sys.id}`, { method: "PATCH", id: sys.id, body: { trackerColumn: "TODO" } })).status).toBe(409);
+      expect((await call(curator, statusOne.DELETE, `/api/statuses/${sys.id}`, { method: "DELETE", id: sys.id })).status).toBe(409);
+    }
     expect((await call(head, statusOne.DELETE, `/api/statuses/${sid}`, { method: "DELETE", id: sid })).status).toBe(403);
     expect((await call(curator, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: "завершено" } })).status).toBe(409); // дубль без учёта регистра
     expect((await call(curator, statusOne.PATCH, `/api/statuses/${sid}`, { method: "PATCH", id: sid, body: { name: "  " } })).status).toBe(400);
@@ -2259,6 +2275,13 @@ describe("трекер: виды таблицы, «Выполнено» прин
     // сдать без результата — 400; с результатом — ок
     expect((await tr(head, { action: "submit", result: "" })).status).toBe(400);
     expect(take(await tr(head, { action: "submit", result: "ТКП получено, письмо №12 в документах" })).status).toBe(200);
+    // сдана — до решения директора руководитель её не правит и не удаляет
+    const frozen = await patch(head, { comment: "дописал после сдачи" });
+    expect(frozen.status).toBe(409);
+    expect(frozen.data.error).toBe("LOCKED");
+    const delFrozen = await call(head, item.DELETE, `/api/items/${t}`, { method: "DELETE", id: t });
+    expect(delFrozen.status).toBe(409);
+    expect(delFrozen.data.message).toMatch(/на проверке/);
     // руководитель не принимает; директор возвращает только с причиной
     expect((await tr(head, { action: "accept" })).status).toBe(403);
     expect((await tr(director, { action: "return", comment: "" })).status).toBe(400);
@@ -2289,10 +2312,21 @@ describe("трекер: виды таблицы, «Выполнено» прин
       return r;
     };
     expect((await tr({ action: "block", blockedBy: "" })).status).toBe(400);
+    // «На стопе» напрямую не ставится — только действием с причиной
+    const stop = (await prisma.status.findFirstOrThrow({ where: { name: "На стопе" } })).id;
+    const direct = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, statusId: stop } });
+    expect(direct.status).toBe(403);
+    expect(direct.data.message).toMatch(/Поставить на стоп/);
     const b = await tr({ action: "block", blockedBy: "решение ПАО", blockedUntil: "2026-10-20" });
     expect(b.status).toBe(200);
     expect(b.data.row.blockedBy).toBe("решение ПАО");
-    expect((await tr({ action: "unblock" })).data.row.blockedBy).toBeNull();
+    expect(b.data.row.statusName).toBe("На стопе");
+    // и напрямую не снимается
+    const work = (await prisma.status.findFirstOrThrow({ where: { name: "В работе" } })).id;
+    expect((await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, statusId: work } })).status).toBe(403);
+    const ub = await tr({ action: "unblock" });
+    expect(ub.data.row.blockedBy).toBeNull();
+    expect(ub.data.row.statusName).toBe("В работе");
     const noReason = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, deadline: "2026-11-15" } });
     expect(noReason.status).toBe(400);
     const moved = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, deadline: "2026-11-15", deadlineReason: "ждём поставку" } });
@@ -2324,7 +2358,7 @@ describe("ЗГД в трекере: только подтверждённое д
     zgdUser.id = u.id;
     testUserIds.push(u.id);
   });
-  const zgdRows = async () => (await call(zgdUser, tracker.GET, "/api/tracker")).data.rows as Array<{ id: string; name: string; zgdControl: boolean; origin: string | null; deadline: string | null; confirmedBy: string; openRequest?: boolean }>;
+  const zgdRows = async () => (await call(zgdUser, tracker.GET, "/api/tracker")).data.rows as Array<{ id: string; name: string; comment: string | null; statusName: string | null; blockedBy: string | null; zgdControl: boolean; origin: string | null; assignedById?: string | null; deadline: string | null; confirmedBy: string; openRequest?: boolean }>;
   const zgdAct = (a: Actor, body: Record<string, unknown>) => call(a, zgd.POST, "/api/zgd", { method: "POST", body });
   let id = "";
   let v = 1;
@@ -2480,6 +2514,26 @@ describe("ЗГД в трекере: только подтверждённое д
     // на запрос ЗГД отвечают один раз
     const answered = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: id, answeredAt: { not: null } } });
     expect((await zgdAct(director, { action: "answer", requestId: answered.id, answer: "ещё один ответ" })).status).toBe(409);
+  });
+
+  it("решение директора уходит ЗГД без черновых правок карточки; у директора задача остаётся «не подтверждена»; «Мои поручения»", async () => {
+    const before = (await zgdRows()).find((r) => r.id === id)!;
+    const cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id } });
+    const e = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: cur.version, comment: `${TAG} черновик руководителя` } });
+    expect(e.status).toBe(200);
+    const b = await call(director, transition.POST, `/api/items/${id}/transition`, { method: "POST", id, body: { version: e.data.row.version, action: "block", blockedBy: "решение ПАО" } });
+    expect(b.status).toBe(200);
+    const after = (await zgdRows()).find((r) => r.id === id)!;
+    expect(after.statusName).toBe("На стопе");
+    expect(after.blockedBy).toBe("решение ПАО");
+    expect(after.comment).toBe(before.comment); // черновик руководителя ЗГД не ушёл
+    const live = await prisma.operationalItem.findUniqueOrThrow({ where: { id } });
+    expect(live.updatedAt.getTime()).toBeGreaterThan(live.publishedAt!.getTime());
+    // снять со стопа, чтобы следующие проверки шли с задачей в работе
+    expect((await call(director, transition.POST, `/api/items/${id}/transition`, { method: "POST", id, body: { version: live.version, action: "unblock" } })).status).toBe(200);
+    // «Мои поручения»: у ЗГД видно, кто дал поручение
+    const mine = (await zgdRows()).filter((r) => r.origin === "ZGD" && r.assignedById === zgdUser.id);
+    expect(mine.length).toBeGreaterThan(0);
   });
 
   it("исполнитель не переписывает формулировку и ожидаемый результат поручения; ход работы — в комментарии; директор может", async () => {

@@ -31,7 +31,7 @@ const LEGEND: Array<[string, string]> = [
   ["срок сдвинули позже", "#dc2626"],
   ["подана в справку", KIND_COLOR.submitted],
   ["в отправленной справке", KIND_COLOR.memo],
-  ["сдача / приёмка / блок", KIND_COLOR.workflow],
+  ["сдача / приёмка / стоп", KIND_COLOR.workflow],
   ["правка текста", KIND_COLOR.text],
 ];
 

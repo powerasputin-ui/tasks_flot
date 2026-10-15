@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Lock, RotateCcw, Send, ShieldAlert, Star, Undo2, Unlock, XCircle } from "lucide-react";
 import { ACTION_LABEL, availableActions, type WorkflowAction } from "@/lib/workflow";
 import type { TrackerColumnKey } from "@/lib/tracker";
+import { STOP_STATUS } from "@/lib/statuses";
 
 const ru = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Moscow" }) : "—");
 
@@ -24,6 +25,7 @@ export type WorkflowRow = {
   ownerId: string | null;
   createdById: string;
   archived: boolean;
+  statusName?: string | null;
   blockedBy?: string | null;
   blockedUntil?: string | null;
   cancelReason?: string | null;
@@ -40,14 +42,14 @@ export const ASK: Partial<Record<WorkflowAction, { field: "result" | "comment" |
   submit: { field: "result", label: "Результат", placeholder: "Что сделано и где посмотреть (документ, письмо, решение)" },
   accept: { field: "comment", label: "Комментарий (необязательно)", placeholder: "Например: принято, доложить на ОС", optional: true },
   return: { field: "comment", label: "Что доработать", placeholder: "Чего не хватает в результате" },
-  block: { field: "blockedBy", label: "На чём ждём", placeholder: "Чьё решение / документ / поставка" },
+  block: { field: "blockedBy", label: "Что ждём", placeholder: "Чьё решение / документ / поставка" },
   cancel: { field: "reason", label: "Причина отмены", placeholder: "Почему задача больше не нужна" },
   reopen: { field: "reason", label: "Почему снова в работе", placeholder: "Что изменилось" },
 };
 
 /**
  * «Ход работы» в карточке позиции: состояние по трекеру и действия — сдать на проверку, принять / вернуть (директор),
- * заблокировать / снять блок, отменить / переоткрыть (директор). Права и обязательные поля — lib/workflow.ts (сервер проверяет то же).
+ * поставить на стоп / снять со стопа, отменить / переоткрыть (директор). Права и обязательные поля — lib/workflow.ts (сервер проверяет то же).
  */
 export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { row: WorkflowRow; column: TrackerColumnKey; actor: { id: string; role: string } | null; readOnly?: boolean; onChanged: (row: unknown) => void }) {
   const [info, setInfo] = useState<Info | null>(null);
@@ -81,7 +83,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
     load();
     onChanged(null);
   }
-  const actions = actor && !readOnly ? availableActions({ id: actor.id, role: actor.role as never }, { column, responsibleId: row.ownerId, createdById: row.createdById, blocked: !!row.blockedBy, archived: row.archived }) : [];
+  const actions = actor && !readOnly ? availableActions({ id: actor.id, role: actor.role as never }, { column, responsibleId: row.ownerId, createdById: row.createdById, blocked: !!row.blockedBy || row.statusName === STOP_STATUS, archived: row.archived }) : [];
   const last = info?.reviews[0] ?? null;
 
   async function run(action: WorkflowAction) {
@@ -119,7 +121,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
 
       {row.blockedBy && (
         <p className="flex items-start gap-2 rounded-md bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
-          <ShieldAlert size={15} className="mt-0.5 shrink-0" /> Заблокировано: ждём {row.blockedBy}
+          <ShieldAlert size={15} className="mt-0.5 shrink-0" /> На стопе: ждём {row.blockedBy}
           {row.blockedUntil ? ` (ожидаем к ${ru(row.blockedUntil)})` : ""}
         </p>
       )}

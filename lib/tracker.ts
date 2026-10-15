@@ -3,6 +3,7 @@
  * Своих данных у трекера нет: задача = позиция таблицы, колонка = статус (Status.trackerColumn),
  * история = журнал правок (audit_events) + отправленные справки (memo_versions). Чистые функции, без базы.
  */
+import { STOP_STATUS } from "@/lib/statuses";
 
 /** Сигналы задачи (lib/ai-table.ts signals): виды и причины «→ что сделать». */
 export type HotInfo = { kinds: Array<"overdue" | "slipped" | "deadlineRequest" | "soon" | "blocker" | "review" | "request" | "data" | "report">; reasons: string[] };
@@ -28,8 +29,10 @@ export function columnOf(statusId: string | null | undefined, columns: Map<strin
 }
 
 /** Статус, который ставится при переносе карточки в колонку: первый по порядку статус этой колонки. */
-export function statusForColumn(col: TrackerColumnKey, statuses: Array<{ id: string; trackerColumn?: TrackerColumnKey | null }>): string | null {
-  return statuses.find((s) => (s.trackerColumn ?? "TODO") === col)?.id ?? null;
+export function statusForColumn(col: TrackerColumnKey, statuses: Array<{ id: string; name?: string; trackerColumn?: TrackerColumnKey | null }>): string | null {
+  const inCol = statuses.filter((s) => (s.trackerColumn ?? "TODO") === col);
+  // «На стопе» ставится только действием с причиной — перенос в колонку его не выбирает
+  return (inCol.find((s) => s.name !== STOP_STATUS) ?? inCol[0])?.id ?? null;
 }
 
 export type TrackerEventKind = "created" | "status" | "deadline" | "text" | "submitted" | "unsubmitted" | "owner" | "files" | "edit" | "archived" | "restored" | "memo" | "workflow";
@@ -62,8 +65,8 @@ const WORKFLOW_TEXT: Record<string, (t: string | null) => string> = {
   submit: (t) => `сдана на проверку${t ? `: ${t}` : ""}`,
   accept: (t) => `принята директором${t ? ` (${t})` : ""}`,
   return: (t) => `возвращена на доработку${t ? `: ${t}` : ""}`,
-  block: (t) => `заблокирована${t ? `: ждём ${t}` : ""}`,
-  unblock: () => "блок снят",
+  block: (t) => `на стопе${t ? `: ждём ${t}` : ""}`,
+  unblock: () => "снята со стопа",
   cancel: (t) => `отменена${t ? `: ${t}` : ""}`,
   reopen: (t) => `переоткрыта${t ? `: ${t}` : ""}`,
 };

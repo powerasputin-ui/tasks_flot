@@ -2,9 +2,10 @@
  * Жизненный цикл задачи в «Трекере» (формальная приёмка). Чистые функции: какие действия кому доступны и что они требуют.
  * Сделать → В работе → «Сдать на проверку» (результат) → На проверке → «Принять» (директор) → Выполнено
  *                                                                     → «Вернуть» (директор, причина) → В работе
- * Из любого невыполненного: «Заблокировать» (на чём ждём, до какой даты) / «Снять блок»; «Отменить» (директор, причина).
+ * Из любого невыполненного: «Поставить на стоп» (что ждём, до какой даты; статус «На стопе») / «Снять со стопа»;
+ * «Отменить» (директор, причина).
  * Выполнено / Отменено → «Переоткрыть» (директор, причина).
- * Статусы «На проверке», «Выполнено», «Не актуально» напрямую не ставятся — только этими действиями (сервер, lib/items.ts).
+ * Статусы «На проверке», «На стопе», «Выполнено», «Не актуально» напрямую не ставятся — только этими действиями (сервер, lib/items.ts).
  */
 import { isDirectorial, type Actor } from "@/lib/permissions";
 import type { TrackerColumnKey } from "@/lib/tracker";
@@ -15,8 +16,8 @@ export const ACTION_LABEL: Record<WorkflowAction, string> = {
   submit: "Сдать на проверку",
   accept: "Принять",
   return: "Вернуть на доработку",
-  block: "Заблокировано",
-  unblock: "Снять блок",
+  block: "Поставить на стоп",
+  unblock: "Снять со стопа",
   cancel: "Отменить (не актуально)",
   reopen: "Переоткрыть",
 };
@@ -26,8 +27,8 @@ export const DECISION_TEXT: Record<WorkflowAction, string> = {
   submit: "сдал(а) на проверку",
   accept: "принял(а) задачу",
   return: "вернул(а) на доработку",
-  block: "отметил(а) блокер",
-  unblock: "снял(а) блок",
+  block: "поставил(а) на стоп",
+  unblock: "снял(а) со стопа",
   cancel: "отменил(а) задачу",
   reopen: "переоткрыл(а) задачу",
 };
@@ -73,14 +74,14 @@ export function checkAction(actor: Pick<Actor, "id" | "role">, item: WorkflowIte
       if (action === "return" && input && !filled(input.comment)) return "Напишите, что нужно доработать.";
       return null;
     case "block":
-      if (!isExecutor(actor, item)) return "Заблокировать может ответственный за задачу или директор.";
-      if (!open) return "Заблокировать можно задачу в работе.";
-      if (item.blocked) return "Задача уже заблокирована.";
-      if (input && !filled(input.blockedBy, 3)) return "Укажите, на чём ждём (чьё решение, документ, поставка).";
+      if (!isExecutor(actor, item)) return "Поставить на стоп может ответственный за задачу или директор.";
+      if (!open) return "На стоп ставят задачу в работе.";
+      if (item.blocked) return "Задача уже на стопе.";
+      if (input && !filled(input.blockedBy, 3)) return "Укажите, что ждём (чьё решение, документ, поставка).";
       return null;
     case "unblock":
-      if (!isExecutor(actor, item)) return "Снять блок может ответственный за задачу или директор.";
-      if (!item.blocked) return "Задача не заблокирована.";
+      if (!isExecutor(actor, item)) return "Снять со стопа может ответственный за задачу или директор.";
+      if (!item.blocked) return "Задача не на стопе.";
       return null;
     case "cancel":
       if (!director) return "Отменить задачу может директор.";
@@ -106,6 +107,13 @@ export function directStatusError(from: TrackerColumnKey, to: TrackerColumnKey):
   if (from === to) return null;
   if (WORKFLOW_COLUMNS.includes(to)) return to === "REVIEW" ? "Чтобы отправить на проверку, нажмите «Сдать на проверку» и опишите результат." : to === "DONE" ? "Выполненной задачу делает директор — кнопкой «Принять» после сдачи на проверку." : "Отменяет задачу директор — кнопкой «Отменить» с причиной.";
   if (WORKFLOW_COLUMNS.includes(from)) return from === "REVIEW" ? "Задача на проверке: директор принимает её или возвращает с замечанием." : "Закрытую задачу возвращает в работу директор — кнопкой «Переоткрыть» с причиной.";
+  return null;
+}
+
+/** «На стопе» напрямую (таблица, карточка, доска) не ставится и не снимается — только действием с причиной. */
+export function stopStatusError(fromStop: boolean, toStop: boolean): string | null {
+  if (toStop && !fromStop) return "На стоп ставят кнопкой «Поставить на стоп» в карточке задачи — с причиной: что ждём.";
+  if (fromStop && !toStop) return "Задача на стопе: снимите её кнопкой «Снять со стопа» в карточке задачи.";
   return null;
 }
 

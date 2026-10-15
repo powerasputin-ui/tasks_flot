@@ -86,6 +86,11 @@ describe("applyTableFilters", () => {
 });
 
 describe("applyTableSort", () => {
+  it("по статусу — в порядке статусов из настроек, а не по алфавиту; без статуса — в конце", () => {
+    const rows = [row({ id: "done", statusName: "Завершено", statusOrder: 3 }), row({ id: "none", statusName: null, statusOrder: null }), row({ id: "todo", statusName: "Не начато", statusOrder: 0 }), row({ id: "work", statusName: "В работе", statusOrder: 1 })];
+    expect(applyTableSort(rows, { sortBy: "status", sortDir: "asc" }).map((r) => r.id)).toEqual(["todo", "work", "done", "none"]);
+    expect(applyTableSort(rows, { sortBy: "status", sortDir: "desc" }).map((r) => r.id)).toEqual(["done", "work", "todo", "none"]);
+  });
   it("сортирует по дате последнего обновления", () => {
     const rows = [row({ id: "1", updatedAt: new Date("2026-08-01") }), row({ id: "2", updatedAt: new Date("2026-01-01") })];
     expect(applyTableSort(rows, { sortBy: "updatedAt", sortDir: "asc" }).map((r) => r.id)).toEqual(["2", "1"]);

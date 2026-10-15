@@ -3,7 +3,7 @@
 import { fetchRetry } from "@/lib/fetch-retry";
 import { askConfirm, askText } from "@/components/ui/Dialog";
 import { attractivenessText } from "@/lib/attractiveness";
-import { PROTECTED_STATUSES } from "@/lib/statuses";
+import { systemStatusHint } from "@/lib/statuses";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Lock, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -214,7 +214,7 @@ export default function SettingsPage() {
               onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")}
               onRename={(id, name) => act(send(`/api/statuses/${id}`, "PATCH", { name }), "Статус переименован.")}
               onDelete={(id) => act(send(`/api/statuses/${id}`, "DELETE"), "Статус удалён.")}
-              locked={(i) => (PROTECTED_STATUSES.includes(i.name) ? "Системный статус: по нему считаются просрочки и напоминания, поэтому его не переименовывают и не удаляют." : null)}
+              locked={(i) => systemStatusHint(i.name)}
             />
             <TrackerSettings reloadKey={statuses.length} />
           </>

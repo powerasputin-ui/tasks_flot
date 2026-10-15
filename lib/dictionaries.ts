@@ -11,7 +11,7 @@ export type Dicts = {
   segments: Map<string, { name: string; color: string | null; directorateId: string | null }>;
   tracks: Map<string, { name: string; directorateId: string | null }>;
   attractiveness: Map<string, { name: string; color: string | null }>;
-  statuses: Map<string, { name: string; color: string | null; trackerColumn: TrackerColumn | null }>;
+  statuses: Map<string, { name: string; color: string | null; trackerColumn: TrackerColumn | null; sortOrder: number }>;
   users: Map<string, { id: string; name: string; role: UserRole; directorateId: string | null }>;
   /** Активные свои колонки таблицы (для проверки значений при сохранении позиции). */
   customColumns: Array<ColumnDef & { directorateId: string | null }>;
@@ -27,7 +27,7 @@ async function load(): Promise<Dicts> {
     prisma.segment.findMany({ select: { id: true, name: true, color: true, directorateId: true } }),
     prisma.track.findMany({ select: { id: true, name: true, directorateId: true } }),
     prisma.attractiveness.findMany({ select: { id: true, name: true, color: true } }),
-    prisma.status.findMany({ select: { id: true, name: true, color: true, trackerColumn: true } }),
+    prisma.status.findMany({ select: { id: true, name: true, color: true, trackerColumn: true, sortOrder: true } }),
     prisma.user.findMany({ select: { id: true, name: true, role: true, directorateId: true } }),
     prisma.customColumn.findMany({ where: { isActive: true }, select: { id: true, name: true, type: true, options: true, directorateId: true } }),
   ]);
@@ -35,7 +35,7 @@ async function load(): Promise<Dicts> {
     segments: new Map(segments.map((s) => [s.id, { name: s.name, color: s.color, directorateId: s.directorateId }])),
     tracks: new Map(tracks.map((t) => [t.id, { name: t.name, directorateId: t.directorateId }])),
     attractiveness: new Map(attractiveness.map((a) => [a.id, { name: a.name, color: a.color }])),
-    statuses: new Map(statuses.map((s) => [s.id, { name: s.name, color: s.color, trackerColumn: s.trackerColumn }])),
+    statuses: new Map(statuses.map((s) => [s.id, { name: s.name, color: s.color, trackerColumn: s.trackerColumn, sortOrder: s.sortOrder }])),
     users: new Map(users.map((u) => [u.id, u])),
     customColumns: customColumns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options, directorateId: c.directorateId })),
   };
