@@ -7,6 +7,7 @@ import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ClipboardList, Eye, KanbanSquare, LogOut, Search, Settings, Table2, Trash2, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
+import { clearAiChat } from "@/components/AiChat";
 import { setPreview } from "@/lib/preview-as";
 import { Avatar } from "@/components/ui/Avatar";
 import { MenuItem, Popover } from "@/components/ui/Popover";
@@ -168,6 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   async function startViewAs(userId: string | null) {
     await fetch("/api/view-as", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }) });
     clearBootstrap();
+    clearAiChat(); // чат чужими глазами — другой разговор
     router.push("/");
     router.refresh();
   }
@@ -175,6 +177,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     clearBootstrap();
+    clearAiChat();
     setPreview(null);
     router.push("/login");
     router.refresh();

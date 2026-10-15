@@ -22,14 +22,38 @@ const QUICK = [
   "Какие вопросы задать директору?",
 ];
 
+/** Быстрые вопросы на «Трекере»: движение задач (на них отвечает программа — точно и сразу). */
+export const TRACKER_QUICK = ["Что горит и где нужно вмешательство?", "Что застряло без движения?", "Где переносили сроки?", "Что ждёт приёмки?", "Выжимка по трекеру: главное и риски"];
+
+/** Разговор живёт, пока открыта вкладка: тот же чат на «Оперативке» и «Трекере». Стирается при выходе и «Посмотреть как». */
+const CHAT_STORE = "operativka.aiChat.v1";
+type Stored = { messages: Msg[]; open: boolean; versionIds: string[]; scopeLabel: string };
+function loadChat(): Stored | null {
+  try {
+    const raw = sessionStorage.getItem(CHAT_STORE);
+    return raw ? (JSON.parse(raw) as Stored) : null;
+  } catch {
+    return null;
+  }
+}
+export function clearAiChat() {
+  try {
+    sessionStorage.removeItem(CHAT_STORE);
+  } catch {}
+}
+
 /**
  * Чат-помощник ЗГД внизу страницы, как в ChatGPT: отвечает по открытой справке (или по справкам, отмеченным в «Сводке»).
  * Тексты справок с браузера не уходят: отправляются только id справок и вопросы, остальное собирает сервер.
  */
-export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: { versionIds: string[]; scopeLabel: string; disabledReason?: string; forDirector?: boolean }) {
+export function AiChat({ versionIds: ownIds, scopeLabel: ownLabel, disabledReason, forDirector, inherit, quick: quickOverride }: { versionIds: string[]; scopeLabel: string; disabledReason?: string; forDirector?: boolean; /** «Трекер»: продолжить разговор с «Оперативки» по той же справке. */ inherit?: boolean; quick?: string[] }) {
   // директору — его вопрос «что спросит руководство», а не «вопросы директору»
-  const quick = forDirector ? [...QUICK.slice(0, -1), "Какие вопросы мне зададут по справке?"] : QUICK;
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const quick = quickOverride ?? (forDirector ? [...QUICK.slice(0, -1), "Какие вопросы мне зададут по справке?"] : QUICK);
+  const [saved] = useState(loadChat);
+  // на «Трекере» — справки того разговора, что шёл на «Оперативке» (иначе — последние справки)
+  const versionIds = inherit && saved ? saved.versionIds : ownIds;
+  const scopeLabel = inherit && saved?.versionIds.length ? `трекер и ${saved.scopeLabel}` : ownLabel;
+  const [messages, setMessages] = useState<Msg[]>(() => (saved && (inherit || saved.versionIds.join(",") === ownIds.join(",")) ? saved.messages : []));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +64,7 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
   const configured = configuredOverride ?? ai.configured;
   // какая модель ответила на последний вопрос и была ли это выбранная
   const [answeredBy, setAnsweredBy] = useState<{ model: string; switched: boolean } | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => !!saved?.open && messages.length > 0);
   // модель с маленьким окном (бесплатный Groq) видела справки не целиком
   const [trimmed, setTrimmed] = useState<"compact" | "cut" | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -50,13 +74,23 @@ export function AiChat({ versionIds, scopeLabel, disabledReason, forDirector }: 
     bottom.current?.scrollIntoView({ block: "end" });
   }, [messages, open]);
 
-  // другая справка — другой разговор
+  // другая справка — другой разговор (переход между страницами — нет: чат восстановлен из вкладки)
   const key = versionIds.join(",");
+  const lastKey = useRef(key);
   useEffect(() => {
+    if (lastKey.current === key) return;
+    lastKey.current = key;
     abort.current?.abort();
     setMessages([]);
     setError(null);
   }, [key]);
+  // разговор — во вкладку (без пустого ответа, который ещё печатается)
+  useEffect(() => {
+    if (busy) return;
+    try {
+      sessionStorage.setItem(CHAT_STORE, JSON.stringify({ messages, open, versionIds, scopeLabel } satisfies Stored));
+    } catch {}
+  }, [messages, open, versionIds, scopeLabel, busy]);
 
   async function ask(text: string) {
     const q = text.trim();
