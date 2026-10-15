@@ -1,4 +1,4 @@
-import type { UserRole } from "@prisma/client";
+import type { TrackerColumn, UserRole } from "@prisma/client";
 
 /**
  * Права по ролям. Чистые функции без обращения к БД;
@@ -64,6 +64,15 @@ export function canAssignResponsible(actor: Actor, responsibleId: string | null 
   if (actor.role === "HEAD") return responsibleId === actor.id;
   return false;
 }
+
+/** Статус, который в «Трекере» стоит в колонке «Выполнено», ставит и снимает только директор/админ («принимает» задачу);
+ * руководитель доводит задачу до «На проверке». Колонки статусов — из справочника (Status.trackerColumn). */
+export function canSetStatus(role: UserRole, from: TrackerColumn | null | undefined, to: TrackerColumn | null | undefined): boolean {
+  if (isDirectorial(role)) return true;
+  return from !== "DONE" && to !== "DONE";
+}
+
+export const DONE_FORBIDDEN_MESSAGE = "Отметить задачу выполненной может директор: переведите её в «На проверке» — директор примет.";
 
 /** Возврат из архива и галка «Опер» — те же границы, что и правка. */
 export const canRestoreItem = canEditItem;

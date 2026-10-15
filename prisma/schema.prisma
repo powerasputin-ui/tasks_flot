@@ -84,12 +84,22 @@ model Status {
   sortOrder Int      @default(0)
   color     String?
   isActive  Boolean  @default(true)
+  /// Колонка «Трекера» (Сделать / В работе / На проверке / Выполнено / не показывать); пусто — «Сделать».
+  trackerColumn TrackerColumn?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   items OperationalItem[]
 
   @@map("statuses")
+}
+
+enum TrackerColumn {
+  TODO
+  DOING
+  REVIEW
+  DONE
+  HIDDEN
 }
 
 // Справочник (раньше Track был рабочей сущностью). Не удаляется физически (isActive=false).

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canViewItems, isSubmitter, type Actor } from "@/lib/permissions";
+import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canSetStatus, canViewItems, DONE_FORBIDDEN_MESSAGE, isSubmitter, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
@@ -61,6 +61,13 @@ async function refsInDirectorate(directorateId: string, f: { segmentId?: string 
   return okSeg && okTrack && okUser;
 }
 
+/** «Выполнено» ставит и снимает только директор/админ (колонка статуса в «Трекере», lib/permissions.ts canSetStatus). */
+async function statusAllowed(actor: Actor, from: string | null | undefined, to: string | null | undefined): Promise<boolean> {
+  const d = await getDicts();
+  const col = (id: string | null | undefined) => (id ? d.statuses.get(id)?.trackerColumn : null);
+  return canSetStatus(actor.role, col(from), col(to));
+}
+
 export async function createItem(actor: Actor, input: ItemFields & { title: string }): Promise<ItemResult> {
   if (!canCreateItem(actor.role)) return { ok: false, error: "FORBIDDEN" };
   const directorateId = actor.directorateId;
@@ -71,6 +78,7 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
   if (!canAssignResponsible(actor, responsibleId)) return { ok: false, error: "FORBIDDEN" };
 
   if (!(await refsInDirectorate(directorateId, { ...input, responsibleId }))) return { ok: false, error: "INVALID_REFERENCE" };
+  if (!(await statusAllowed(actor, null, input.statusId))) return { ok: false, error: "FORBIDDEN", message: DONE_FORBIDDEN_MESSAGE };
 
   const { customValues, files, ...rest } = input;
   let nextFiles: ReturnType<typeof readFiles> = [];
@@ -112,6 +120,9 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
   }
 
   if (!(await refsInDirectorate(actor.directorateId, fields))) return { ok: false, error: "INVALID_REFERENCE" };
+  if (fields.statusId !== undefined && fields.statusId !== existing.statusId && !(await statusAllowed(actor, existing.statusId, fields.statusId))) {
+    return { ok: false, error: "FORBIDDEN", message: DONE_FORBIDDEN_MESSAGE };
+  }
 
   // Значения своих колонок: проверяем тип и сливаем с уже сохранёнными.
   const existingCustom = (existing.customValues ?? {}) as Record<string, string>;
