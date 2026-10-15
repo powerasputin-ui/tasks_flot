@@ -61,7 +61,7 @@ export function ZgdPanel({ row, events, hot, onClose, onChanged }: { row: TRow; 
     <Panel title={row.name} subtitle={`Подтверждено ${row.asOf ? ruDay(row.asOf) : "—"}${row.confirmedBy ? ` · ${row.confirmedBy}` : ""}`} onClose={onClose} width={480}>
       <div className="space-y-4 px-5 py-4 text-[13px]">
         <div className="flex flex-wrap gap-1.5 text-[11px]">
-          {row.origin === "ZGD" && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-0.5 font-semibold text-[#7c3aed]">поручение ЗГД</span>}
+          {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-0.5 font-semibold text-[#7c3aed]">{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>}
           {control && <span className="rounded-sm bg-status-amber/15 px-1.5 py-0.5 font-semibold text-[#b45309]">на контроле</span>}
         </div>
         {hot && (
@@ -158,41 +158,82 @@ export function ZgdPanel({ row, events, hot, onClose, onChanged }: { row: TRow; 
   );
 }
 
-/** «Дать поручение»: дирекция, что сделать, ожидаемый результат, срок. Директор назначит ответственного. */
-export function OrderPanel({ directorates, onClose, onDone }: { directorates: Array<{ id: string; name: string }>; onClose: () => void; onDone: () => void }) {
+type Person = { id: string; name: string; directorateId?: string; role?: string };
+
+/**
+ * «Дать поручение». ЗГД: дирекция и (необязательно) конкретный сотрудник — директор узнаёт в любом случае.
+ * Директор: сотрудник своей дирекции (обязательно) и сегмент. Всегда: что сделать, ожидаемый результат, срок.
+ */
+export function OrderPanel({ mode = "zgd", directorates = [], people = [], segments = [], onClose, onDone }: { mode?: "zgd" | "director"; directorates?: Array<{ id: string; name: string }>; people: Person[]; segments?: Array<{ id: string; name: string }>; onClose: () => void; onDone: () => void }) {
+  const zgd = mode === "zgd";
   const [dir, setDir] = useState(directorates.length === 1 ? directorates[0].id : "");
+  const [resp, setResp] = useState("");
+  const [segment, setSegment] = useState("");
   const [title, setTitle] = useState("");
   const [result, setResult] = useState("");
   const [deadline, setDeadline] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const staff = zgd ? people.filter((p) => p.directorateId === dir) : people;
   async function send() {
     setBusy(true);
     setError(null);
-    const err = await post({ action: "order", directorateId: dir, title, expectedResult: result, deadline: deadline || null });
+    const err = await post(
+      zgd
+        ? { action: "order", directorateId: dir, title, expectedResult: result, deadline: deadline || null, responsibleId: resp || null }
+        : { action: "director-order", responsibleId: resp, title, expectedResult: result, deadline: deadline || null, segmentId: segment || null },
+    );
     setBusy(false);
     if (err) return setError(err);
     onDone();
   }
+  const ready = (zgd ? !!dir : !!resp) && title.trim().length >= 3 && result.trim().length >= 3 && !!deadline;
   return (
-    <Panel title="Поручение дирекции" subtitle="Уйдёт директору: он назначит ответственного. Задача сразу на вашем контроле." onClose={onClose} width={480}>
+    <Panel
+      title={zgd ? "Поручение дирекции" : "Поручение сотруднику"}
+      subtitle={zgd ? "Директор узнает в любом случае. Исполнителя можно выбрать сразу или оставить директору. Задача — на вашем контроле." : "Исполнитель получит уведомление; работу примете вы — по ожидаемому результату."}
+      onClose={onClose}
+      width={480}
+    >
       <div className="space-y-3 px-5 py-4 text-[13px]">
+        {zgd && (
+          <label className="block">
+            <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Дирекция</span>
+            <select value={dir} onChange={(e) => (setDir(e.target.value), setResp(""))} className="select w-full">
+              <option value="">— выберите —</option>
+              {directorates.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block">
-          <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Дирекция</span>
-          <select value={dir} onChange={(e) => setDir(e.target.value)} className="select w-full">
-            <option value="">— выберите —</option>
-            {directorates.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
+          <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Исполнитель{zgd ? " (необязательно)" : ""}</span>
+          <select value={resp} onChange={(e) => setResp(e.target.value)} disabled={zgd && !dir} className="select w-full">
+            <option value="">{zgd ? "— назначит директор —" : "— выберите —"}</option>
+            {staff.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.role === "DIRECTOR" ? " (директор)" : ""}</option>
             ))}
           </select>
         </label>
+        {!zgd && segments.length > 0 && (
+          <label className="block">
+            <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Сегмент (необязательно)</span>
+            <select value={segment} onChange={(e) => setSegment(e.target.value)} className="select w-full">
+              <option value="">— без сегмента —</option>
+              {segments.map((x) => (
+                <option key={x.id} value={x.id}>{x.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block">
           <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Что сделать</span>
           <textarea value={title} onChange={(e) => setTitle(e.target.value)} rows={2} maxLength={300} className="input w-full" />
         </label>
         <label className="block">
           <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Ожидаемый результат</span>
-          <textarea value={result} onChange={(e) => setResult(e.target.value)} rows={3} maxLength={2000} className="input w-full" placeholder="По нему директор примет работу: документ, решение, договор…" />
+          <textarea value={result} onChange={(e) => setResult(e.target.value)} rows={3} maxLength={2000} className="input w-full" placeholder="По нему примут работу: документ, решение, договор…" />
         </label>
         <label className="block">
           <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Срок</span>
@@ -200,7 +241,7 @@ export function OrderPanel({ directorates, onClose, onDone }: { directorates: Ar
         </label>
         {error && <p className="text-[12px] text-status-red">{error}</p>}
         <div className="flex gap-2">
-          <button onClick={() => void send()} disabled={busy || !dir || title.trim().length < 3 || result.trim().length < 3 || !deadline} className="btn-primary">{busy ? "Отправляю…" : "Дать поручение"}</button>
+          <button onClick={() => void send()} disabled={busy || !ready} className="btn-primary">{busy ? "Отправляю…" : "Дать поручение"}</button>
           <button onClick={onClose} className="btn-ghost">Отмена</button>
         </div>
       </div>

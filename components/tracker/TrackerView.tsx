@@ -44,7 +44,7 @@ export type TRow = ItemRow & {
   publishedAt?: string | null;
 };
 type Status = { id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null };
-type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, HotInfo>; since: string | null; mode?: "sent"; directorates?: Array<{ id: string; name: string }> };
+type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, HotInfo>; since: string | null; mode?: "sent"; directorates?: Array<{ id: string; name: string }>; people?: Array<{ id: string; name: string; directorateId: string; role: string }> };
 type View = "list" | "board" | "timeline";
 
 const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
@@ -173,7 +173,7 @@ export function TrackerView() {
       if (kind && !data?.hot[r.id]?.kinds.includes(kind)) return false;
       if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
       if (scope === "control" && !r.zgdControl) return false;
-      if (scope === "orders" && r.origin !== "ZGD") return false;
+      if (scope === "orders" && !r.origin) return false;
       if (scope === "waiting" && !(r.openRequest || data?.hot[r.id]?.kinds.includes("request"))) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
@@ -262,7 +262,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {sent && (
+          {(sent || (directorial && !preview)) && (
             <button onClick={() => setOrdering(true)} className="btn-primary">
               <Plus size={15} /> Дать поручение
             </button>
@@ -319,7 +319,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           {([
             ["all", "Все"],
             ["control", "На контроле"],
-            ["orders", "Поручения ЗГД"],
+            ["orders", "Поручения"],
             ["waiting", sent ? "Ждут ответа" : "Запросы ЗГД"],
           ] as const).map(([k, label]) => (
             <button key={k} onClick={() => setScope(k)} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
@@ -360,13 +360,28 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           }}
         />
       )}
+      {ordering && !sent && (
+        <OrderPanel
+          mode="director"
+          // исполнители — кто ведёт позиции: руководители, директор, админ «подаёт как руководитель» (то же правило на сервере)
+          people={(boot?.users ?? []).filter((u) => u.role === "HEAD" || u.role === "DIRECTOR" || (u.role === "ADMIN" && !!u.submits))}
+          segments={(boot?.segments ?? []).map((x) => ({ id: x.id, name: x.name }))}
+          onClose={() => setOrdering(false)}
+          onDone={() => {
+            setOrdering(false);
+            setNotice("Поручение отправлено исполнителю. Примете работу вы — после сдачи на проверку.");
+            setTick((x) => x + 1);
+          }}
+        />
+      )}
       {ordering && sent && (
         <OrderPanel
+          people={data?.people ?? []}
           directorates={data?.directorates ?? []}
           onClose={() => setOrdering(false)}
           onDone={() => {
             setOrdering(false);
-            setNotice("Поручение отправлено директору — он назначит ответственного. Задача на вашем контроле.");
+            setNotice("Поручение отправлено: директор в курсе, исполнитель (если выбран) получил уведомление. Задача на вашем контроле.");
             setTick((t) => t + 1);
           }}
         />
@@ -419,7 +434,7 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
 function Marks({ row, hot, summary, done, unconfirmed }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean }) {
   return (
     <>
-      {row.origin === "ZGD" && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : "Поручение ЗГД"}>поручение ЗГД</span>}
+      {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>}
       {row.zgdControl && <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>}
       {unconfirmed && <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>}
       {/* сигнал = вид + причина и «что сделать» в подсказке */}

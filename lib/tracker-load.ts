@@ -171,12 +171,14 @@ const sentFact = (r: SentRow): FactItem => ({
 const KIND_ACTION: Partial<Record<TrackerEvent["kind"], string>> = { status: "STATUS_CHANGE", deadline: "DEADLINE_CHANGE", owner: "OWNER_CHANGE", archived: "ARCHIVE" };
 
 /** Трекер ЗГД для страницы: состояние на последнюю справку каждой дирекции и история между справками. */
-export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; directorates: Array<{ id: string; name: string }> }> {
+export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; directorates: Array<{ id: string; name: string }>; people: Array<{ id: string; name: string; directorateId: string; role: string }> }> {
   const [built, statuses, directorates] = await Promise.all([
     loadZgdSources().then((x) => buildZgdTracker(x.versions, x.publications)),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, color: true, trackerColumn: true } }),
     prisma.directorate.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, shortName: true } }),
   ]);
+  // исполнители поручений ЗГД: действующие сотрудники дирекций, которые отвечают за позиции
+  const people = await prisma.user.findMany({ where: { isActive: true, directorateId: { not: null }, OR: [{ role: { in: ["HEAD", "DIRECTOR"] } }, { role: "ADMIN", submits: true }] }, orderBy: { name: "asc" }, select: { id: true, name: true, directorateId: true, role: true } });
   // «на контроле» и поручения — пометки самого ЗГД: берём живые; удалённые дирекцией задачи у ЗГД не показываем
   const ids = built.rows.map((r) => r.id);
   const [live, requests] = await Promise.all([
@@ -228,7 +230,7 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; d
   });
   const hot = Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
   const openReq = new Set(requests.map((q) => q.itemId));
-  return { mode: "sent", rows: rows.map((r) => ({ ...r, openRequest: openReq.has(r.id) })) as unknown as TableRow[], statuses, events: sent.events, hot, since: sent.since, directorates: directorates.map((d) => ({ id: d.id, name: d.shortName || d.name })) };
+  return { mode: "sent", rows: rows.map((r) => ({ ...r, openRequest: openReq.has(r.id) })) as unknown as TableRow[], statuses, events: sent.events, hot, since: sent.since, directorates: directorates.map((d) => ({ id: d.id, name: d.shortName || d.name })), people: people.map((p) => ({ id: p.id, name: p.name, directorateId: p.directorateId!, role: p.role })) };
 }
 
 /** Факты для ИИ ЗГД: позиции из последних справок с движением по трекеру и журнал — разница между справками. */

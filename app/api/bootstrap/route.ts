@@ -28,7 +28,7 @@ async function GETHandler() {
     prisma.track.findMany({ where: { isActive: true, directorateId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, segmentId: true } }),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
     prisma.attractiveness.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.user.findMany({ where: { isActive: true, directorateId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { isActive: true, directorateId }, select: { id: true, name: true, role: true, submits: true }, orderBy: { name: "asc" } }),
     prisma.customColumn.findMany({ where: { isActive: true, directorateId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
     prisma.appSetting.findUnique({ where: { key: `table.columns:${directorateId}` } }),
     prisma.appSetting.findUnique({ where: { key: TRACKER_SETTING } }),

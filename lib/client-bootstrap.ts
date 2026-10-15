@@ -9,7 +9,7 @@ export type Bootstrap = {
   tracks: Array<{ id: string; name: string; segmentId: string | null }>;
   statuses: Array<{ id: string; name: string; trackerColumn?: string | null }>;
   attractiveness: Array<{ id: string; name: string }>;
-  users: Array<{ id: string; name: string; role: string }>;
+  users: Array<{ id: string; name: string; role: string; submits?: boolean }>;
   columns: Array<{ id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] }>;
   tableColumns: unknown;
   /** Дирекция, в которой человек работает (у ЗГД нет). */

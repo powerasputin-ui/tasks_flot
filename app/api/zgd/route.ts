@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireActor } from "@/lib/session";
-import { answerRequest, askStatus, createOrder, decideDeadline, requestDeadline, setControl, zgdComment, zgdItemInfo, type ZgdResult } from "@/lib/zgd-server";
+import { answerRequest, askStatus, createOrder, directorOrder, decideDeadline, requestDeadline, setControl, zgdComment, zgdItemInfo, type ZgdResult } from "@/lib/zgd-server";
 import { withApiErrors } from "@/lib/api-guard";
 
 const date = z.coerce.date().nullable().optional();
@@ -10,7 +10,8 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("request"), itemId: z.string(), text: z.string().max(1000), dueAt: date }),
   z.object({ action: z.literal("answer"), requestId: z.string(), answer: z.string().max(2000) }),
   z.object({ action: z.literal("comment"), itemId: z.string(), text: z.string().max(2000) }),
-  z.object({ action: z.literal("order"), directorateId: z.string(), title: z.string().max(300), expectedResult: z.string().max(2000), deadline: date }),
+  z.object({ action: z.literal("order"), directorateId: z.string(), title: z.string().max(300), expectedResult: z.string().max(2000), deadline: date, responsibleId: z.string().nullable().optional() }),
+  z.object({ action: z.literal("director-order"), responsibleId: z.string(), title: z.string().max(300), expectedResult: z.string().max(2000), deadline: date, segmentId: z.string().nullable().optional() }),
   z.object({ action: z.literal("deadline-request"), itemId: z.string(), newDeadline: date, reason: z.string().max(500) }),
   z.object({ action: z.literal("deadline-decide"), requestId: z.string(), approve: z.boolean(), comment: z.string().max(500).optional() }),
 ]);
@@ -26,7 +27,8 @@ async function POSTHandler(request: NextRequest) {
     : b.action === "request" ? await askStatus(actor, b.itemId, b.text, b.dueAt ?? null)
     : b.action === "answer" ? await answerRequest(actor, b.requestId, b.answer)
     : b.action === "comment" ? await zgdComment(actor, b.itemId, b.text)
-    : b.action === "order" ? await createOrder(actor, { directorateId: b.directorateId, title: b.title, expectedResult: b.expectedResult, deadline: b.deadline ?? null })
+    : b.action === "order" ? await createOrder(actor, { directorateId: b.directorateId, title: b.title, expectedResult: b.expectedResult, deadline: b.deadline ?? null, responsibleId: b.responsibleId })
+    : b.action === "director-order" ? await directorOrder(actor, { responsibleId: b.responsibleId, title: b.title, expectedResult: b.expectedResult, deadline: b.deadline ?? null, segmentId: b.segmentId })
     : b.action === "deadline-request" ? await requestDeadline(actor, b.itemId, b.newDeadline ?? null, b.reason)
     : await decideDeadline(actor, b.requestId, b.approve, b.comment);
   if (!r.ok) return NextResponse.json({ error: r.error, message: r.message }, { status: r.status });

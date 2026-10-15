@@ -79,7 +79,13 @@ export async function zgdComment(actor: Actor, itemId: string, text: unknown): P
 }
 
 /** Поручение ЗГД: новая задача дирекции (без ответственного — его назначает директор), на контроле ЗГД. */
-export async function createOrder(actor: Actor, input: { directorateId: unknown; title: unknown; expectedResult: unknown; deadline: Date | null }): Promise<ZgdResult<{ id: string }>> {
+/** Исполнитель поручения — действующий сотрудник этой дирекции, который ведёт позиции: руководитель, директор, админ «подаёт как руководитель». */
+async function assignee(directorateId: string, responsibleId: unknown) {
+  if (typeof responsibleId !== "string" || !responsibleId) return null;
+  return prisma.user.findFirst({ where: { id: responsibleId, directorateId, isActive: true, OR: [{ role: { in: ["HEAD", "DIRECTOR"] } }, { role: "ADMIN", submits: true }] }, select: { id: true, name: true } });
+}
+
+export async function createOrder(actor: Actor, input: { directorateId: unknown; title: unknown; expectedResult: unknown; deadline: Date | null; responsibleId?: unknown }): Promise<ZgdResult<{ id: string }>> {
   if (actor.role !== "EXECUTIVE" || actor.viewAs) return fail(403, "Поручение даёт ЗГД.");
   const directorateId = typeof input.directorateId === "string" ? input.directorateId : "";
   const dir = directorateId ? await prisma.directorate.findFirst({ where: { id: directorateId, isActive: true } }) : null;
@@ -89,18 +95,49 @@ export async function createOrder(actor: Actor, input: { directorateId: unknown;
   if (title.length < 3) return fail(400, "Сформулируйте поручение.");
   if (expectedResult.length < 3) return fail(400, "Опишите ожидаемый результат — по нему директор примет работу.");
   if (!input.deadline) return fail(400, "Укажите срок.");
+  // исполнителя можно выбрать сразу; иначе его назначает директор
+  const resp = await assignee(dir.id, input.responsibleId);
+  if (input.responsibleId && !resp) return fail(400, "Исполнитель не найден в этой дирекции.");
   const statuses = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
   const who = await nameOf(actor.id);
   const now = new Date();
   const item = await prisma.operationalItem.create({
     data: {
       title, expectedResult, deadline: input.deadline, originalDeadline: input.deadline, statusId: statusForColumn("TODO", statuses), directorateId: dir.id,
+      responsibleId: resp?.id ?? null,
       origin: "ZGD", assignedById: actor.id, assignedByName: who, assignedAt: now, zgdControl: true, createdById: actor.id, updatedById: actor.id,
     },
   });
   await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
   await publishItem(item, { id: actor.id, name: who }, "дал(а) поручение");
-  for (const uid of await directorsOf(dir.id)) await createNotification({ userId: uid, type: "ZGD_ORDER", message: `Поручение ЗГД (${who}): «${title.slice(0, 120)}», срок ${input.deadline.toLocaleDateString("ru-RU")} — назначьте ответственного`, link: trackerLink(item) });
+  // директор узнаёт всегда (иерархия), исполнитель — если выбран сразу
+  for (const uid of await directorsOf(dir.id)) if (uid !== resp?.id) await createNotification({ userId: uid, type: "ZGD_ORDER", message: `Поручение ЗГД (${who}): «${title.slice(0, 120)}», срок ${input.deadline.toLocaleDateString("ru-RU")}${resp ? ` — исполнитель ${resp.name}` : " — назначьте ответственного"}`, link: trackerLink(item) });
+  if (resp) await createNotification({ userId: resp.id, type: "ZGD_ORDER", message: `Вам поручение ЗГД (${who}): «${title.slice(0, 120)}», срок ${input.deadline.toLocaleDateString("ru-RU")}`, link: trackerLink(item) });
+  return { ok: true, data: { id: item.id } };
+}
+
+/** Поручение директора сотруднику своей дирекции: что сделать, ожидаемый результат, срок, исполнитель (обязателен). */
+export async function directorOrder(actor: Actor, input: { responsibleId: unknown; title: unknown; expectedResult: unknown; deadline: Date | null; segmentId?: unknown }): Promise<ZgdResult<{ id: string }>> {
+  if (!isDirectorial(actor.role) || actor.viewAs || !actor.directorateId) return fail(403, "Поручение даёт директор.");
+  const title = clip(input.title, 300);
+  const expectedResult = clip(input.expectedResult, 2000);
+  if (title.length < 3) return fail(400, "Сформулируйте поручение.");
+  if (expectedResult.length < 3) return fail(400, "Опишите ожидаемый результат — по нему вы примете работу.");
+  if (!input.deadline) return fail(400, "Укажите срок.");
+  const resp = await assignee(actor.directorateId, input.responsibleId);
+  if (!resp) return fail(400, "Выберите исполнителя из своей дирекции.");
+  const segmentId = typeof input.segmentId === "string" && input.segmentId ? input.segmentId : null;
+  if (segmentId && !(await prisma.segment.findFirst({ where: { id: segmentId, directorateId: actor.directorateId } }))) return fail(400, "Сегмент не найден.");
+  const statuses = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
+  const who = await nameOf(actor.id);
+  const item = await prisma.operationalItem.create({
+    data: {
+      title, expectedResult, deadline: input.deadline, originalDeadline: input.deadline, statusId: statusForColumn("TODO", statuses), directorateId: actor.directorateId,
+      segmentId, responsibleId: resp.id, origin: "DIRECTOR", assignedById: actor.id, assignedByName: who, assignedAt: new Date(), createdById: actor.id, updatedById: actor.id,
+    },
+  });
+  await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
+  if (resp.id !== actor.id) await createNotification({ userId: resp.id, type: "ZGD_ORDER", message: `Поручение директора (${who}): «${title.slice(0, 120)}», срок ${input.deadline.toLocaleDateString("ru-RU")}`, link: trackerLink(item) });
   return { ok: true, data: { id: item.id } };
 }
 

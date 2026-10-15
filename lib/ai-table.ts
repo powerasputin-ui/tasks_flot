@@ -207,7 +207,7 @@ export function cardLine(i: FactItem, label: string, today: number, titleLimit =
     i.expectedResult ? `ожидаемый результат: ${i.expectedResult.slice(0, 160)}` : null,
     i.blockedBy ? `заблокировано: ждём ${i.blockedBy}${i.blockedUntil ? ` (ожидаем к ${ru(i.blockedUntil)})` : ""}` : null,
     i.originalDeadline && i.deadline && dayOf(i.originalDeadline) !== dayOf(i.deadline) ? `исходный срок: ${ru(i.originalDeadline)}` : null,
-    i.origin === "ZGD" ? "поручение ЗГД" : null,
+    i.origin === "ZGD" ? "поручение ЗГД" : i.origin === "DIRECTOR" ? "поручение директора" : null,
     i.confirmed ? `подтверждено: ${i.confirmed}` : null,
     i.zgdControl ? "на контроле ЗГД" : null,
     i.openRequests?.count ? `запрос ЗГД без ответа${i.openRequests.dueAt ? ` (ответ к ${ru(i.openRequests.dueAt)})` : ""}` : null,
@@ -278,7 +278,7 @@ export function signals(items: FactItem[], today: number): Signal[] {
     // без структурного блокера — подсказка из текста, но как качество данных, а не «горит»
     const wait = !i.blockedBy ? WAITING.exec(n(`${i.title} ${i.comment ?? ""}`)) : null;
     const waitWord = wait ? (n(`${i.title} ${i.comment ?? ""}`).match(new RegExp(`[а-яё]*${wait[0]}[а-яё]*`))?.[0] ?? wait[0]) : "";
-    const missing = [!i.deadline ? "срока" : "", !i.owner ? "ответственного" : "", i.origin === "ZGD" && !i.expectedResult ? "ожидаемого результата" : ""].filter(Boolean);
+    const missing = [!i.deadline ? "срока" : "", !i.owner ? "ответственного" : "", i.origin && !i.expectedResult ? "ожидаемого результата" : ""].filter(Boolean);
     if (missing.length) add("data", `нет ${missing.join(", ")}`, "заполнить в карточке", 1);
     if (wait && (days === null || days < 0)) add("data", `в тексте «${waitWord}», а блокер не отмечен`, "если ждём — отметить «Заблокировано» с датой", 1);
     if (!i.submitted && days !== null && days >= 0 && days <= 7) add("report", "не подана в справку, а срок близко", "ответственному подать строку", 1);

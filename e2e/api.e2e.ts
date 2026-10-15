@@ -2399,4 +2399,33 @@ describe("ЗГД в трекере: только подтверждённое д
     // ЗГД не получает уведомление о собственном поручении
     expect(await prisma.notification.count({ where: { userId: zgdUser.id, link: { contains: o.data.id } } })).toBe(0);
   });
+
+  it("поручение ЗГД сразу сотруднику: исполнитель и директор узнают; сотрудник чужой дирекции — нельзя", async () => {
+    const bad = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение чужому`, expectedResult: "Результат", deadline: "2026-11-30", responsibleId: headB.id });
+    expect(bad.status).toBe(400);
+    const o = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение сотруднику`, expectedResult: "Результат", deadline: "2026-11-30", responsibleId: head.id });
+    expect(o.status).toBe(200);
+    created.items.push(o.data.id);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: o.data.id } })).responsibleId).toBe(head.id);
+    expect(await prisma.notification.count({ where: { userId: head.id, type: "ZGD_ORDER", link: { contains: o.data.id } } })).toBe(1);
+    expect(await prisma.notification.count({ where: { userId: director.id, type: "ZGD_ORDER", link: { contains: o.data.id } } })).toBe(1);
+  });
+
+  it("поручение директора сотруднику: только директор, исполнитель обязателен и из своей дирекции, метка «поручение директора»", async () => {
+    const body = { action: "director-order", responsibleId: head.id, title: `${TAG} поручение директора`, expectedResult: "Таблица загрузки", deadline: "2026-11-20" };
+    expect((await zgdAct(head, body)).status).toBe(403);
+    expect((await zgdAct(zgdUser, body)).status).toBe(403);
+    expect((await zgdAct(director, { ...body, responsibleId: headB.id })).status).toBe(400);
+    expect((await zgdAct(director, { ...body, expectedResult: "" })).status).toBe(400);
+    const o = await zgdAct(director, body);
+    expect(o.status).toBe(200);
+    created.items.push(o.data.id);
+    expect(await prisma.operationalItem.findUniqueOrThrow({ where: { id: o.data.id } })).toMatchObject({ origin: "DIRECTOR", responsibleId: head.id, zgdControl: false, expectedResult: "Таблица загрузки" });
+    expect(await prisma.notification.count({ where: { userId: head.id, type: "ZGD_ORDER", link: { contains: o.data.id } } })).toBe(1);
+    // у ЗГД — только после подтверждения директором
+    expect((await zgdRows()).some((r) => r.id === o.data.id)).toBe(false);
+    // исполнитель видит поручение в своих задачах и может сдать его на проверку
+    const row = (await call(head, tracker.GET, "/api/tracker")).data.rows.find((r: { id: string }) => r.id === o.data.id);
+    expect(row?.origin).toBe("DIRECTOR");
+  });
 });

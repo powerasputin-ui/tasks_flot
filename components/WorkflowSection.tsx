@@ -105,7 +105,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5 text-[11px]">
-        {row.origin === "ZGD" && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-0.5 font-semibold text-[#7c3aed]">поручение ЗГД{row.assignedByName ? ` · ${row.assignedByName}` : ""}</span>}
+        {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-0.5 font-semibold text-[#7c3aed]">{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}{row.assignedByName ? ` · ${row.assignedByName}` : ""}</span>}
         {row.zgdControl && (
           <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-0.5 font-semibold text-[#b45309]">
             <Star size={11} /> на контроле ЗГД — срок переносится только с согласия директора
