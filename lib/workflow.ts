@@ -21,6 +21,17 @@ export const ACTION_LABEL: Record<WorkflowAction, string> = {
   reopen: "Переоткрыть",
 };
 
+/** Решение директора словами — для подтверждения ЗГД и его истории. */
+export const DECISION_TEXT: Record<WorkflowAction, string> = {
+  submit: "сдал(а) на проверку",
+  accept: "принял(а) задачу",
+  return: "вернул(а) на доработку",
+  block: "отметил(а) блокер",
+  unblock: "снял(а) блок",
+  cancel: "отменил(а) задачу",
+  reopen: "переоткрыл(а) задачу",
+};
+
 /** Колонки, в которые задача попадает только действием (не прямой сменой статуса). */
 export const WORKFLOW_COLUMNS: TrackerColumnKey[] = ["REVIEW", "DONE", "HIDDEN"];
 

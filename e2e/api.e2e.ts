@@ -54,6 +54,8 @@ import * as bootstrap from "@/app/api/bootstrap/route";
 import * as tracker from "@/app/api/tracker/route";
 import * as transition from "@/app/api/items/[id]/transition/route";
 import * as workflow from "@/app/api/items/[id]/workflow/route";
+import * as zgd from "@/app/api/zgd/route";
+import * as publish from "@/app/api/tracker/publish/route";
 import * as report from "@/app/api/report/route";
 import * as templates from "@/app/api/report-templates/route";
 import * as template from "@/app/api/report-templates/[id]/route";
@@ -2239,7 +2241,7 @@ describe("трекер: виды таблицы, «Выполнено» прин
     expect((await tr(head, { action: "reopen", reason: "ещё раз" })).status).toBe(403);
     const wf = await call(director, workflow.GET, `/api/items/${t}/workflow`, { id: t });
     expect(wf.data.reviews.map((r: { decision: string }) => r.decision)).toEqual(["ACCEPTED", "RETURNED"]);
-    expect(wf.data.publication?.reason).toBe("принять");
+    expect(wf.data.publication?.reason).toBe("принял(а) задачу");
     const ev = (await call(director, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === t).map((e: { text: string }) => e.text);
     expect(ev).toEqual(expect.arrayContaining(["возвращена на доработку: Нет сравнения цен", expect.stringMatching(/^принята директором/)]));
     // директору пришло уведомление о сдаче
@@ -2281,5 +2283,83 @@ describe("трекер: виды таблицы, «Выполнено» прин
       if (before) await prisma.appSetting.update({ where: { key: "tracker.enabled" }, data: { value: before.value as object } });
       else await prisma.appSetting.deleteMany({ where: { key: "tracker.enabled" } });
     }
+  });
+});
+
+describe("ЗГД в трекере: только подтверждённое директором; контроль, запрос статуса, поручение, перенос срока через директора", () => {
+  // настоящий пользователь-ЗГД: журнал, комментарии и поручения ссылаются на автора (у общего тестового ЗГД записи в базе нет)
+  const zgdUser: Actor = { id: "", role: "EXECUTIVE", name: `${TAG} ЗГД`, directorateId: null };
+  beforeAll(async () => {
+    const u = await prisma.user.create({ data: { name: `${TAG} ЗГД`, email: `${TAG}.zgd@e2e.local`, passwordHash: "x", role: "EXECUTIVE" } });
+    zgdUser.id = u.id;
+    testUserIds.push(u.id);
+  });
+  const zgdRows = async () => (await call(zgdUser, tracker.GET, "/api/tracker")).data.rows as Array<{ id: string; name: string; zgdControl: boolean; origin: string | null; deadline: string | null; confirmedBy: string; openRequest?: boolean }>;
+  const zgdAct = (a: Actor, body: Record<string, unknown>) => call(a, zgd.POST, "/api/zgd", { method: "POST", body });
+  let id = "";
+  let v = 1;
+
+  it("ЗГД не видит задачу и её правки, пока директор не подтвердит («Обновить для ЗГД» / решение по задаче)", async () => {
+    const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача для ЗГД`, deadline: "2026-12-01" } });
+    id = c.data.row.id;
+    v = c.data.row.version;
+    created.items.push(id);
+    expect((await zgdRows()).some((r) => r.id === id)).toBe(false);
+    // подтверждать может только директор
+    expect((await call(head, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).status).toBe(403);
+    expect((await call(director, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).data.published).toBe(1);
+    expect((await zgdRows()).find((r) => r.id === id)?.name).toBe(`${TAG} задача для ЗГД`);
+    // руководитель поправил текст — у ЗГД прежнее, пока директор не подтвердит; повторное подтверждение без правок — пусто
+    const e = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, title: `${TAG} задача для ЗГД (черновик)` } });
+    v = e.data.row.version;
+    expect((await zgdRows()).find((r) => r.id === id)?.name).toBe(`${TAG} задача для ЗГД`);
+    expect((await call(director, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).data.published).toBe(1);
+    expect((await call(director, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).data.published).toBe(0);
+    const row = (await zgdRows()).find((r) => r.id === id)!;
+    expect(row.name).toBe(`${TAG} задача для ЗГД (черновик)`);
+    expect(row.confirmedBy).toMatch(/подтвердил\(а\) состояние для ЗГД/);
+  });
+
+  it("на контроль и комментарий: директор и ответственный узнают; срок задачи на контроле руководитель не переносит сам", async () => {
+    expect((await zgdAct(zgdUser, { action: "control", itemId: id, on: true })).status).toBe(200);
+    expect((await zgdRows()).find((r) => r.id === id)?.zgdControl).toBe(true);
+    expect((await zgdAct(zgdUser, { action: "comment", itemId: id, text: "Прошу ускорить" })).status).toBe(200);
+    expect(await prisma.notification.count({ where: { userId: head.id, type: "ZGD_COMMENT" } })).toBeGreaterThan(0);
+    const cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id } });
+    const moved = await call(head, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: cur.version, deadline: "2026-12-20", deadlineReason: "не успеваем" } });
+    expect(moved.status).toBe(403);
+    // руководитель просит — директор согласует — срок меняется, ЗГД видит подтверждение
+    expect((await zgdAct(head, { action: "deadline-request", itemId: id, newDeadline: "2026-12-20", reason: "ждём поставку" })).status).toBe(200);
+    const req = await prisma.deadlineRequest.findFirstOrThrow({ where: { itemId: id, decision: null } });
+    expect((await zgdAct(head, { action: "deadline-decide", requestId: req.id, approve: true })).status).toBe(403);
+    expect((await zgdAct(director, { action: "deadline-decide", requestId: req.id, approve: true })).status).toBe(200);
+    const after = await prisma.operationalItem.findUniqueOrThrow({ where: { id } });
+    expect(after.deadline?.toISOString().slice(0, 10)).toBe("2026-12-20");
+    expect(after.originalDeadline?.toISOString().slice(0, 10)).toBe("2026-12-01");
+    expect((await zgdRows()).find((r) => r.id === id)?.deadline?.slice(0, 10)).toBe("2026-12-20");
+  });
+
+  it("запрос статуса: сигнал «Запрос ЗГД» до ответа; ответ директора подтверждает состояние и уходит ЗГД", async () => {
+    expect((await zgdAct(zgdUser, { action: "request", itemId: id, text: "Где договор?", dueAt: "2026-10-01" })).status).toBe(200);
+    const hot = (await call(director, tracker.GET, "/api/tracker")).data.hot[id];
+    expect(hot.kinds).toContain("request");
+    const q = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: id, answeredAt: null } });
+    expect((await zgdAct(zgdUser, { action: "answer", requestId: q.id, answer: "сам себе" })).status).toBe(403);
+    expect((await zgdAct(director, { action: "answer", requestId: q.id, answer: "Договор на подписи, будет 25.10" })).status).toBe(200);
+    expect((await call(director, tracker.GET, "/api/tracker")).data.hot[id]?.kinds ?? []).not.toContain("request");
+    const ev = (await call(zgdUser, tracker.GET, "/api/tracker")).data.events.filter((e: { itemId: string }) => e.itemId === id).map((e: { text: string }) => e.text);
+    expect(ev).toEqual(expect.arrayContaining([expect.stringMatching(/^ответил\(а\) на запрос ЗГД: Договор на подписи/)]));
+  });
+
+  it("поручение ЗГД: дирекция получает задачу без ответственного, на контроле; без результата или срока — нельзя; руководитель не даёт поручений", async () => {
+    expect((await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "", deadline: "2026-11-30" })).status).toBe(400);
+    expect((await zgdAct(head, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "Справка по флоту", deadline: "2026-11-30" })).status).toBe(403);
+    const o = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "Справка по флоту", deadline: "2026-11-30" });
+    expect(o.status).toBe(200);
+    created.items.push(o.data.id);
+    const it = await prisma.operationalItem.findUniqueOrThrow({ where: { id: o.data.id } });
+    expect(it).toMatchObject({ origin: "ZGD", zgdControl: true, responsibleId: null, expectedResult: "Справка по флоту" });
+    expect((await zgdRows()).find((r) => r.id === o.data.id)?.origin).toBe("ZGD");
+    expect(await prisma.notification.count({ where: { userId: director.id, type: "ZGD_ORDER" } })).toBeGreaterThan(0);
   });
 });

@@ -2,11 +2,10 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarClock, Flame, KanbanSquare, List, Search, Timer } from "lucide-react";
+import { CalendarClock, Flame, KanbanSquare, List, Plus, Search, ShieldCheck, Star, Timer } from "lucide-react";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
-import { Panel } from "@/components/ui/Panel";
 import { askText } from "@/components/ui/Dialog";
 import { ASK } from "@/components/WorkflowSection";
 import { ACTION_LABEL, type WorkflowAction } from "@/lib/workflow";
@@ -22,6 +21,7 @@ import { BOARD_COLUMNS, columnOf, ruDay, statusForColumn, summarize, type HotInf
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
 import { Operativshchik } from "@/components/Operativshchik";
+import { OrderPanel, ZgdPanel } from "@/components/tracker/ZgdPanel";
 
 /** Строка трекера = строка общей таблицы (как её отдаёт /api/tracker). */
 export type TRow = ItemRow & {
@@ -35,9 +35,15 @@ export type TRow = ItemRow & {
   directorateName?: string;
   asOf?: string;
   inMemo?: boolean;
+  /** ЗГД: чем подтверждено состояние; решение по последней сдаче; открытый запрос статуса. */
+  confirmedBy?: string;
+  review?: { result: string; decision: string | null; decidedByName: string | null; comment: string | null } | null;
+  openRequest?: boolean;
+  /** Директор: когда последний раз подтверждено для ЗГД (позже правили — «не подтверждено»). */
+  publishedAt?: string | null;
 };
 type Status = { id: string; name: string; color: string | null; trackerColumn: TrackerColumnKey | null };
-type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, HotInfo>; since: string | null; mode?: "sent" };
+type Data = { rows: TRow[]; statuses: Status[]; events: TrackerEvent[]; hot: Record<string, HotInfo>; since: string | null; mode?: "sent"; directorates?: Array<{ id: string; name: string }> };
 type View = "list" | "board" | "timeline";
 
 const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
@@ -81,6 +87,10 @@ export function TrackerView() {
   // фильтр по виду сигнала (просрочка, блокер, ждёт приёмки…) — вместо одного «горит»
   const [kind, setKind] = useState<SignalKind | null>(null);
   const [slipOnly, setSlipOnly] = useState(false);
+  // охват: все / на контроле ЗГД / поручения ЗГД / ждут ответа на запрос ЗГД
+  const [scope, setScope] = useState<"all" | "control" | "orders" | "waiting">("all");
+  const [ordering, setOrdering] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [segmentIds, setSegmentIds] = useState<string[]>([]);
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [q, setQ] = useState("");
@@ -149,11 +159,6 @@ export function TrackerView() {
     [sent, data, boot],
   );
   const colors = useMemo(() => segmentColors(segRefs), [segRefs]);
-  const asOf = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of data?.rows ?? []) if (r.directorateName && r.asOf) m.set(r.directorateName, r.asOf);
-    return [...m];
-  }, [data]);
 
   const rows = useMemo(() => {
     const tokens = tokenize(q);
@@ -164,12 +169,15 @@ export function TrackerView() {
       if (mine && r.ownerId !== me?.id && !(directorial && !r.ownerId && r.createdById === me?.id)) return false;
       if (kind && !data?.hot[r.id]?.kinds.includes(kind)) return false;
       if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
+      if (scope === "control" && !r.zgdControl) return false;
+      if (scope === "orders" && r.origin !== "ZGD") return false;
+      if (scope === "waiting" && !(r.openRequest || data?.hot[r.id]?.kinds.includes("request"))) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, kind, slipOnly, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);
+  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);
 
   const refs: Refs = useMemo(
     () => ({
@@ -220,6 +228,19 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
   }
 
   const counts = useMemo(() => Object.fromEntries(BOARD_COLUMNS.map((c) => [c.key, rows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [rows, colOf]);
+  // директор: изменённые после прошлого подтверждения (или ни разу не подтверждённые) — ЗГД их ещё не видит
+  const unconfirmed = (r: TRow) => !sent && directorial && (!r.publishedAt || new Date(r.updatedAt).getTime() > new Date(r.publishedAt).getTime());
+  const unconfirmedCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) !== "HIDDEN" && unconfirmed(r)).length;
+  async function publishForZgd() {
+    setNotice(null);
+    const res = await fetch("/api/tracker/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const d = await res.json().catch(() => null);
+    if (!res.ok) return setError(d?.message ?? "Не удалось подтвердить для ЗГД.");
+    const n = d.published as number;
+    const word = n % 10 === 1 && n % 100 !== 11 ? "задача" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "задачи" : "задач";
+    setNotice(n ? `Подтверждено для ЗГД: ${n} ${word}.` : "Изменений для ЗГД нет — всё уже подтверждено.");
+    setTick((t) => t + 1);
+  }
   const kindCounts = useMemo(() => {
     const m = new Map<SignalKind, number>();
     for (const r of data?.rows ?? []) if (columnOf(r.statusId, colOf) !== "HIDDEN") for (const k of data?.hot[r.id]?.kinds ?? []) m.set(k, (m.get(k) ?? 0) + 1);
@@ -235,8 +256,8 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant">
             {sent ? (
               <>
-                По отправленным справкам: состояние — на дату последней справки{asOf.length ? ` (${asOf.map(([d, at]) => (manyDirs ? `${d} — ${ruDay(at)}` : ruDay(at))).join(", ")})` : ""}, история — что менялось от справки к справке.
-                {data?.since && <> Первая справка — {ruDay(data.since)}.</>}
+                Только подтверждённое директором: отправленные справки и решения директора (принял, вернул, ответил на запрос, согласовал перенос). У каждой задачи — когда и кем подтверждено.
+                {data?.since && <> История известна с {ruDay(data.since)}.</>}
               </>
             ) : (
               <>
@@ -246,6 +267,17 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             )}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {sent && (
+            <button onClick={() => setOrdering(true)} className="btn-primary">
+              <Plus size={15} /> Дать поручение
+            </button>
+          )}
+          {!sent && directorial && !preview && (
+            <button onClick={() => void publishForZgd()} className="btn-ghost" title="ЗГД видит только подтверждённое: подтвердите текущее состояние изменённых задач">
+              <ShieldCheck size={15} /> Обновить для ЗГД{unconfirmedCount ? ` (${unconfirmedCount})` : ""}
+            </button>
+          )}
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5" role="tablist" aria-label="Вид трекера">
           {VIEWS.map((v) => (
             <button
@@ -259,7 +291,9 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             </button>
           ))}
         </div>
+        </div>
       </div>
+      {notice && <div className="mb-3 rounded-md border border-status-emerald/30 bg-status-emerald/10 px-3 py-2 text-[13px] text-on-surface">{notice}</div>}
 
       {/* итоги для решения «в масштабе»: сколько где, что горит, где срок уже сдвигали */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
@@ -287,6 +321,16 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           <button onClick={() => setMine(true)} className={`rounded px-3 py-1 font-semibold ${mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Мои задачи</button>
         </div>
         )}
+        <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[13px]" aria-label="Охват">
+          {([
+            ["all", "Все"],
+            ["control", "На контроле"],
+            ["orders", "Поручения ЗГД"],
+            ["waiting", sent ? "Ждут ответа" : "Запросы ЗГД"],
+          ] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setScope(k)} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
+          ))}
+        </div>
         <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={setSegmentIds} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={setOwnerIds} />
         <label className="relative ml-auto max-md:ml-0 max-md:w-full">
@@ -299,14 +343,25 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       {!data && !error && <div className="skeleton h-64 w-full rounded-lg" />}
       {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
 
-      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
+      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} unconfirmed={unconfirmed} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} unconfirmed={unconfirmed} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} hot={data.hot} events={byItem} colors={colors} onOpen={setEditor} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
       {aiUser && sent && <AiChat versionIds={[]} scopeLabel="трекер и последние справки дирекций" inherit quick={TRACKER_QUICK} />}
       {aiUser && !sent && <Operativshchik scope="трекер, таблица и архив справок" />}
-      {editor && sent && <SentPanel row={editor} events={byItem.get(editor.id) ?? []} hot={data?.hot[editor.id]} onClose={() => setEditor(null)} />}
+      {editor && sent && <ZgdPanel key={editor.id} row={editor} events={byItem.get(editor.id) ?? []} hot={data?.hot[editor.id]} onClose={() => setEditor(null)} onChanged={() => setTick((t) => t + 1)} />}
+      {ordering && sent && (
+        <OrderPanel
+          directorates={data?.directorates ?? []}
+          onClose={() => setOrdering(false)}
+          onDone={() => {
+            setOrdering(false);
+            setNotice("Поручение отправлено директору — он назначит ответственного. Задача на вашем контроле.");
+            setTick((t) => t + 1);
+          }}
+        />
+      )}
       {editor && !sent && (
         <ItemPanel
           key={editor.id}
@@ -336,7 +391,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
   );
 }
 
-type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void };
+type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean };
 
 /** Сегмент → трек → задачи, в порядке появления. */
 function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
@@ -352,9 +407,12 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
 }
 
 /** Метки задачи: горит, срок сдвигали, давно без движения. */
-function Marks({ row, hot, summary, done }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean }) {
+function Marks({ row, hot, summary, done, unconfirmed }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean }) {
   return (
     <>
+      {row.origin === "ZGD" && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : "Поручение ЗГД"}>поручение ЗГД</span>}
+      {row.zgdControl && <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>}
+      {unconfirmed && <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>}
       {/* сигнал = вид + причина и «что сделать» в подсказке */}
       {hot?.kinds.map((k) => (
         <span key={k} className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-[11px] font-semibold ${SIGNAL_TONE[k].off}`} title={hot.reasons.filter((x) => x.startsWith(SIGNAL_LABEL[k])).join("\n")}>
@@ -383,7 +441,7 @@ function Deadline({ row, col }: { row: TRow; col: TrackerColumnKey }) {
   return <span className={overdue(row, col) ? "font-semibold text-status-red" : "text-on-surface-variant"}>до {ruDay(row.deadline)}</span>;
 }
 
-function TrackerList({ rows, colOf, hot, summaries, colors, onOpen }: Common) {
+function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed }: Common) {
   return (
     <div className="space-y-4">
       {groupRows(rows).map((g) => (
@@ -402,7 +460,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen }: Common) {
                       <button onClick={() => onOpen(r)} className="row-hover flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-t border-outline-variant/50 px-4 py-2.5 text-left">
                         <span className="min-w-0 flex-1 basis-72 text-[13px] text-on-surface [overflow-wrap:anywhere]">{r.name}</span>
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} />
+                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} unconfirmed={unconfirmed?.(r)} />
                         </span>
                         <span className="w-32 shrink-0"><StatusPill name={r.statusName ?? "Без статуса"} color={r.statusColor} /></span>
                         <span className="flex w-40 shrink-0 items-center gap-1.5 truncate text-[12px] text-on-surface-variant">
@@ -422,7 +480,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen }: Common) {
   );
 }
 
-function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
+function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus, unconfirmed }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
   const [drag, setDrag] = useState<TRow | null>(null);
   const [over, setOver] = useState<TrackerColumnKey | null>(null);
   // руководитель: свои задачи до «На проверке»; сданную и выполненную двигает только директор (принять / вернуть / переоткрыть)
@@ -481,7 +539,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} />
+                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} unconfirmed={unconfirmed?.(r)} />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
                     <span className="flex min-w-0 items-center gap-1.5 truncate text-on-surface-variant">
@@ -496,52 +554,6 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
         );
       })}
     </div>
-  );
-}
-
-/** Карточка задачи у ЗГД: только чтение — поля из последней справки и история от справки к справке. */
-function SentPanel({ row, events, hot, onClose }: { row: TRow; events: TrackerEvent[]; hot?: HotInfo; onClose: () => void }) {
-  const fields: Array<[string, string]> = [
-    ["Дирекция", row.directorateName ?? "—"],
-    ["Сегмент · трек", [row.segmentName, row.trackName].filter(Boolean).join(" · ") || "—"],
-    ["Ответственный", row.ownerName ?? "не назначен"],
-    ["Статус", row.statusName ?? "без статуса"],
-    ["Срок", row.deadline ? ruDay(row.deadline) : "срока нет"],
-    ["Состояние на", row.asOf ? `справку от ${ruDay(row.asOf)}` : "—"],
-  ];
-  return (
-    <Panel title={row.name} subtitle="Только просмотр: данные из отправленных справок" onClose={onClose}>
-      <div className="space-y-4 px-5 py-4 text-[13px]">
-        {hot && (
-          <ul className="space-y-1 rounded-md bg-status-red/10 px-3 py-2 text-status-red">
-            {hot.reasons.map((x) => (
-              <li key={x}>{x}</li>
-            ))}
-          </ul>
-        )}
-        <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5">
-          {fields.map(([k, v]) => (
-            <Fragment key={k}>
-              <dt className="text-on-surface-variant">{k}</dt>
-              <dd className="text-on-surface">{v}</dd>
-            </Fragment>
-          ))}
-        </dl>
-        {row.comment && <p className="whitespace-pre-wrap text-on-surface [overflow-wrap:anywhere]">{row.comment}</p>}
-        <div>
-          <div className="label-caps mb-1">История по справкам</div>
-          <ul className="space-y-1.5">
-            {events.map((e, i) => ({ e, i })).sort((a, b) => b.e.at.localeCompare(a.e.at) || a.i - b.i).map(({ e }, k) => (
-              <li key={k} className="flex gap-2">
-                <span className="w-16 shrink-0 text-outline">{ruDay(e.at)}</span>
-                <span className={e.slip ? "font-semibold text-status-red" : "text-on-surface"}>{e.text}</span>
-              </li>
-            ))}
-            {!events.length && <li className="text-outline">Событий нет.</li>}
-          </ul>
-        </div>
-      </div>
-    </Panel>
   );
 }
 

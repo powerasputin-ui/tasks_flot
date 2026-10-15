@@ -6,7 +6,7 @@ import { createNotification, withDirectorate } from "@/lib/notifications";
 import { canViewItems, isDirectorial, type Actor } from "@/lib/permissions";
 import { normalizeFiles, readFiles } from "@/lib/item-files";
 import { statusForColumn, type TrackerColumnKey } from "@/lib/tracker";
-import { ACTION_LABEL, checkAction, TARGET_COLUMN, type WorkflowAction, type WorkflowInput } from "@/lib/workflow";
+import { checkAction, DECISION_TEXT, TARGET_COLUMN, type WorkflowAction, type WorkflowInput } from "@/lib/workflow";
 import type { ItemRecord } from "@/lib/table-view";
 import { randomUUID } from "node:crypto";
 
@@ -74,7 +74,8 @@ export async function publishItem(item: ItemRecord, actor: { id: string; name: s
   const snapshot = await snapshotOf(item, db);
   const now = new Date();
   await db.itemPublication.create({ data: { itemId: item.id, directorateId: item.directorateId, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snapshot as unknown as Prisma.InputJsonValue, publishedAt: now } });
-  await db.operationalItem.update({ where: { id: item.id }, data: { publishedAt: now } });
+  // напрямую: обычный update сдвинул бы updatedAt («давно не трогали» и «не подтверждено» сравнивают с ним)
+  await db.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" = ${item.id}`;
   // ЗГД, взявший задачу на контроль, узнаёт о подтверждённом изменении
   if (item.zgdControl) {
     const zgd = await db.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
@@ -144,7 +145,7 @@ export async function performTransition(actor: Actor, id: string, action: Workfl
       const note = action === "submit" ? text(input.result) : action === "return" || action === "accept" ? text(input.comment) : action === "block" ? text(input.blockedBy) : action === "cancel" || action === "reopen" ? text(input.reason) : "";
       await recordAudit({ entityType: "OperationalItem", entityId: id, actorId: actor.id, action: "UPDATE", fieldName: `workflow:${action}`, after: note || null }, tx);
       // решение директора — подтверждённое состояние для ЗГД
-      if (isDirectorial(actor.role) && action !== "submit") await publishItem(row, me, ACTION_LABEL[action].toLowerCase(), tx);
+      if (isDirectorial(actor.role) && action !== "submit") await publishItem(row, me, DECISION_TEXT[action], tx);
       return row;
     });
 

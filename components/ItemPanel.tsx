@@ -14,7 +14,7 @@ import { Panel } from "@/components/ui/Panel";
 import { AddTrackForm, TrackPicker } from "@/components/TrackPicker";
 import { ItemFiles } from "@/components/ItemFiles";
 import type { ItemFile } from "@/lib/item-files";
-import { FIELD_LABEL } from "@/lib/audit-format";
+import { describeAuditAction, FIELD_LABEL, isTrackerEvent } from "@/lib/audit-format";
 import { DEFAULT_LABEL } from "@/lib/table-columns";
 import { WorkflowSection } from "@/components/WorkflowSection";
 import { WORKFLOW_COLUMNS as WF_COLS } from "@/lib/workflow";
@@ -461,8 +461,10 @@ export function ItemPanel({
                 column={colOfStatus(base.statusId ?? "")}
                 actor={actor}
                 readOnly={previewMode || dirty}
-                onChanged={(r) => {
-                  const next = r as ItemRow;
+                onChanged={async (r) => {
+                  // ответ на запрос / перенос срока — строку перечитываем (действие вернуло только «готово»)
+                  const next = (r as ItemRow | null) ?? ((await fetch(`/api/items/${base.id}`).then((x) => (x.ok ? x.json() : null)))?.row as ItemRow | undefined);
+                  if (!next) return;
                   setBase(next);
                   setForm(fromRow(next, defaultResponsibleId, prefill));
                   onRowUpdated?.(next);
@@ -585,7 +587,9 @@ export function ItemPanel({
                   timestamp={e.timestamp}
                   badge={e.afterSubmission ? "после отправки" : undefined}
                   headline={
-                    e.fieldName ? (
+                    e.fieldName && isTrackerEvent(e.fieldName) ? (
+                      describeAuditAction(e.action, e.fieldName)
+                    ) : e.fieldName ? (
                       <>изменил(а) поле «{(HIST_KEY[e.fieldName] ? labels[HIST_KEY[e.fieldName]] : undefined) ?? FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»</>
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"

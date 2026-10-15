@@ -3,7 +3,8 @@ import { getDicts } from "@/lib/dictionaries";
 import { loadTableRows, type TableRow } from "@/lib/table-view";
 import { signals, todayMsk, type FactEvent, type FactItem } from "@/lib/ai-table";
 import { loadVersionTable } from "@/lib/archive-table-load";
-import { buildSentTracker, columnByName, type SentRow, type SentVersion } from "@/lib/tracker-sent";
+import { buildZgdTracker, columnByName, type Publication, type SentRow, type SentVersion } from "@/lib/tracker-sent";
+import type { PublishedSnapshot } from "@/lib/workflow-server";
 import { buildEvents, columnOf, motionOf, type HotInfo, type MemoSent, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 
 export type TrackerData = {
@@ -87,6 +88,28 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
 // ---------- ЗГД: трекер по отправленным справкам ----------
 
 /** Снимки таблиц всех отправленных справок (ЗГД видит отправленное всех дирекций). */
+async function loadZgdSources(): Promise<{ versions: SentVersion[]; publications: Publication[] }> {
+  const [versions, pubs] = await Promise.all([loadSentVersions(), prisma.itemPublication.findMany({ orderBy: { publishedAt: "asc" }, select: { itemId: true, directorateId: true, publishedAt: true, publishedByName: true, reason: true, snapshot: true } })]);
+  const dirs = new Map((await prisma.directorate.findMany({ select: { id: true, name: true, shortName: true } })).map((d) => [d.id, d.shortName || d.name]));
+  const publications: Publication[] = pubs.map((p) => {
+    const sn = p.snapshot as unknown as PublishedSnapshot;
+    return {
+      itemId: p.itemId,
+      directorateId: p.directorateId,
+      directorateName: dirs.get(p.directorateId) ?? "Дирекция",
+      at: p.publishedAt,
+      who: p.publishedByName,
+      reason: p.reason,
+      state: {
+        name: sn.title, comment: sn.comment, segmentId: sn.segmentId, segmentName: sn.segmentName, trackName: sn.trackName, ownerName: sn.ownerName, statusName: sn.statusName, statusColor: sn.statusColor,
+        deadline: sn.deadline, submitted: sn.submitted, expectedResult: sn.expectedResult, originalDeadline: sn.originalDeadline, blockedBy: sn.blockedBy, blockedUntil: sn.blockedUntil,
+        cancelReason: sn.cancelReason, origin: sn.origin, zgdControl: sn.zgdControl, review: sn.review ? { result: sn.review.result, decision: sn.review.decision, decidedByName: sn.review.decidedByName, comment: sn.review.comment } : null,
+      },
+    };
+  });
+  return { versions, publications };
+}
+
 async function loadSentVersions(): Promise<SentVersion[]> {
   const [versions, dirs] = await Promise.all([
     prisma.memoVersion.findMany({
@@ -123,16 +146,32 @@ const sentFact = (r: SentRow): FactItem => ({
   createdAt: new Date(r.asOf),
   updatedAt: new Date(r.asOf),
   directorate: r.directorateName,
+  confirmed: `${new Date(r.asOf).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })} (${r.confirmedBy})`,
+  blockedBy: r.blockedBy,
+  blockedUntil: r.blockedUntil ? new Date(r.blockedUntil) : null,
+  expectedResult: r.expectedResult,
+  originalDeadline: r.originalDeadline ? new Date(r.originalDeadline) : null,
+  origin: r.origin,
+  zgdControl: r.zgdControl,
 });
 
 const KIND_ACTION: Partial<Record<TrackerEvent["kind"], string>> = { status: "STATUS_CHANGE", deadline: "DEADLINE_CHANGE", owner: "OWNER_CHANGE", archived: "ARCHIVE" };
 
 /** Трекер ЗГД для страницы: состояние на последнюю справку каждой дирекции и история между справками. */
-export async function loadSentTracker(): Promise<TrackerData & { mode: "sent" }> {
-  const [sent, statuses] = await Promise.all([
-    loadSentVersions().then(buildSentTracker),
+export async function loadSentTracker(): Promise<TrackerData & { mode: "sent"; directorates: Array<{ id: string; name: string }> }> {
+  const [built, statuses, directorates] = await Promise.all([
+    loadZgdSources().then((x) => buildZgdTracker(x.versions, x.publications)),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, color: true, trackerColumn: true } }),
+    prisma.directorate.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, shortName: true } }),
   ]);
+  // «на контроле» и поручения — пометки самого ЗГД: берём живые; удалённые дирекцией задачи у ЗГД не показываем
+  const ids = built.rows.map((r) => r.id);
+  const [live, requests] = await Promise.all([
+    ids.length ? prisma.operationalItem.findMany({ where: { id: { in: ids } }, select: { id: true, zgdControl: true, origin: true, archivedAt: true } }) : [],
+    ids.length ? prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }) : [],
+  ]);
+  const liveById = new Map(live.map((l) => [l.id, l]));
+  const sent = { ...built, rows: built.rows.filter((r) => liveById.has(r.id) && !liveById.get(r.id)!.archivedAt).map((r) => ({ ...r, zgdControl: liveById.get(r.id)!.zgdControl, origin: liveById.get(r.id)!.origin })) };
   const idByName = new Map(statuses.map((s) => [s.name, s.id]));
   const rows = sent.rows.map((r) => ({
     id: r.id,
@@ -160,14 +199,28 @@ export async function loadSentTracker(): Promise<TrackerData & { mode: "sent" }>
     directorateName: r.directorateName,
     asOf: r.asOf,
     inMemo: r.inMemo,
+    confirmedBy: r.confirmedBy,
+    expectedResult: r.expectedResult,
+    originalDeadline: r.originalDeadline,
+    blockedBy: r.blockedBy,
+    blockedUntil: r.blockedUntil,
+    cancelReason: r.cancelReason,
+    origin: r.origin,
+    zgdControl: r.zgdControl,
+    review: r.review,
   }));
-  const hot = Object.fromEntries(signals(sent.rows.map(sentFact), todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
-  return { mode: "sent", rows: rows as unknown as TableRow[], statuses, events: sent.events, hot, since: sent.since };
+  const facts = sent.rows.map((r) => {
+    const rq = requests.filter((q) => q.itemId === r.id);
+    return { ...sentFact(r), openRequests: rq.length ? { count: rq.length, dueAt: rq.map((q) => q.dueAt).filter((x): x is Date => !!x).sort((a, b) => a.getTime() - b.getTime())[0] ?? null } : undefined };
+  });
+  const hot = Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
+  const openReq = new Set(requests.map((q) => q.itemId));
+  return { mode: "sent", rows: rows.map((r) => ({ ...r, openRequest: openReq.has(r.id) })) as unknown as TableRow[], statuses, events: sent.events, hot, since: sent.since, directorates: directorates.map((d) => ({ id: d.id, name: d.shortName || d.name })) };
 }
 
 /** Факты для ИИ ЗГД: позиции из последних справок с движением по трекеру и журнал — разница между справками. */
 export async function loadSentFacts(): Promise<{ items: FactItem[]; events: FactEvent[]; dict: { owners: string[]; segments: string[]; tracks: string[]; statuses: string[] } } | null> {
-  const [sent, statuses] = await Promise.all([loadSentVersions().then(buildSentTracker), prisma.status.findMany({ select: { name: true, trackerColumn: true } })]);
+  const [sent, statuses] = await Promise.all([loadZgdSources().then((x) => buildZgdTracker(x.versions, x.publications)), prisma.status.findMany({ select: { name: true, trackerColumn: true } })]);
   if (!sent.rows.length) return null;
   const cols = new Map(statuses.map((s) => [s.name, s.trackerColumn]));
   const byItem = new Map<string, TrackerEvent[]>();

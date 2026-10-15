@@ -11,6 +11,23 @@ export const FIELD_LABEL: Record<string, string> = {
   statusId: "Статус",
   operFlag: "Оперативка",
   files: "Файлы",
+  expectedResult: "Ожидаемый результат",
+};
+
+/** События трекера в журнале (действия, запросы ЗГД, переносы): fieldName → что сделано. */
+const TRACKER_EVENT: Record<string, string> = {
+  "workflow:submit": "сдал(а) на проверку",
+  "workflow:accept": "принял(а) задачу",
+  "workflow:return": "вернул(а) на доработку",
+  "workflow:block": "отметил(а) блокер",
+  "workflow:unblock": "снял(а) блок",
+  "workflow:cancel": "отменил(а) задачу",
+  "workflow:reopen": "переоткрыл(а) задачу",
+  deadlineReason: "указал(а) причину переноса срока",
+  deadlineRequest: "попросил(а) перенести срок",
+  zgdControl: "изменил(а) контроль ЗГД",
+  zgdRequest: "запросил(а) статус (ЗГД)",
+  zgdAnswer: "ответил(а) на запрос ЗГД",
 };
 
 /** Справочники «id → имя» для подстановки в значения журнала (в журнале хранятся id). */
@@ -30,12 +47,18 @@ export function formatAuditValue(field: string | null, value: string | null, map
       return new Date(value).toLocaleDateString("ru-RU");
     case "operFlag":
       return value === "true" ? "да" : "нет";
+    case "zgdControl":
+      return value === "true" ? "на контроле" : "снят с контроля";
     default:
       return value;
   }
 }
 
+/** Событие трекера (действие, запрос ЗГД, перенос) — описывается словами, а не «изменил поле». */
+export const isTrackerEvent = (field: string) => field in TRACKER_EVENT;
+
 export function describeAuditAction(action: string, field: string | null): string {
+  if (field && TRACKER_EVENT[field]) return TRACKER_EVENT[field];
   if (field) return `изменил(а) «${FIELD_LABEL[field] ?? field}»`;
   switch (action) {
     case "CREATE":
