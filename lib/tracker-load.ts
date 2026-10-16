@@ -46,9 +46,9 @@ const toFact = (r: TableRow): FactItem => ({
 });
 
 /** Права проверяет маршрут (canViewItems); данные — только своей дирекции, только действующие позиции. */
-export async function loadTracker(directorateId: string): Promise<TrackerData> {
+export async function loadTracker(directorateId: string, opts: { archived?: boolean } = {}): Promise<TrackerData> {
   const [rows, dicts, statuses, versions] = await Promise.all([
-    loadTableRows("active", directorateId),
+    loadTableRows(opts.archived ? "archived" : "active", directorateId),
     getDicts(),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, color: true, trackerColumn: true } }),
     prisma.memoVersion.findMany({ where: { directorateId }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true, revision: true } }),
@@ -84,7 +84,8 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
     const dl = pendingDl.find((x) => x.itemId === r.id);
     return { ...toFact(r), motion: motionOf(byItem.get(r.id) ?? [], columnOf(r.statusId, cols)), openRequests: rq.length ? { count: rq.length, dueAt: due } : undefined, pendingDeadline: dl ? { newDeadline: dl.newDeadline, reason: dl.reason } : null };
   });
-  const hot = Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
+  // удалённые ни на что не «горят»: это архив, а не работа
+  const hot = opts.archived ? {} : Object.fromEntries(signals(facts, todayMsk()).map((s) => [s.item.id, { kinds: s.kinds, reasons: s.reasons }]));
   return { rows, statuses, events, hot, since: audit[0]?.timestamp.toISOString() ?? null };
 }
 

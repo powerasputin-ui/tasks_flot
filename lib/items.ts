@@ -5,6 +5,7 @@ import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audi
 import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts, invalidateDicts, type Dicts } from "@/lib/dictionaries";
+import { createNotification } from "@/lib/notifications";
 import { deadlineChangeError, directStatusError, stopStatusError } from "@/lib/workflow";
 import { STOP_STATUS } from "@/lib/statuses";
 import { filesText, normalizeFiles, readFiles } from "@/lib/item-files";
@@ -262,6 +263,12 @@ export async function setItemArchived(actor: Actor, id: string, archived: boolea
     return row;
   });
   await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, archived ? "удалил" : "вернул из удалённых");
+  // поручение ЗГД или задача на его контроле: иначе она молча пропадёт (или появится) у него в трекере
+  if (existing.origin === "ZGD" || existing.zgdControl) {
+    const who = (await getDicts()).users.get(actor.id)?.name ?? "Директор";
+    const zgd = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
+    for (const u of zgd) await createNotification({ userId: u.id, type: "ZGD_UPDATE", message: `${who} ${archived ? "удалил(а)" : "вернул(а) из удалённых"} «${existing.title.slice(0, 100)}» (${existing.origin === "ZGD" ? "ваше поручение" : "на вашем контроле"})`, link: "/tracker" });
+  }
   return { ok: true, id, record };
 }
 

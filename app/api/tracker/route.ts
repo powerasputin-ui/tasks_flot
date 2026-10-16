@@ -9,11 +9,13 @@ import { withApiErrors } from "@/lib/api-guard";
 
 // «Трекер»: позиции таблицы, колонки статусов, история (журнал + отправленные справки) и «горит».
 // Права — как у таблицы; ЗГД рабочих позиций не видит — ему трекер по отправленным справкам (снимки таблиц), только чтение.
-async function GETHandler() {
+async function GETHandler(request: NextRequest) {
   const actor = await requireActor();
   if (actor.role === "EXECUTIVE") return NextResponse.json(await loadSentTracker());
   if (!canViewItems(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  return NextResponse.json(await loadTracker(requireDirectorate(actor)));
+  // ?archive=archived — «Удалённые» трекера (те же задачи, что в «Удалённых» таблицы); любое другое значение — рабочие
+  const archived = new URL(request.url).searchParams.get("archive") === "archived";
+  return NextResponse.json(await loadTracker(requireDirectorate(actor), { archived }));
 }
 
 export const GET = withApiErrors(GETHandler);

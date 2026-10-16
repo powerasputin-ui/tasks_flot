@@ -81,8 +81,11 @@ export const canSetOperFlag = canEditItem;
 /**
  * Удалять (в архив) может только тот, кто заполняет позицию — её ответственный
  * (или автор, пока ответственный не назначен). Директор правит чужие позиции, но не удаляет их.
+ * Исключение — поручения (ЗГД или директора, origin): их удаляет только директор или админ, а исполнитель — нет,
+ * иначе заданное ему поручение молча исчезло бы и у директора, и у ЗГД.
  */
-export function canDeleteItem(actor: Actor, item: { responsibleId: string | null; createdById: string }): boolean {
+export function canDeleteItem(actor: Actor, item: { responsibleId: string | null; createdById: string; origin?: string | null }): boolean {
+  if (item.origin) return isDirectorial(actor.role);
   if (!isResponsibleRole(actor.role)) return false;
   return item.responsibleId === actor.id || (item.responsibleId === null && item.createdById === actor.id);
 }
@@ -91,7 +94,7 @@ export function canDeleteItem(actor: Actor, item: { responsibleId: string | null
  * Удалить навсегда (из «Удалённых», без возврата): тот, кто мог удалить позицию, а также директор и админ —
  * они наводят порядок в дирекции. Об удалении узнают директор (или админы) и ответственный — см. purgeItem.
  */
-export function canPurgeItem(actor: Actor, item: { responsibleId: string | null; createdById: string }): boolean {
+export function canPurgeItem(actor: Actor, item: { responsibleId: string | null; createdById: string; origin?: string | null }): boolean {
   return canDeleteItem(actor, item) || isDirectorial(actor.role);
 }
 

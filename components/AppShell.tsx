@@ -10,6 +10,7 @@ import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { clearAiChat } from "@/components/AiChat";
 import { setPreview } from "@/lib/preview-as";
 import { Avatar } from "@/components/ui/Avatar";
+import { NavDropdown } from "@/components/NavDropdown";
 import { TooltipLayer } from "@/components/ui/Tooltip";
 import { MenuItem, Popover } from "@/components/ui/Popover";
 
@@ -257,8 +258,22 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* на узком экране пункты меню прокручиваются, а колокольчик и меню пользователя справа всегда видны */}
         <nav className="hidden h-full min-w-0 items-stretch gap-1 overflow-x-auto md:flex lg:ml-2 [scrollbar-width:none]">
-          {nav.map((item) => {
-            const active = pathname.startsWith(item.href);
+          {nav
+            // «Удалённые» на компьютере — всплывающий пункт под «Таблицей» и под «Трекером» (на телефоне — нижняя панель)
+            .filter((item) => item.href !== "/archive")
+            .map((item) => {
+            const hasDeleted = nav.some((n) => n.href === "/archive") && (item.href === "/table" || item.href === "/tracker");
+            const active = pathname.startsWith(item.href) || (item.href === "/table" && pathname.startsWith("/archive"));
+            if (hasDeleted)
+              return (
+                <NavDropdown
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  active={active}
+                  items={[{ href: item.href === "/table" ? "/archive" : "/tracker?deleted=1", label: "Удалённые", icon: <Trash2 size={15} /> }]}
+                />
+              );
             return (
               <Link
                 key={item.href}

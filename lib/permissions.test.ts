@@ -3,6 +3,7 @@ import {
   canAssignResponsible,
   canCreateItem,
   canDeleteItem,
+  canPurgeItem,
   canEditItem,
   canExportWorkTable,
   canCreateDirectorates,
@@ -113,6 +114,18 @@ describe("canDeleteItem", () => {
       expect(canDeleteItem(a, { responsibleId: null, createdById: a.id })).toBe(true);
       expect(canDeleteItem(a, { responsibleId: null, createdById: "u1" })).toBe(false);
     }
+  });
+
+  it("поручение (ЗГД или директора) удаляет только директор или админ — и не обязательно ответственный; исполнитель нет", () => {
+    const order = { responsibleId: "u1", createdById: "z1", origin: "ZGD" };
+    expect(canDeleteItem(head, order)).toBe(false);
+    expect(canDeleteItem(head, { ...order, origin: "DIRECTOR" })).toBe(false);
+    for (const a of [director, admin]) expect(canDeleteItem(a, order)).toBe(true);
+    expect(canDeleteItem(executive, order)).toBe(false);
+    expect(canDeleteItem(tech, order)).toBe(false);
+    // навсегда — то же правило
+    expect(canPurgeItem(head, order)).toBe(false);
+    expect(canPurgeItem(director, order)).toBe(true);
   });
 
   it("остальным ролям удалять нельзя", () => {

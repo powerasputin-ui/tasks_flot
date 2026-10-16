@@ -2974,3 +2974,102 @@ describe("эксплуатация: окно журнала для трекер�
     expect(await pruneNotifications(new Date(), { userIds: [u.id] })).toBe(0);
   });
 });
+
+describe("«Удалённые» в трекере: удалить можно из трекера, видно в удалённых трекера и таблицы; поручения удаляет только директор", () => {
+  let dirD = "";
+  let dD: Actor;
+  let hD: Actor;
+  let zD: Actor;
+  let ordinary = "";
+  let order = "";
+  const mk = async (key: string, name: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE", directorateId: string | null): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} ${name}`, email: `${TAG}.del-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  const rowsOf = async (who: Actor, archived: boolean) => ((await call(who, tracker.GET, archived ? "/api/tracker?archive=archived" : "/api/tracker")).data.rows as Array<{ id: string; archived?: boolean }>).map((r) => r.id);
+  const del = (who: Actor, id: string) => call(who, item.DELETE, `/api/items/${id}`, { method: "DELETE", id });
+  const back = (who: Actor, id: string) => call(who, restore.POST, `/api/items/${id}/restore`, { method: "POST", id });
+
+  beforeAll(async () => {
+    dirD = (await prisma.directorate.create({ data: { name: `${TAG} Дирекция удалённых`, shortName: "Удал" } })).id;
+    dD = await mk("dir", "Директор У", "DIRECTOR", dirD);
+    hD = await mk("head", "Руководитель У", "HEAD", dirD);
+    zD = await mk("zgd", "ЗГД У", "EXECUTIVE", null);
+    invalidateDicts();
+    ordinary = (await call(hD, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} обычная на удаление`, deadline: "2026-12-01" } })).data.row.id;
+    const o = await call(zD, zgd.POST, "/api/zgd", { method: "POST", body: { action: "order", directorateId: dirD, title: `${TAG} поручение ЗГД на удаление`, expectedResult: "Справка", deadline: "2026-12-10", responsibleId: hD.id } });
+    expect(o.status).toBe(200);
+    order = o.data.id;
+  });
+
+  afterAll(async () => {
+    if (!dirD) return;
+    const ids = (await prisma.operationalItem.findMany({ where: { directorateId: dirD }, select: { id: true } })).map((i) => i.id);
+    const people = [dD?.id, hD?.id, zD?.id].filter(Boolean) as string[];
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: { in: ids } }, { actorId: { in: people } }] } });
+    await prisma.itemNote.deleteMany({ where: { itemId: { in: ids } } });
+    await prisma.notification.deleteMany({ where: { OR: [{ userId: { in: people } }, ...ids.map((i) => ({ link: { contains: i } }))] } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: dirD } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: dirD } });
+  });
+
+  it("обычная задача: руководитель удаляет → её нет в рабочем трекере, есть в «Удалённых» трекера у него и у директора и в «Удалённых» таблицы; возврат — обратно", async () => {
+    expect(await rowsOf(hD, false)).toContain(ordinary);
+    expect((await del(hD, ordinary)).status).toBe(200);
+    expect(await rowsOf(hD, false)).not.toContain(ordinary);
+    expect(await rowsOf(hD, true)).toContain(ordinary);
+    expect(await rowsOf(dD, true)).toContain(ordinary);
+    // та же задача — в «Удалённых» таблицы
+    const table = await call(dD, items.GET, "/api/items?archive=archived");
+    expect((table.data.rows as Array<{ id: string }>).map((r) => r.id)).toContain(ordinary);
+    // журнал знает, кто и когда удалил — из него «удалена 16.10 · Имя» в трекере
+    const ev = ((await call(dD, tracker.GET, "/api/tracker?archive=archived")).data.events as Array<{ itemId: string; kind: string; who: string | null }>).filter((e) => e.itemId === ordinary && e.kind === "archived");
+    expect(ev).toHaveLength(1);
+    expect(ev[0].who).toBe(hD.name);
+    // удалённые ни на что не «горят»
+    expect((await call(dD, tracker.GET, "/api/tracker?archive=archived")).data.hot).toEqual({});
+    // возврат — и снова в рабочем трекере, а из удалённых пропала
+    expect((await back(hD, ordinary)).status).toBe(200);
+    expect(await rowsOf(hD, false)).toContain(ordinary);
+    expect(await rowsOf(hD, true)).not.toContain(ordinary);
+  });
+
+  it("значение archive вне списка — рабочие задачи; ЗГД параметр не меняет (он видит своё, по справкам)", async () => {
+    expect(await rowsOf(hD, false)).toContain(ordinary);
+    expect(((await call(hD, tracker.GET, "/api/tracker?archive=all")).data.rows as Array<{ id: string }>).map((r) => r.id)).toContain(ordinary);
+    expect(((await call(hD, tracker.GET, "/api/tracker?archive=%27%3Bdrop")).data.rows as Array<{ id: string }>).map((r) => r.id)).toContain(ordinary);
+    expect((await call(zD, tracker.GET, "/api/tracker?archive=archived")).data.mode).toBe("sent");
+  });
+
+  it("поручение: исполнитель-руководитель удалить не может (403), директор — может; ЗГД узнаёт, поручение пропадает из его трекера и возвращается", async () => {
+    expect((await del(hD, order)).status).toBe(403);
+    expect(await rowsOf(hD, false)).toContain(order);
+    // директор подтверждает поручение для ЗГД, чтобы оно было видно ему
+    expect((await call(dD, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [order] } })).status).toBe(200);
+    const zRows = async () => ((await call(zD, tracker.GET, "/api/tracker")).data.rows as Array<{ id: string }>).map((r) => r.id);
+    expect(await zRows()).toContain(order);
+    const before = await prisma.notification.count({ where: { userId: zD.id, type: "ZGD_UPDATE", message: { contains: "удалил(а)" } } });
+    expect((await del(dD, order)).status).toBe(200); // директор — не ответственный, но поручение удалить может
+    expect(await prisma.notification.count({ where: { userId: zD.id, type: "ZGD_UPDATE", message: { contains: "удалил(а)" } } })).toBe(before + 1);
+    expect(await zRows()).not.toContain(order);
+    expect(await rowsOf(dD, true)).toContain(order);
+    // вернуть может директор; ЗГД снова видит и узнаёт об этом
+    expect((await back(dD, order)).status).toBe(200);
+    expect(await prisma.notification.count({ where: { userId: zD.id, type: "ZGD_UPDATE", message: { contains: "вернул(а) из удалённых" } } })).toBe(1);
+    expect(await zRows()).toContain(order);
+  });
+
+  it("навсегда поручение исполнитель тоже стереть не может; задача на проверке у руководителя не удаляется", async () => {
+    // исполнитель: «удалить навсегда» — только из удалённых, а удалить поручение ему нельзя; директор удаляет и стирает не может (есть решения)
+    const purge = await call(hD, purgeRoute.POST, `/api/items/${order}/purge`, { method: "POST", id: order });
+    expect([403, 409]).toContain(purge.status);
+    const c = await call(hD, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} на проверке, не удалить` } });
+    const id = c.data.row.id as string;
+    expect((await call(hD, transition.POST, `/api/items/${id}/transition`, { method: "POST", id, body: { version: c.data.row.version, action: "submit", result: "Готово, в документах" } })).status).toBe(200);
+    const blocked = await del(hD, id);
+    expect(blocked.status).toBe(409);
+    expect(await rowsOf(hD, false)).toContain(id);
+  });
+});

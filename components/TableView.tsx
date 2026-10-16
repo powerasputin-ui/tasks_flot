@@ -5,6 +5,7 @@ import { askText } from "@/components/ui/Dialog";
 import { ShowMore, useChunk } from "@/components/ui/ShowMore";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Highlight } from "@/components/ui/Highlight";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowDownWideNarrow, BarChart3, ClipboardList, Copy, History, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
@@ -221,7 +222,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   }
 
   const canDeleteRow = useCallback(
-    (r: Row) => !!me && canDeleteItem({ id: me.id, role: me.role as UserRole }, { responsibleId: r.ownerId, createdById: r.createdById }),
+    (r: Row) => !!me && canDeleteItem({ id: me.id, role: me.role as UserRole }, { responsibleId: r.ownerId, createdById: r.createdById, origin: r.origin }),
     [me]
   );
 
@@ -727,7 +728,13 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
           </div>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
-              <p className="label-caps">{defaultArchive === "archived" ? "Удалённые позиции" : "Рабочая таблица"}</p>
+              <p className="label-caps flex items-center gap-3">
+                {defaultArchive === "archived" ? "Удалённые позиции" : "Рабочая таблица"}
+                {/* на телефоне нет всплывающего меню — переход к удалённым и обратно кнопкой */}
+                <Link href={defaultArchive === "archived" ? "/table" : "/archive"} className="inline-flex items-center gap-1 normal-case tracking-normal text-primary hover:underline">
+                  {defaultArchive === "archived" ? "← К таблице" : <><Trash2 size={12} /> Удалённые</>}
+                </Link>
+              </p>
               <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface max-md:text-xl">{selectedName}</h2>
               <p className="mt-0.5 text-[12px] text-on-surface-variant">
                 {loading ? "Загрузка…" : `${visibleRows.length} позиций · ${operCount} отправлено директору`}
@@ -1018,7 +1025,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                   <Trash2 size={14} /> Удалить
                 </button>
               )}
-              {ctx.row.archived && me && canPurgeItem({ id: me.id, role: me.role as UserRole }, { responsibleId: ctx.row.ownerId, createdById: ctx.row.createdById }) && (
+              {ctx.row.archived && me && canPurgeItem({ id: me.id, role: me.role as UserRole }, { responsibleId: ctx.row.ownerId, createdById: ctx.row.createdById, origin: ctx.row.origin }) && (
                 <button onClick={() => setCtx({ ...ctx, confirm: "purge" })} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
                   <Trash2 size={14} /> Удалить навсегда
                 </button>

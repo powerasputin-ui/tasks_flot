@@ -3,7 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isOverdueRow } from "@/lib/overdue";
-import { CalendarClock, Flame, KanbanSquare, List, Plus, Search, ShieldCheck, Star, Timer } from "lucide-react";
+import { CalendarClock, Flame, KanbanSquare, List, Plus, RotateCcw, Search, ShieldCheck, Star, Timer, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
@@ -13,7 +14,7 @@ import { ACTION_LABEL, type WorkflowAction } from "@/lib/workflow";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
-import { isDirectorial } from "@/lib/permissions";
+import { canDeleteItem, isDirectorial } from "@/lib/permissions";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import { usePreviewAs } from "@/lib/preview-as";
 import { useIsMobile } from "@/lib/use-mobile";
@@ -84,6 +85,9 @@ export function overdue(r: TRow, col: TrackerColumnKey): boolean {
 export function TrackerView() {
   const router = useRouter();
   const params = useSearchParams();
+  // «Удалённые» трекера: те же задачи, что в «Удалённых» таблицы (/tracker?deleted=1)
+  const deletedParam = params.get("deleted") === "1";
+  const [missing, setMissing] = useState(false);
   const isMobile = useIsMobile();
   const preview = usePreviewAs();
   const [data, setData] = useState<Data | null>(null);
@@ -96,7 +100,7 @@ export function TrackerView() {
   const [kind, setKind] = useState<SignalKind | null>(() => SIGNAL_ORDER.find((k) => k === params.get("kind")) ?? null);
   const [slipOnly, setSlipOnly] = useState(false);
   // охват: все / на контроле ЗГД / поручения ЗГД / ждут ответа на запрос ЗГД
-  const [scope, setScope] = useState<"all" | "control" | "orders" | "mine" | "waiting">(() => (["control", "orders", "mine", "waiting"] as const).find((s) => s === params.get("scope")) ?? "all");
+  const [scopeRaw, setScope] = useState<"all" | "control" | "orders" | "mine" | "waiting">(() => (["control", "orders", "mine", "waiting"] as const).find((s) => s === params.get("scope")) ?? "all");
   const [ordering, setOrdering] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [segmentIds, setSegmentIds] = useState<string[]>([]);
@@ -127,20 +131,28 @@ export function TrackerView() {
     if (VIEWS.some((x) => x.key === v)) setView(v);
   }, [params, isMobile]);
   useEffect(() => {
+    setData(null); // переключение «рабочие ↔ удалённые» не должно показывать чужие строки, пока грузится свой список
+  }, [deletedParam]);
+  useEffect(() => {
     let alive = true;
-    fetch("/api/tracker")
+    fetch(deletedParam ? "/api/tracker?archive=archived" : "/api/tracker")
       .then(async (r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((d: Data) => alive && (setData(d), setError(null)))
       .catch((s) => alive && setError(s === 403 ? "Трекер доступен тем, кто работает с таблицей позиций." : "Не удалось загрузить трекер. Обновите страницу."));
     return () => {
       alive = false;
     };
-  }, [tick]);
+  }, [tick, deletedParam]);
   // ссылка «на трекере» из таблицы: ?item=<id> — сразу открыть карточку
   useEffect(() => {
     const id = params.get("item");
-    if (id && data) setEditor(data.rows.find((r) => r.id === id) ?? null);
-  }, [params, data]);
+    if (id && data) {
+      const r = data.rows.find((x) => x.id === id) ?? null;
+      setEditor(r);
+      // ссылки из уведомлений на удалённую задачу не должны вести в пустоту
+      setMissing(!r && !deletedParam && data.mode !== "sent");
+    } else setMissing(false);
+  }, [params, data, deletedParam]);
 
   function pickView(v: View) {
     setView(v);
@@ -164,6 +176,8 @@ export function TrackerView() {
   const summaries = useMemo(() => new Map([...byItem].map(([id, ev]) => [id, summarize(ev)])), [byItem]);
   // ЗГД: только чтение, данные — снимки отправленных справок (несколько дирекций — дирекция в названии группы)
   const sent = data?.mode === "sent";
+  const deleted = deletedParam && !sent;
+  const scope = deleted ? "all" : scopeRaw; // охват (контроль, поручения…) к удалённым не относится
   const manyDirs = sent && new Set(data?.rows.map((r) => r.directorateName)).size > 1;
   const segRefs = useMemo(() => {
     if (!sent) return (boot?.segments ?? []).map((s) => ({ id: s.id, name: s.name, color: s.color ?? null }));
@@ -182,7 +196,7 @@ export function TrackerView() {
     return (data?.rows ?? [])
       .map((r) => (manyDirs ? { ...r, segmentName: `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` } : r))
       .filter((r) => {
-      if (columnOf(r.statusId, colOf) === "HIDDEN") return false;
+      if (!deleted && columnOf(r.statusId, colOf) === "HIDDEN") return false;
       if (mine && r.ownerId !== me?.id && !(directorial && !r.ownerId && r.createdById === me?.id)) return false;
       if (kind && !data?.hot[r.id]?.kinds.includes(kind)) return false;
       if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
@@ -195,7 +209,7 @@ export function TrackerView() {
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.expectedResult, r.blockedBy, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);
+  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted]);
 
   const refs: Refs = useMemo(
     () => ({
@@ -245,9 +259,25 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
     if (body?.error === "CONFLICT") setTick((t) => t + 1);
   }
 
+  // вернуть удалённую задачу: сразу видна и в таблице, и в рабочем трекере (это одна и та же позиция)
+  async function restore(row: TRow) {
+    const res = await fetch(`/api/items/${row.id}/restore`, { method: "POST" });
+    if (res.ok) {
+      setError(null);
+      setNotice(`«${row.name.slice(0, 80)}» возвращена: она снова в таблице и в трекере.`);
+      setTick((t) => t + 1);
+    } else setError((await res.json().catch(() => null))?.message ?? "Не удалось вернуть задачу.");
+  }
+  // кто и когда удалил — из журнала («удалена из таблицы»)
+  const deletedInfo = (r: TRow) => {
+    if (!deleted) return undefined;
+    const e = [...(byItem.get(r.id) ?? [])].reverse().find((x) => x.kind === "archived");
+    return e ? `удалена ${ruDay(e.at)}${e.who ? ` · ${e.who}` : ""}` : "удалена";
+  };
+
   const counts = useMemo(() => Object.fromEntries(BOARD_COLUMNS.map((c) => [c.key, rows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [rows, colOf]);
   // директор: изменённые после прошлого подтверждения (или ни разу не подтверждённые) — ЗГД их ещё не видит
-  const unconfirmed = (r: TRow) => !sent && directorial && (!r.publishedAt || new Date(r.updatedAt).getTime() > new Date(r.publishedAt).getTime());
+  const unconfirmed = (r: TRow) => !sent && !deleted && directorial && (!r.publishedAt || new Date(r.updatedAt).getTime() > new Date(r.publishedAt).getTime());
   const unconfirmedCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) !== "HIDDEN" && unconfirmed(r)).length;
   const [publishing, setPublishing] = useState(false);
   const kindCounts = useMemo(() => {
@@ -261,9 +291,11 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
     <div className={`min-h-0 flex-1 overflow-auto p-6 max-md:p-3 ${sent ? "pb-28" : ""}`}>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold text-on-surface">Трекер</h1>
+          <h1 className="text-xl font-bold text-on-surface">{deleted ? "Трекер · Удалённые" : "Трекер"}</h1>
           <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant">
-            {sent ? (
+            {deleted ? (
+              <>Удалённые задачи — те же, что в «Удалённых» таблицы. Верните задачу — и она снова появится и в таблице, и в трекере.</>
+            ) : sent ? (
               <>
                 Только подтверждённое директором: отправленные справки и решения директора (принял, вернул, ответил на запрос, согласовал перенос). У каждой задачи — когда и кем подтверждено.
                 {data?.since && <> История известна с {ruDay(data.since)}.</>}
@@ -277,15 +309,20 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(sent || (directorial && !preview)) && (
+          {!deleted && (sent || (directorial && !preview)) && (
             <button onClick={() => setOrdering(true)} className="btn-primary">
               <Plus size={15} /> Дать поручение
             </button>
           )}
-          {!sent && directorial && !preview && (
+          {!sent && !deleted && directorial && !preview && (
             <button onClick={() => (setNotice(null), setPublishing(true))} className="btn-ghost" title="ЗГД видит только подтверждённое вами: посмотрите, что изменилось, и выберите, что показать">
               <ShieldCheck size={15} /> Обновить для ЗГД{unconfirmedCount ? ` (${unconfirmedCount})` : ""}
             </button>
+          )}
+          {!sent && (
+            <Link href={deleted ? "/tracker" : "/tracker?deleted=1"} className="btn-ghost">
+              {deleted ? "← К трекеру" : <><Trash2 size={15} /> Удалённые</>}
+            </Link>
           )}
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5" role="tablist" aria-label="Вид трекера">
           {VIEWS.map((v) => (
@@ -303,6 +340,14 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
         </div>
       </div>
       {notice && <div className="mb-3 rounded-md border border-status-emerald/30 bg-status-emerald/10 px-3 py-2 text-[13px] text-on-surface">{notice}</div>}
+      {missing && (
+        <div className="mb-3 rounded-md border border-status-amber/40 bg-status-amber/10 px-3 py-2 text-[13px] text-on-surface">
+          Этой задачи нет среди рабочих — возможно, её удалили.{" "}
+          <Link href="/tracker?deleted=1" className="font-semibold text-primary hover:underline">
+            Посмотреть в «Удалённых»
+          </Link>
+        </div>
+      )}
 
       {/* итоги для решения «в масштабе»: сколько где, что горит, где срок уже сдвигали */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
@@ -316,7 +361,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             {k === "overdue" && <Flame size={13} />} {SIGNAL_LABEL[k]}: {kindCounts.get(k) ?? 0}
           </button>
         ))}
-        {(slipped > 0 || slipOnly) && (
+        {!deleted && (slipped > 0 || slipOnly) && (
           <button onClick={() => setSlipOnly((v) => !v)} aria-pressed={slipOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${slipOnly ? "bg-[#b45309] text-white" : "bg-status-amber/15 text-[#b45309]"}`} title="Задачи, у которых срок переносили позже — нажмите, чтобы показать только их">
             <Timer size={13} /> Срок сдвигали: {slipped}
           </button>
@@ -330,6 +375,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           <button onClick={() => setMine(true)} className={`rounded px-3 py-1 font-semibold ${mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Мои задачи</button>
         </div>
         )}
+        {!deleted && (
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[13px]" aria-label="Охват">
           {([
             ["all", "Все"],
@@ -341,6 +387,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             <button key={k} onClick={() => setScope(k)} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
           ))}
         </div>
+        )}
         <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={setSegmentIds} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={setOwnerIds} />
         <label className="relative ml-auto max-md:ml-0 max-md:w-full">
@@ -353,8 +400,8 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       {!data && !error && <div className="skeleton h-64 w-full rounded-lg" />}
       {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
 
-      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
+      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} deletedInfo={deletedInfo} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
@@ -413,7 +460,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           defaultResponsibleId={me?.id ?? ""}
           lockResponsible={me?.role === "HEAD"}
           canEdit={canEditRow(editor)}
-          canDelete={false}
+          canDelete={!!me && !preview && canDeleteItem({ id: me.id, role: me.role as never }, { responsibleId: editor.ownerId, createdById: editor.createdById, origin: editor.origin })}
           customColumns={boot?.columns ?? []}
           previewMode={!!preview}
           actor={me ? { id: me.id, role: me.role } : null}
@@ -432,7 +479,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
   );
 }
 
-type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean };
+type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean };
 
 /** Сегмент → трек → задачи, в порядке появления. */
 function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
@@ -448,7 +495,15 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
 }
 
 /** Метки задачи: горит, срок сдвигали, давно без движения. */
-function Marks({ row, hot, summary, done, unconfirmed }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean }) {
+function Marks({ row, hot, summary, done, unconfirmed, deletedInfo }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean; deletedInfo?: string }) {
+  // удалённая задача — только кто и когда удалил: сигналы и «не подтверждено» к архиву не относятся
+  if (deletedInfo)
+    return (
+      <>
+        {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]">{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>}
+        <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant">{deletedInfo}</span>
+      </>
+    );
   return (
     <>
       {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>}
@@ -482,7 +537,7 @@ function Deadline({ row, col }: { row: TRow; col: TrackerColumnKey }) {
   return <span className={overdue(row, col) ? "font-semibold text-status-red" : "text-on-surface-variant"}>до {ruDay(row.deadline)}</span>;
 }
 
-function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed }: Common) {
+function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed, deletedInfo, onRestore, canRestore }: Common) {
   return (
     <div className="space-y-4">
       {groupRows(rows).map((g) => (
@@ -497,11 +552,11 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed 
                 {t.rows.map((r) => {
                   const col = columnOf(r.statusId, colOf);
                   return (
-                    <li key={r.id}>
-                      <button onClick={() => onOpen(r)} className="row-hover flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-t border-outline-variant/50 px-4 py-2.5 text-left">
+                    <li key={r.id} className={deletedInfo?.(r) ? "flex items-stretch border-t border-outline-variant/50 opacity-80" : undefined}>
+                      <button onClick={() => onOpen(r)} className={`row-hover flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left ${deletedInfo?.(r) ? "" : "border-t border-outline-variant/50"}`}>
                         <span className="min-w-0 flex-1 basis-72 text-[13px] text-on-surface [overflow-wrap:anywhere]">{r.name}</span>
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} unconfirmed={unconfirmed?.(r)} />
+                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
                         </span>
                         <span className="w-32 shrink-0"><StatusPill name={r.statusName ?? "Без статуса"} color={r.statusColor} /></span>
                         <span className="flex w-40 shrink-0 items-center gap-1.5 truncate text-[12px] text-on-surface-variant">
@@ -509,6 +564,11 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed 
                         </span>
                         <span className="w-24 shrink-0 text-[12px]"><Deadline row={r} col={col} /></span>
                       </button>
+                      {deletedInfo?.(r) && canRestore?.(r) && (
+                        <button onClick={() => onRestore?.(r)} className="btn-ghost m-1.5 h-8 shrink-0 self-center">
+                          <RotateCcw size={14} /> Вернуть
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -521,7 +581,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed 
   );
 }
 
-function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus, unconfirmed }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
+function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus, unconfirmed, deletedInfo }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
   const [drag, setDrag] = useState<TRow | null>(null);
   const [over, setOver] = useState<TrackerColumnKey | null>(null);
   // руководитель: свои задачи до «На проверке»; сданную и выполненную двигает только директор (принять / вернуть / переоткрыть)
@@ -569,7 +629,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
                   tabIndex={0}
                   role="button"
                   aria-label={`Задача: ${r.name}`}
-                  className="surface cursor-pointer border-l-4 p-3 outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary"
+                  className={`surface cursor-pointer border-l-4 p-3 outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary ${deletedInfo?.(r) ? "opacity-75" : ""}`}
                   style={{ borderLeftColor: colors.get(r.segmentId ?? "none") ?? "#94a3b8" }}
                 >
                   <div className="truncate text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || "Без сегмента"}</div>
@@ -580,7 +640,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} unconfirmed={unconfirmed?.(r)} />
+                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
                     <span className="flex min-w-0 items-center gap-1.5 truncate text-on-surface-variant">
