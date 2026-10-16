@@ -525,3 +525,49 @@ model DeadlineRequest {
   @@index([itemId])
   @@map("deadline_requests")
 }
+
+/// Личный чат двух человек (1 на 1). Пара хранится в порядке id (userAId < userBId): одна пара — один диалог.
+model ChatThread {
+  id            String   @id @default(cuid())
+  userAId       String
+  userBId       String
+  startedById   String
+  /// ЗГД уже писал в этом диалоге: после этого руководитель может отвечать (до закрытия диалога ЗГД).
+  zgdSpoke      Boolean  @default(false)
+  /// ЗГД закрыл диалог: руководитель снова может писать ЗГД только после его нового сообщения.
+  closedAt      DateTime?
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  messages ChatMessage[]
+  reads    ChatRead[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId, lastMessageAt])
+  @@index([userBId, lastMessageAt])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  threadId  String
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId  String
+  text      String
+  /// Приложенная задача (ссылка): название видит только тот, кому задача доступна.
+  itemId    String?
+  createdAt DateTime @default(now())
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatRead {
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId     String
+  lastReadAt DateTime   @default(now())
+
+  @@id([threadId, userId])
+  @@map("chat_reads")
+}

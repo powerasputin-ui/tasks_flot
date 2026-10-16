@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ClipboardList, Eye, KanbanSquare, LogOut, Search, Settings, Table2, Trash2, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
+import { ChatDock } from "@/components/ChatDock";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { clearAiChat } from "@/components/AiChat";
 import { setPreview } from "@/lib/preview-as";
@@ -291,6 +292,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {/* Сюда страницы выносят свои действия (например, экспорт таблицы) через портал. */}
           <div id="header-actions" className="hidden items-center sm:flex" />
+          {/* чат — личная переписка: в режиме «Посмотреть как» и у техадмина его нет */}
+          {me && !viewAs && me.role !== "SYSTEM_ADMIN" && <ChatDock meId={me.id} />}
           {me && <NotificationsBell />}
           {(effRole === "SYSTEM_ADMIN" || effRole === "ADMIN" || effRole === "DIRECTOR") && (
             // обёртка: у .btn-icon свой display, и класс скрытия на самой ссылке не срабатывает; на телефоне настройки — в нижней панели

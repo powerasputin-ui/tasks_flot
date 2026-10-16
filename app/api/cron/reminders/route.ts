@@ -5,6 +5,7 @@ import { sendMissingReminders } from "@/lib/cycles";
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
 import { isDigestWindowMsk, sendWeeklyDigests } from "@/lib/weekly-digest";
 import { pruneNotifications } from "@/lib/notifications";
+import { pruneChat } from "@/lib/chat-server";
 
 // сводки обходят все дирекции — с запасом по времени (по умолчанию функция обрывается раньше)
 export const maxDuration = 60;
@@ -42,5 +43,11 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     console.error("notifications prune failed", e);
   }
-  return NextResponse.json({ cycles: cycles.length, people, deadlines, weekly, pruned });
+  let chatPruned: unknown = null;
+  try {
+    chatPruned = await pruneChat();
+  } catch (e) {
+    console.error("chat prune failed", e);
+  }
+  return NextResponse.json({ cycles: cycles.length, people, deadlines, weekly, pruned, chatPruned });
 }

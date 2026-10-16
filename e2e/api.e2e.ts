@@ -59,6 +59,11 @@ import * as tracker from "@/app/api/tracker/route";
 import * as transition from "@/app/api/items/[id]/transition/route";
 import * as workflow from "@/app/api/items/[id]/workflow/route";
 import * as zgd from "@/app/api/zgd/route";
+import * as chat from "@/app/api/chat/route";
+import * as chatThread from "@/app/api/chat/threads/[id]/route";
+import * as chatPeople from "@/app/api/chat/people/route";
+import * as chatUnread from "@/app/api/chat/unread/route";
+import { pruneChat } from "@/lib/chat-server";
 import * as publish from "@/app/api/tracker/publish/route";
 import * as report from "@/app/api/report/route";
 import * as templates from "@/app/api/report-templates/route";
@@ -3176,5 +3181,120 @@ describe("комментарии в карточке, срок поручени�
     const back = await tr(dN, { action: "reopen", reason: "проект возобновили" });
     expect(back.status).toBe(200);
     expect(back.data.row.statusName).toBe("В работе");
+  });
+});
+
+describe("чат 1 на 1", () => {
+  let dA = "";
+  let dB = "";
+  let zC: Actor;
+  let dirC: Actor;
+  let headC: Actor;
+  let head2C: Actor;
+  let otherC: Actor;
+  let adminC: Actor;
+  let itemC = "";
+  const mk = async (key: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE" | "ADMIN", directorateId: string | null): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} ${key}`, email: `${TAG}.chat-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  const send = (who: Actor | null, to: Actor, text: string, itemId?: string) => call(who, chat.POST, "/api/chat", { method: "POST", body: { toUserId: to.id, text, ...(itemId ? { itemId } : {}) } });
+  const open = (who: Actor | null, threadId: string, qs = "") => call(who, chatThread.GET, `/api/chat/threads/${threadId}${qs}`, { id: threadId });
+  const unread = async (who: Actor) => (await call(who, chatUnread.GET, "/api/chat/unread")).data.unread as number;
+
+  beforeAll(async () => {
+    dA = (await prisma.directorate.create({ data: { name: `${TAG} Чат А`, shortName: "ЧатА" } })).id;
+    dB = (await prisma.directorate.create({ data: { name: `${TAG} Чат Б`, shortName: "ЧатБ" } })).id;
+    zC = await mk("zgd", "EXECUTIVE", null);
+    dirC = await mk("dir", "DIRECTOR", dA);
+    headC = await mk("head", "HEAD", dA);
+    head2C = await mk("head2", "HEAD", dA);
+    otherC = await mk("other", "HEAD", dB);
+    adminC = await mk("admin", "ADMIN", dA);
+    invalidateDicts();
+    itemC = (await call(headC, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача для чата` } })).data.row.id;
+  });
+
+  afterAll(async () => {
+    const people = [zC, dirC, headC, head2C, otherC, adminC].filter(Boolean).map((p) => p.id);
+    if (!people.length) return;
+    await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
+    await prisma.chatThread.deleteMany({ where: { OR: [{ userAId: { in: people } }, { userBId: { in: people } }] } });
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: itemC }, { actorId: { in: people } }] } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: { in: [dA, dB] } } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: { in: [dA, dB] } } });
+  });
+
+  it("руководитель ЗГД первым не пишет; в списке «кому писать» ЗГД нет", async () => {
+    const r = await send(headC, zC, "Здравствуйте, ЗГД");
+    expect(r.status).toBe(403);
+    expect(r.data.message).toMatch(/ЗГД пишет первым/);
+    const people = (await call(headC, chatPeople.GET, "/api/chat/people")).data.people as Array<{ id: string }>;
+    expect(people.map((p) => p.id)).toEqual(expect.arrayContaining([head2C.id, dirC.id, adminC.id]));
+    expect(people.map((p) => p.id)).not.toContain(zC.id);
+    expect(people.map((p) => p.id)).not.toContain(otherC.id);
+  });
+
+  it("ЗГД пишет первым → руководитель отвечает; непрочитанное и отметка прочтения", async () => {
+    const first = await send(zC, headC, "Что по задаче?");
+    expect(first.status).toBe(201);
+    expect(await unread(headC)).toBe(1);
+    const threadId = first.data.threadId as string;
+    expect((await open(headC, threadId, "?markRead=1")).data.canPost).toBe(true);
+    expect(await unread(headC)).toBe(0);
+    const reply = await send(headC, zC, "Работаем, срок не меняется");
+    expect(reply.status).toBe(201);
+    expect(reply.data.threadId).toBe(threadId);
+    expect(await unread(zC)).toBe(1);
+    const all = (await open(zC, threadId, "?markRead=1")).data.messages as Array<{ text: string }>;
+    expect(all.map((m) => m.text)).toEqual(["Что по задаче?", "Работаем, срок не меняется"]);
+  });
+
+  it("ЗГД закрывает диалог: руководитель не пишет, директор пишет; новое сообщение ЗГД открывает снова", async () => {
+    const thread = await prisma.chatThread.findFirstOrThrow({ where: { OR: [{ userAId: zC.id }, { userBId: zC.id }] } });
+    expect((await call(headC, chatThread.POST, `/api/chat/threads/${thread.id}`, { method: "POST", id: thread.id, body: { action: "close" } })).status).toBe(403);
+    expect((await call(zC, chatThread.POST, `/api/chat/threads/${thread.id}`, { method: "POST", id: thread.id, body: { action: "close" } })).status).toBe(200);
+    expect((await send(headC, zC, "Ещё одно")).status).toBe(403);
+    expect((await send(dirC, zC, "Директор пишет ЗГД свободно")).status).toBe(201);
+    expect((await send(zC, headC, "Снова пишу")).status).toBe(201);
+    expect((await send(headC, zC, "Отвечаю")).status).toBe(201);
+  });
+
+  it("внутри дирекции пишут свободно, между дирекциями — нет; приложенная задача видна только тому, кому она доступна", async () => {
+    expect((await send(headC, head2C, "Коллега, привет")).status).toBe(201);
+    expect((await send(headC, otherC, "Чужая дирекция")).status).toBe(403);
+    expect((await send(otherC, headC, "И наоборот")).status).toBe(403);
+    const withItem = await send(headC, dirC, "Посмотрите задачу", itemC);
+    expect(withItem.status).toBe(201);
+    expect(withItem.data.message.item).toMatchObject({ id: itemC });
+    const asDir = (await open(dirC, withItem.data.threadId)).data.messages as Array<{ item: { id: string } | null }>;
+    expect(asDir.at(-1)?.item?.id).toBe(itemC);
+    expect((await send(zC, headC, "с задачей", itemC)).status).toBe(400);
+    expect((await send(otherC, adminC, "чужая задача", itemC)).status).toBe(400);
+  });
+
+  it("чужой диалог — 404 (IDOR), длина, пустое, лимит частоты, режим «Посмотреть как»", async () => {
+    const thread = await prisma.chatThread.findFirstOrThrow({ where: { OR: [{ userAId: head2C.id }, { userBId: head2C.id }] } });
+    expect((await open(dirC, thread.id)).status).toBe(404);
+    expect((await open(otherC, thread.id)).status).toBe(404);
+    expect((await send(headC, head2C, "   ")).status).toBe(400);
+    expect((await send(headC, head2C, "я".repeat(2001))).status).toBe(400);
+    const viewing = { ...adminC, viewAs: { realId: adminC.id, realName: "x", realRole: "ADMIN" } } as Actor;
+    expect((await call(viewing, chat.GET, "/api/chat")).status).toBe(403);
+    expect((await send(viewing, head2C, "из режима просмотра")).status).toBe(403);
+    let limited = 0;
+    for (let i = 0; i < 20; i++) if ((await send(head2C, headC, `спам ${i}`)).status === 429) limited++;
+    expect(limited).toBeGreaterThan(0);
+  });
+
+  it("уборка: старые сообщения удаляются, свежие остаются", async () => {
+    const t = await prisma.chatThread.findFirstOrThrow({ where: { OR: [{ userAId: head2C.id }, { userBId: head2C.id }] } });
+    const before = await prisma.chatMessage.count();
+    await prisma.chatMessage.create({ data: { threadId: t.id, authorId: head2C.id, text: "старое", createdAt: new Date(Date.now() - 200 * 864e5) } });
+    const r = await pruneChat();
+    expect(r.messages).toBeGreaterThanOrEqual(1);
+    expect(await prisma.chatMessage.count()).toBe(before);
   });
 });
