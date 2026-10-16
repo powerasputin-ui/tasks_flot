@@ -90,10 +90,11 @@ export function TrackerView() {
   const [view, setView] = useState<View>("list");
   const [mine, setMine] = useState(false);
   // фильтр по виду сигнала (просрочка, блокер, ждёт приёмки…) — вместо одного «горит»
-  const [kind, setKind] = useState<SignalKind | null>(null);
+  // ссылка из сводки за неделю открывает трекер сразу с нужным фильтром (?kind=review, ?scope=mine)
+  const [kind, setKind] = useState<SignalKind | null>(() => SIGNAL_ORDER.find((k) => k === params.get("kind")) ?? null);
   const [slipOnly, setSlipOnly] = useState(false);
   // охват: все / на контроле ЗГД / поручения ЗГД / ждут ответа на запрос ЗГД
-  const [scope, setScope] = useState<"all" | "control" | "orders" | "mine" | "waiting">("all");
+  const [scope, setScope] = useState<"all" | "control" | "orders" | "mine" | "waiting">(() => (["control", "orders", "mine", "waiting"] as const).find((s) => s === params.get("scope")) ?? "all");
   const [ordering, setOrdering] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [segmentIds, setSegmentIds] = useState<string[]>([]);
@@ -180,7 +181,7 @@ export function TrackerView() {
       if (scope === "waiting" && !(r.openRequest || data?.hot[r.id]?.kinds.includes("request"))) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
-      if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
+      if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.expectedResult, r.blockedBy, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
   }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial]);

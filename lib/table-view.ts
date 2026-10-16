@@ -186,6 +186,8 @@ export function searchHaystack(r: TableRow): string {
     [
       r.name,
       r.comment,
+      r.expectedResult,
+      r.blockedBy,
       r.cost,
       r.trackName,
       r.segmentName,

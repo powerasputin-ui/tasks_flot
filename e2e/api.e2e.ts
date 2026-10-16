@@ -37,6 +37,7 @@ import * as ret from "@/app/api/items/[id]/return/route";
 import * as history from "@/app/api/items/[id]/history/route";
 import * as fileShortcut from "@/app/api/items/[id]/files/[fileId]/shortcut/route";
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
+import { sendWeeklyDigests } from "@/lib/weekly-digest";
 import * as recent from "@/app/api/items/recent-changes/route";
 import * as columns from "@/app/api/columns/route";
 import * as column from "@/app/api/columns/[id]/route";
@@ -2550,6 +2551,30 @@ describe("ЗГД в трекере: только подтверждённое д
     expect(ok.status).toBe(200);
     cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id: oid } });
     expect((await put(director, { expectedResult: "Справка по флоту и предложения" })).status).toBe(200);
+  });
+
+  it("сводка за неделю: директору — что ждёт приёмки, ЗГД — его поручения; повторный запуск не дублирует", async () => {
+    const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} ждёт приёмки (сводка)` } });
+    created.items.push(c.data.row.id);
+    const sub = await call(head, transition.POST, `/api/items/${c.data.row.id}/transition`, { method: "POST", id: c.data.row.id, body: { version: c.data.row.version, action: "submit", result: "Отчёт в документах" } });
+    expect(sub.status).toBe(200);
+    const monday = new Date(Date.now() + ((8 - new Date(Date.now() + 3 * 3600e3).getUTCDay()) % 7) * 864e5);
+    const since = new Date(Date.now() - 60000);
+    try {
+      const first = await sendWeeklyDigests(monday);
+      expect(first.directors).toBeGreaterThan(0);
+      const dir = await prisma.notification.findFirst({ where: { userId: director.id, type: "WEEKLY_UPDATE_DUE", createdAt: { gte: since } } });
+      expect(dir?.message).toMatch(/ждут вашей приёмки — \d+/);
+      expect(dir?.link).toContain("kind=review");
+      const z = await prisma.notification.findFirst({ where: { userId: zgdUser.id, type: "WEEKLY_UPDATE_DUE", createdAt: { gte: since } } });
+      expect(z?.message).toMatch(/^Сводка за неделю: в работе/);
+      expect(z?.link).toContain("scope=mine");
+      const before = await prisma.notification.count({ where: { type: "WEEKLY_UPDATE_DUE" } });
+      await sendWeeklyDigests(monday);
+      expect(await prisma.notification.count({ where: { type: "WEEKLY_UPDATE_DUE" } })).toBe(before);
+    } finally {
+      await prisma.notification.deleteMany({ where: { type: "WEEKLY_UPDATE_DUE", createdAt: { gte: since } } });
+    }
   });
 
   it("админ, который сам ведёт позиции, свою сданную задачу не принимает — принимает директор", async () => {

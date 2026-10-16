@@ -3,9 +3,11 @@ import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { sendMissingReminders } from "@/lib/cycles";
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
+import { isMondayMsk, sendWeeklyDigests } from "@/lib/weekly-digest";
 
 /**
- * Ежедневный запуск Vercel Cron (09:00 МСК): напоминания «не подал» за 2 дня до срока оперативки и напоминания по срокам позиций.
+ * Ежедневный запуск Vercel Cron (09:00 МСК): напоминания «не подал» за 2 дня до срока оперативки и напоминания по срокам позиций;
+ * по понедельникам — сводка за неделю ЗГД (его поручения и контроль) и директорам (что ждёт решения).
  * Vercel передаёт `Authorization: Bearer <CRON_SECRET>`; без заданного CRON_SECRET маршрут закрыт.
  */
 export async function GET(request: NextRequest) {
@@ -19,5 +21,6 @@ export async function GET(request: NextRequest) {
   for (const c of cycles) people += await sendMissingReminders(c);
   // сроки позиций: «через 2 дня» и «просрочено» ответственным, сводка просрочек директору и админу
   const deadlines = await sendDeadlineReminders();
-  return NextResponse.json({ cycles: cycles.length, people, deadlines });
+  const weekly = isMondayMsk(new Date()) ? await sendWeeklyDigests() : null;
+  return NextResponse.json({ cycles: cycles.length, people, deadlines, weekly });
 }
