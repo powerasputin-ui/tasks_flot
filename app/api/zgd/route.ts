@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { sensibleDate } from "@/lib/validation";
+import { trackerActionLimited } from "@/lib/rate-limit";
 import { requireActor } from "@/lib/session";
 import { answerRequest, askStatus, createOrder, directorOrder, decideDeadline, requestDeadline, setControl, zgdComment, zgdItemInfo, type ZgdResult } from "@/lib/zgd-server";
 import { withApiErrors } from "@/lib/api-guard";
 
-const date = z.coerce.date().nullable().optional();
+const date = sensibleDate.nullable().optional();
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("control"), itemId: z.string(), on: z.boolean() }),
   z.object({ action: z.literal("request"), itemId: z.string(), text: z.string().max(1000), dueAt: date }),
@@ -19,6 +21,8 @@ const schema = z.discriminatedUnion("action", [
 // Действия ЗГД (контроль, запрос статуса, комментарий, поручение) и ответы на них через директора; просьбы о переносе срока.
 async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
+  const tooMany = await trackerActionLimited("zgd", actor.id);
+  if (tooMany) return tooMany;
   const p = schema.safeParse(await request.json().catch(() => null));
   if (!p.success) return NextResponse.json({ error: "INVALID_INPUT", details: p.error.flatten() }, { status: 400 });
   const b = p.data;

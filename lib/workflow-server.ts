@@ -49,6 +49,14 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
 type Review = Prisma.TaskReviewGetPayload<object>;
 
+/** Снимки пачкой: одна выборка сдач на все задачи (а не запрос на каждую — на сотне задач это минуты и таймаут). */
+export async function snapshotsOf(items: ItemRecord[], db: Db = prisma): Promise<Map<string, PublishedSnapshot>> {
+  const [d, reviews] = await Promise.all([getDicts(), items.length ? db.taskReview.findMany({ where: { itemId: { in: items.map((i) => i.id) } }, orderBy: { submittedAt: "desc" } }) : Promise.resolve([] as Review[])]);
+  const last = new Map<string, Review>();
+  for (const r of reviews) if (!last.has(r.itemId)) last.set(r.itemId, r);
+  return new Map(items.map((i) => [i.id, snapshotFrom(i, last.get(i.id) ?? null, d)]));
+}
+
 export async function snapshotOf(item: ItemRecord, db: Db = prisma): Promise<PublishedSnapshot> {
   const [d, review] = await Promise.all([getDicts(), db.taskReview.findFirst({ where: { itemId: item.id }, orderBy: { submittedAt: "desc" } })]);
   return snapshotFrom(item, review, d);
@@ -80,28 +88,54 @@ function snapshotFrom(item: ItemRecord, review: Review | null, d: Awaited<Return
   };
 }
 
-/**
- * Подтвердить состояние задачи для ЗГД: решение директора (принял, вернул, ответил, согласовал перенос…), отправка
- * справки или кнопка «Обновить для ЗГД». ЗГД видит только последнее подтверждённое — черновики дирекции ему не видны.
- */
-/**
- * Отправка справки: подтвердить для ЗГД все задачи дирекции разом, полным снимком (блокер, отмена, сдача — не только
- * поля таблицы). Без уведомлений: ЗГД и так получает «пришла справка». Пачкой — дирекция может вести сотни позиций.
- */
-export async function publishAll(items: ItemRecord[], actor: { id: string; name: string }, reason: string): Promise<void> {
-  const list = items.filter((i) => i.directorateId);
-  if (!list.length) return;
-  const ids = list.map((i) => i.id);
-  const [d, reviews] = await Promise.all([getDicts(), prisma.taskReview.findMany({ where: { itemId: { in: ids } }, orderBy: { submittedAt: "desc" } })]);
-  const last = new Map<string, Review>();
-  for (const r of reviews) if (!last.has(r.itemId)) last.set(r.itemId, r);
-  const now = new Date();
-  await prisma.itemPublication.createMany({
-    data: list.map((i) => ({ itemId: i.id, directorateId: i.directorateId!, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snapshotFrom(i, last.get(i.id) ?? null, d) as unknown as Prisma.InputJsonValue, publishedAt: now })),
-  });
-  await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" IN (${Prisma.join(ids)})`;
+/** Снимок как стабильная строка (ключи по порядку): jsonb в базе хранит их в своём порядке — сравнивать надо так. */
+function stable(v: unknown): string {
+  const norm = (x: unknown): unknown => (Array.isArray(x) ? x.map(norm) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, val]) => [k, norm(val)])) : x);
+  return JSON.stringify(norm(JSON.parse(JSON.stringify(v ?? null))));
 }
 
+/**
+ * Подтвердить для ЗГД сразу много задач полным снимком (блокер, отмена, сдача — не только поля таблицы), пачкой:
+ * дирекция может вести сотни позиций, а запрос на каждую — это минуты и таймаут сервера.
+ *  · dedupe — при отправке справки не плодить копии: если полный снимок не изменился с прошлого подтверждения, строку не пишем
+ *    (иначе база растёт на «задачи × недели»; состояние у ЗГД то же, а дату справки несёт сама справка);
+ *  · notify — ЗГД, взявший задачу на контроль, узнаёт о подтверждённом изменении (для кнопки «Обновить для ЗГД»; при отправке
+ *    справки он и так получает «пришла справка»).
+ */
+export async function publishAll(items: ItemRecord[], actor: { id: string; name: string }, reason: string, opts: { dedupe?: boolean; notify?: boolean } = {}): Promise<number> {
+  const list = items.filter((i) => i.directorateId);
+  if (!list.length) return 0;
+  const ids = list.map((i) => i.id);
+  const snaps = await snapshotsOf(list);
+  let fresh = list;
+  if (opts.dedupe) {
+    // сравниваем только с полными подтверждениями: решение директора (поле only) ЗГД применяет частично
+    const prev = await prisma.$queryRaw<Array<{ itemId: string; snapshot: unknown }>>`SELECT DISTINCT ON ("itemId") "itemId", "snapshot" FROM "item_publications" WHERE "itemId" IN (${Prisma.join(ids)}) AND ("snapshot"->'only') IS NULL ORDER BY "itemId", "publishedAt" DESC`;
+    const same = new Set(prev.filter((p) => stable(p.snapshot) === stable(snaps.get(p.itemId))).map((p) => p.itemId));
+    fresh = list.filter((i) => !same.has(i.id));
+  }
+  const now = new Date();
+  if (fresh.length) {
+    await prisma.itemPublication.createMany({
+      data: fresh.map((i) => ({ itemId: i.id, directorateId: i.directorateId!, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snaps.get(i.id) as unknown as Prisma.InputJsonValue, publishedAt: now })),
+    });
+  }
+  // «подтверждено» — у всех выбранных, даже если новой строки не понадобилось
+  await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" IN (${Prisma.join(ids)})`;
+  if (opts.notify) {
+    const controlled = list.filter((i) => i.zgdControl);
+    if (controlled.length) {
+      const zgd = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
+      for (const i of controlled) for (const u of zgd) if (u.id !== actor.id) await createNotification({ userId: u.id, type: "ZGD_UPDATE", message: `${actor.name}: ${reason} — «${i.title.slice(0, 100)}»`, link: `/tracker?view=timeline&item=${i.id}` });
+    }
+  }
+  return fresh.length;
+}
+
+/**
+ * Подтвердить состояние одной задачи для ЗГД: решение директора (принял, вернул, ответил, согласовал перенос…).
+ * ЗГД видит только последнее подтверждённое — черновики дирекции ему не видны.
+ */
 export async function publishItem(item: ItemRecord, actor: { id: string; name: string }, reason: string, opts: { db?: Db; skip?: string[]; only?: string[]; wasConfirmed?: boolean } = {}): Promise<void> {
   if (!item.directorateId) return;
   const db = opts.db ?? prisma;
@@ -195,7 +229,7 @@ export async function performTransition(actor: Actor, id: string, action: Workfl
       // решение директора — ЗГД видит само решение (статус, приёмку, стоп, отмену), без черновых правок карточки
       if (isDirectorial(actor.role) && action !== "submit") await publishItem(row, me, DECISION_TEXT[action], { db: tx, only: DECISION_FIELDS, wasConfirmed: wasConfirmed(item) });
       return row;
-    });
+    }, { timeout: 15_000, maxWait: 5_000 });
 
     // уведомления — после записи
     const link = trackerLink(item);

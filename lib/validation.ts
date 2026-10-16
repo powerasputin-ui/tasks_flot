@@ -11,6 +11,14 @@ export const referenceItemSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+/**
+ * Дата срока / ожидания / ответа: разумные границы. Год 9999 или опечатка «20266» не должны попадать в базу:
+ * таймлайн и сводки растянулись бы на миллионы дней и повесили бы страницу у всех, кто её открывает.
+ */
+export const MIN_DATE = new Date("2000-01-01T00:00:00.000Z");
+export const MAX_DATE = new Date("2100-12-31T23:59:59.999Z");
+export const sensibleDate = z.coerce.date().min(MIN_DATE, "Дата вне допустимого диапазона (2000–2100)").max(MAX_DATE, "Дата вне допустимого диапазона (2000–2100)");
+
 const idOrNull = z.string().min(1).nullable().optional();
 const textOrNull = z.string().nullable().optional();
 // Длинные «простыни» ломают журнал и выгрузки: комментарий до 2000 символов, задача до 300.
@@ -21,10 +29,10 @@ export const createItemSchema = z.object({
   title: z.string().trim().min(1, "Название обязательно").max(300, "Задача не длиннее 300 символов"),
   segmentId: idOrNull,
   trackId: idOrNull,
-  cost: textOrNull,
+  cost: z.string().max(200, "Оценка — не длиннее 200 символов").nullable().optional(),
   attractivenessId: idOrNull,
   responsibleId: idOrNull,
-  deadline: z.coerce.date().nullable().optional(),
+  deadline: sensibleDate.nullable().optional(),
   statusId: idOrNull,
   comment: commentOrNull,
   operFlag: z.boolean().optional(),

@@ -96,7 +96,13 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
 
 /** Снимки таблиц всех отправленных справок (ЗГД видит отправленное всех дирекций). */
 async function loadZgdSources(): Promise<{ versions: SentVersion[]; publications: Publication[] }> {
-  const [versions, pubs] = await Promise.all([loadSentVersions(), prisma.itemPublication.findMany({ orderBy: { publishedAt: "asc" }, select: { itemId: true, directorateId: true, publishedAt: true, publishedByName: true, reason: true, snapshot: true } })]);
+  const { versions, cutoffs } = await loadSentVersions();
+  // у дирекции, чью историю ограничили, подтверждения старше окна тоже не нужны — иначе они растут быстрее справок
+  const pubs = await prisma.itemPublication.findMany({
+    where: cutoffs.size ? { OR: [{ directorateId: { notIn: [...cutoffs.keys()] } }, ...[...cutoffs].map(([directorateId, at]) => ({ directorateId, publishedAt: { gte: at } }))] } : undefined,
+    orderBy: { publishedAt: "asc" },
+    select: { itemId: true, directorateId: true, publishedAt: true, publishedByName: true, reason: true, snapshot: true },
+  });
   const dirs = new Map((await prisma.directorate.findMany({ select: { id: true, name: true, shortName: true } })).map((d) => [d.id, d.shortName || d.name]));
   const publications: Publication[] = pubs.map((p) => {
     const sn = p.snapshot as unknown as PublishedSnapshot;
@@ -125,9 +131,26 @@ export async function zgdStateFor(directorateId: string): Promise<Map<string, Se
   return new Map(built.rows.map((r) => [r.id, r]));
 }
 
-async function loadSentVersions(): Promise<SentVersion[]> {
+/** Сколько последних справок каждой дирекции читает трекер ЗГД: полная выгрузка всех таблиц за все годы растёт на каждом открытии. */
+const ZGD_HISTORY_VERSIONS = 26;
+
+async function loadSentVersions(): Promise<{ versions: SentVersion[]; cutoffs: Map<string, Date> }> {
+  // сначала лёгкий список (без тяжёлых таблиц), потом — тяжёлое только по нужным
+  const meta = await prisma.memoVersion.findMany({ orderBy: { sentAt: "desc" }, select: { id: true, directorateId: true, sentAt: true } });
+  const taken = new Map<string, number>();
+  const keep: string[] = [];
+  const cutoffs = new Map<string, Date>();
+  for (const m of meta) {
+    const n = taken.get(m.directorateId) ?? 0;
+    if (n < ZGD_HISTORY_VERSIONS) {
+      keep.push(m.id);
+      taken.set(m.directorateId, n + 1);
+      if (n + 1 === ZGD_HISTORY_VERSIONS) cutoffs.set(m.directorateId, m.sentAt);
+    }
+  }
   const [versions, dirs] = await Promise.all([
     prisma.memoVersion.findMany({
+      where: { id: { in: keep } },
       orderBy: { sentAt: "asc" },
       select: { id: true, cycleId: true, directorateId: true, sentAt: true, title: true, rows: true, columns: true, sources: true, cycle: { select: { snapshot: true } } },
     }),
@@ -139,7 +162,7 @@ async function loadSentVersions(): Promise<SentVersion[]> {
     const t = await loadVersionTable(v, v.cycle.snapshot);
     out.push({ directorateId: v.directorateId, directorateName: dirName.get(v.directorateId) ?? "Дирекция", sentAt: v.sentAt, title: v.title, rows: t.rows });
   }
-  return out;
+  return { versions: out, cutoffs };
 }
 
 const sentFact = (r: SentRow): FactItem => ({

@@ -4,7 +4,8 @@ import { requireActor } from "@/lib/session";
 import { requireDirectorate } from "@/lib/scope";
 import { isDirectorial } from "@/lib/permissions";
 import { getDicts } from "@/lib/dictionaries";
-import { publishItem, snapshotOf } from "@/lib/workflow-server";
+import { publishAll, snapshotsOf } from "@/lib/workflow-server";
+import { trackerActionLimited } from "@/lib/rate-limit";
 import { zgdStateFor } from "@/lib/tracker-load";
 import { withApiErrors } from "@/lib/api-guard";
 
@@ -22,9 +23,10 @@ async function GETHandler() {
   const directorateId = requireDirectorate(actor);
   const [items, seen] = await Promise.all([prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null }, orderBy: { updatedAt: "desc" } }), zgdStateFor(directorateId)]);
   const changed = items.filter((i) => !i.publishedAt || i.updatedAt > i.publishedAt);
+  const snaps = await snapshotsOf(changed); // одна выборка на все задачи, а не по запросу на каждую
   const list = [];
   for (const i of changed) {
-    const now = await snapshotOf(i);
+    const now = snaps.get(i.id)!;
     const was = seen.get(i.id);
     const diff: string[] = [];
     if (!was) diff.push("новая задача — ЗГД её ещё не видел");
@@ -48,6 +50,8 @@ async function GETHandler() {
 async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
   if (!isDirectorial(actor.role) || actor.viewAs) return NextResponse.json({ error: "FORBIDDEN", message: "Подтверждает для ЗГД директор." }, { status: 403 });
+  const tooMany = await trackerActionLimited("pub", actor.id);
+  if (tooMany) return tooMany;
   const directorateId = requireDirectorate(actor);
   const body = (await request.json().catch(() => null)) as { itemIds?: unknown } | null;
   const ids = Array.isArray(body?.itemIds) ? (body!.itemIds as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 500) : [];
@@ -55,7 +59,7 @@ async function POSTHandler(request: NextRequest) {
   const items = await prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null, id: { in: ids } } });
   const changed = items.filter((i) => !i.publishedAt || i.updatedAt > i.publishedAt);
   const me = { id: actor.id, name: (await getDicts()).users.get(actor.id)?.name ?? "Директор" };
-  for (const i of changed) await publishItem(i, me, "подтвердил(а) актуальность для ЗГД");
+  await publishAll(changed, me, "подтвердил(а) актуальность для ЗГД", { notify: true });
   return NextResponse.json({ published: changed.length, total: items.length });
 }
 

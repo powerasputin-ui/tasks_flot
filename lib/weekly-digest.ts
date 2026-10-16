@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications";
 import type { SignalKind } from "@/lib/ai-table";
 import { columnOf, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
+import { mskIsoWeek } from "@/lib/deadline-week";
 
 /**
  * Сводка за неделю (понедельник, вместе с напоминаниями о сроках): ЗГД — по его поручениям и задачам на контроле
@@ -70,6 +71,16 @@ export function directorDigest(items: DigestItem[], now: Date): string | null {
 /** Понедельник по Москве. */
 export const isMondayMsk = (now: Date) => new Date(now.getTime() + 3 * 3600 * 1000).getUTCDay() === 1;
 
+/**
+ * Сводку можно слать с понедельника по среду (МСК): если понедельничный запуск упал или не успел, во вторник и среду он
+ * повторится; повторов не будет — неделя отмечена (DIGEST_KEY), а уже получившим есть защита на 6 дней.
+ */
+export const isDigestWindowMsk = (now: Date) => {
+  const d = new Date(now.getTime() + 3 * 3600 * 1000).getUTCDay();
+  return d >= 1 && d <= 3;
+};
+export const DIGEST_KEY = "weekly.digest.week";
+
 async function sentRecently(userId: string, now: Date): Promise<boolean> {
   return !!(await prisma.notification.findFirst({ where: { userId, type: "WEEKLY_UPDATE_DUE", createdAt: { gte: new Date(now.getTime() - 6 * DAY) } }, select: { id: true } }));
 }
@@ -81,7 +92,10 @@ const byItem = (events: TrackerEvent[]) => {
 };
 
 /** Разослать сводки (вызывает ежедневный cron по понедельникам; повторный запуск в ту же неделю ничего не шлёт). */
-export async function sendWeeklyDigests(now: Date = new Date()): Promise<{ zgd: number; directors: number }> {
+export async function sendWeeklyDigests(now: Date = new Date()): Promise<{ zgd: number; directors: number; failed?: number }> {
+  const week = mskIsoWeek(now);
+  if ((await prisma.appSetting.findUnique({ where: { key: DIGEST_KEY } }))?.value === week) return { zgd: 0, directors: 0 }; // эта неделя уже обработана
+  let failed = 0;
   // загрузчики трекера тянут много зависимостей — подключаем только когда сводки действительно собираем
   const { loadTracker, loadSentTracker } = await import("@/lib/tracker-load");
   const { directorsOf } = await import("@/lib/workflow-server");
@@ -91,6 +105,7 @@ export async function sendWeeklyDigests(now: Date = new Date()): Promise<{ zgd: 
   // директорам — по живым данным своей дирекции
   const dirs = await prisma.directorate.findMany({ where: { isActive: true }, select: { id: true } });
   for (const d of dirs) {
+    try {
     const t = await loadTracker(d.id);
     const cols = new Map(t.statuses.map((s) => [s.id, s.trackerColumn]));
     const ev = byItem(t.events);
@@ -103,11 +118,17 @@ export async function sendWeeklyDigests(now: Date = new Date()): Promise<{ zgd: 
       await createNotification({ userId: uid, type: "WEEKLY_UPDATE_DUE", message: text, link, directorateId: d.id });
       directors++;
     }
+    } catch (e) {
+      // одна дирекция не должна оставить без сводки остальные
+      failed++;
+      console.error("weekly digest: directorate failed", d.id, e);
+    }
   }
 
   // ЗГД — по подтверждённому директорами: его поручения и задачи на контроле
   const executives = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
   if (executives.length) {
+    try {
     const t = await loadSentTracker();
     const cols = new Map(t.statuses.map((s) => [s.name, s.trackerColumn]));
     const ev = byItem(t.events);
@@ -121,6 +142,12 @@ export async function sendWeeklyDigests(now: Date = new Date()): Promise<{ zgd: 
       await createNotification({ userId: u.id, type: "WEEKLY_UPDATE_DUE", message: text, link });
       zgd++;
     }
+    } catch (e) {
+      failed++;
+      console.error("weekly digest: ZGD failed", e);
+    }
   }
-  return { zgd, directors };
+  // неделя отмечается, только если всё разослано: иначе завтра попробуем ещё раз (получившие повторно не получат)
+  if (!failed) await prisma.appSetting.upsert({ where: { key: DIGEST_KEY }, create: { key: DIGEST_KEY, value: week }, update: { value: week } });
+  return { zgd, directors, ...(failed ? { failed } : {}) };
 }

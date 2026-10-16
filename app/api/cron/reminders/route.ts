@@ -3,7 +3,10 @@ import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { sendMissingReminders } from "@/lib/cycles";
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
-import { isMondayMsk, sendWeeklyDigests } from "@/lib/weekly-digest";
+import { isDigestWindowMsk, sendWeeklyDigests } from "@/lib/weekly-digest";
+
+// сводки обходят все дирекции — с запасом по времени (по умолчанию функция обрывается раньше)
+export const maxDuration = 60;
 
 /**
  * Ежедневный запуск Vercel Cron (09:00 МСК): напоминания «не подал» за 2 дня до срока оперативки и напоминания по срокам позиций;
@@ -21,6 +24,15 @@ export async function GET(request: NextRequest) {
   for (const c of cycles) people += await sendMissingReminders(c);
   // сроки позиций: «через 2 дня» и «просрочено» ответственным, сводка просрочек директору и админу
   const deadlines = await sendDeadlineReminders();
-  const weekly = isMondayMsk(new Date()) ? await sendWeeklyDigests() : null;
+  // сбой сводки не должен ронять весь запуск: напоминания выше уже разосланы
+  let weekly: unknown = null;
+  if (isDigestWindowMsk(new Date())) {
+    try {
+      weekly = await sendWeeklyDigests();
+    } catch (e) {
+      console.error("weekly digest failed", e);
+      weekly = { error: true };
+    }
+  }
   return NextResponse.json({ cycles: cycles.length, people, deadlines, weekly });
 }

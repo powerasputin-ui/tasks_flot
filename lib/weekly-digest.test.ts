@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directorDigest, isMondayMsk, zgdDigest, type DigestItem } from "@/lib/weekly-digest";
+import { directorDigest, isDigestWindowMsk, isMondayMsk, zgdDigest, type DigestItem } from "@/lib/weekly-digest";
 
 const now = new Date("2026-10-19T06:00:00Z"); // понедельник, 09:00 МСК
 const it_ = (o: Partial<DigestItem>): DigestItem => ({ id: "x", column: "DOING", kinds: [], blockedBy: null, events: [], ...o });
@@ -43,5 +43,10 @@ describe("сводка за неделю", () => {
     expect(isMondayMsk(now)).toBe(true);
     expect(isMondayMsk(new Date("2026-10-18T21:30:00Z"))).toBe(true); // 00:30 МСК понедельника
     expect(isMondayMsk(new Date("2026-10-18T20:30:00Z"))).toBe(false);
+  });
+
+  it("окно сводки — понедельник…среда по Москве: упавший понедельничный запуск повторится, в пятницу не шлём", () => {
+    expect(["2026-10-19", "2026-10-20", "2026-10-21"].map((d) => isDigestWindowMsk(new Date(`${d}T06:00:00Z`)))).toEqual([true, true, true]);
+    expect(["2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"].map((d) => isDigestWindowMsk(new Date(`${d}T06:00:00Z`)))).toEqual([false, false, false, false]);
   });
 });

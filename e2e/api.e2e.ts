@@ -38,6 +38,7 @@ import * as history from "@/app/api/items/[id]/history/route";
 import * as fileShortcut from "@/app/api/items/[id]/files/[fileId]/shortcut/route";
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
 import { sendWeeklyDigests } from "@/lib/weekly-digest";
+import { publishAll } from "@/lib/workflow-server";
 import * as recent from "@/app/api/items/recent-changes/route";
 import * as columns from "@/app/api/columns/route";
 import * as column from "@/app/api/columns/[id]/route";
@@ -2560,6 +2561,7 @@ describe("ЗГД в трекере: только подтверждённое д
     expect(sub.status).toBe(200);
     const monday = new Date(Date.now() + ((8 - new Date(Date.now() + 3 * 3600e3).getUTCDay()) % 7) * 864e5);
     const since = new Date(Date.now() - 60000);
+    await prisma.appSetting.deleteMany({ where: { key: "weekly.digest.week" } }); // отметка недели от прошлого прогона мешала бы
     try {
       const first = await sendWeeklyDigests(monday);
       expect(first.directors).toBeGreaterThan(0);
@@ -2572,7 +2574,10 @@ describe("ЗГД в трекере: только подтверждённое д
       const before = await prisma.notification.count({ where: { type: "WEEKLY_UPDATE_DUE" } });
       await sendWeeklyDigests(monday);
       expect(await prisma.notification.count({ where: { type: "WEEKLY_UPDATE_DUE" } })).toBe(before);
+      // неделя отмечена: даже без защиты «6 дней» повторный запуск ничего не шлёт
+      expect(await sendWeeklyDigests(monday)).toEqual({ zgd: 0, directors: 0 });
     } finally {
+      await prisma.appSetting.deleteMany({ where: { key: "weekly.digest.week" } });
       await prisma.notification.deleteMany({ where: { type: "WEEKLY_UPDATE_DUE", createdAt: { gte: since } } });
     }
   });
@@ -2768,5 +2773,150 @@ describe("сквозной сценарий: руководитель → спр
     expect(ev.find((e) => e.kind === "workflow" && e.text.startsWith("сдана"))).toMatchObject({ after: "На проверке" });
     expect(ev.filter((e) => e.kind === "memo").length).toBe(2); // ред. 1 и ред. 2
     expect(ev.some((e) => e.kind === "status" && e.text.includes("На проверке"))).toBe(false); // без повтора строки статуса
+  });
+});
+
+describe("poke holes: границы входа, права, изоляция дирекций и защита от перегрузки (трекер)", () => {
+  let dirP = "";
+  let dP: Actor;
+  let hP: Actor;
+  let zP: Actor;
+  let item1 = ""; // задача руководителя, подтверждена для ЗГД
+  let item2 = ""; // задача руководителя, НЕ подтверждена для ЗГД
+  const mk = async (key: string, name: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE", directorateId: string | null): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} ${name}`, email: `${TAG}.holes-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  const zg = (who: Actor | null, body: unknown) => call(who, zgd.POST, "/api/zgd", { method: "POST", body });
+  const ver = async (id: string) => (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+
+  beforeAll(async () => {
+    dirP = (await prisma.directorate.create({ data: { name: `${TAG} Дирекция проверок`, shortName: "Проверки" } })).id;
+    dP = await mk("dir", "Директор П", "DIRECTOR", dirP);
+    hP = await mk("head", "Руководитель П", "HEAD", dirP);
+    zP = await mk("zgd", "ЗГД П", "EXECUTIVE", null);
+    invalidateDicts();
+    item1 = (await call(hP, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} проверка 1`, deadline: "2026-12-01" } })).data.row.id;
+    item2 = (await call(hP, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} проверка 2` } })).data.row.id;
+    expect((await call(dP, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [item1] } })).data.published).toBe(1);
+  });
+
+  afterAll(async () => {
+    if (!dirP) return;
+    const ids = (await prisma.operationalItem.findMany({ where: { directorateId: dirP }, select: { id: true } })).map((i) => i.id);
+    const people = [dP?.id, hP?.id, zP?.id].filter(Boolean) as string[];
+    await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: { in: ids } }, { actorId: { in: people } }] } });
+    await prisma.itemNote.deleteMany({ where: { itemId: { in: ids } } });
+    await prisma.notification.deleteMany({ where: { OR: [{ userId: { in: people } }, ...ids.map((i) => ({ link: { contains: i } }))] } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: dirP } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: dirP } });
+  });
+
+  it("даты вне разумных границ (год 9999, 1900, +275760) отклоняются везде — иначе одна опечатка вешает таймлайн у всех", async () => {
+    const far = ["9999-12-31", "1900-01-01", "+275760-09-13T00:00:00.000Z"];
+    for (const d of far) {
+      expect((await call(hP, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} далёкий срок`, deadline: d } })).status).toBe(400);
+      expect((await call(hP, item.PATCH, `/api/items/${item2}`, { method: "PATCH", id: item2, body: { version: await ver(item2), deadline: d } })).status).toBe(400);
+      expect((await zg(zP, { action: "order", directorateId: dirP, title: "Поручение", expectedResult: "Результат", deadline: d })).status).toBe(400);
+      expect((await zg(zP, { action: "request", itemId: item1, text: "Вопрос", dueAt: d })).status).toBe(400);
+      expect((await zg(hP, { action: "deadline-request", itemId: item1, newDeadline: d, reason: "причина" })).status).toBe(400);
+      expect((await call(hP, transition.POST, `/api/items/${item2}/transition`, { method: "POST", id: item2, body: { version: await ver(item2), action: "block", blockedBy: "ждём", blockedUntil: d } })).status).toBe(400);
+    }
+    // нормальная дата проходит
+    const ok = await call(hP, item.PATCH, `/api/items/${item2}`, { method: "PATCH", id: item2, body: { version: await ver(item2), deadline: "2027-03-01" } });
+    expect(ok.status).toBe(200);
+    expect(await prisma.operationalItem.count({ where: { directorateId: dirP, deadline: { gt: new Date("2101-01-01") } } })).toBe(0);
+  });
+
+  it("поля без границ длины и служебные ключи: «Оценка» не раздувает базу, __proto__ в своих колонках не роняет сервер", async () => {
+    const v = await ver(item2);
+    expect((await call(hP, item.PATCH, `/api/items/${item2}`, { method: "PATCH", id: item2, body: { version: v, cost: "9".repeat(5000) } })).status).toBe(400);
+    const proto = await call(hP, item.PATCH, `/api/items/${item2}`, { method: "PATCH", id: item2, body: { version: v, customValues: JSON.parse('{"__proto__":"x","constructor":"y"}') } });
+    expect(proto.status).toBeLessThan(500);
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
+  });
+
+  it("чужая дирекция: по id чужой задачи — 404 на действия, ход работы, просьбы, ответы, подтверждение", async () => {
+    expect((await call(headB, transition.POST, `/api/items/${item1}/transition`, { method: "POST", id: item1, body: { version: await ver(item1), action: "block", blockedBy: "взлом" } })).status).toBe(404);
+    expect((await call(directorB, transition.POST, `/api/items/${item1}/transition`, { method: "POST", id: item1, body: { version: await ver(item1), action: "cancel", reason: "взлом" } })).status).toBe(404);
+    expect((await call(headB, workflow.GET, `/api/items/${item1}/workflow`, { id: item1 })).status).toBe(404);
+    expect((await zg(headB, { action: "deadline-request", itemId: item1, newDeadline: "2027-01-01", reason: "взлом" })).status).toBe(404);
+    // просьба и запрос чужой дирекции: решить/ответить нельзя
+    expect((await zg(hP, { action: "deadline-request", itemId: item1, newDeadline: "2027-01-01", reason: "нужно время" })).status).toBe(200);
+    expect((await zg(zP, { action: "request", itemId: item1, text: "Как дела?" })).status).toBe(200);
+    const dl = await prisma.deadlineRequest.findFirstOrThrow({ where: { itemId: item1, decision: null } });
+    const rq = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: item1, answeredAt: null } });
+    expect((await zg(directorB, { action: "deadline-decide", requestId: dl.id, approve: true })).status).toBe(404);
+    expect((await zg(directorB, { action: "answer", requestId: rq.id, answer: "взлом" })).status).toBe(404);
+    expect((await prisma.deadlineRequest.findUniqueOrThrow({ where: { id: dl.id } })).decision).toBeNull();
+    expect((await prisma.zgdRequest.findUniqueOrThrow({ where: { id: rq.id } })).answeredAt).toBeNull();
+    // «подтвердить для ЗГД» чужие задачи нельзя: фильтр по своей дирекции
+    const pub = await call(directorB, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [item1, item2] } });
+    expect(pub.data.total ?? 0).toBe(0);
+    // чужие данные не попадают в трекер
+    expect(((await call(directorB, tracker.GET, "/api/tracker")).data.rows as Array<{ id: string }>).some((r) => r.id === item1)).toBe(false);
+    // закрываем висящие просьбы, чтобы не мешать остальным проверкам
+    await zg(dP, { action: "deadline-decide", requestId: dl.id, approve: false, comment: "не сейчас" });
+    await zg(dP, { action: "answer", requestId: rq.id, answer: "в работе" });
+  });
+
+  it("роли: руководитель не берёт чужие полномочия; ЗГД не пользуется рабочими маршрутами; без входа — 401", async () => {
+    // руководитель: всё, что принадлежит ЗГД и директору
+    for (const body of [
+      { action: "control", itemId: item1, on: true },
+      { action: "request", itemId: item1, text: "Вопрос" },
+      { action: "comment", itemId: item1, text: "Комментарий" },
+      { action: "order", directorateId: dirP, title: "Поручение", expectedResult: "Результат", deadline: "2027-01-01" },
+      { action: "director-order", responsibleId: hP.id, title: "Поручение", expectedResult: "Результат", deadline: "2027-01-01" },
+    ]) expect([403, 404]).toContain((await zg(hP, body)).status);
+    expect((await call(hP, publish.GET, "/api/tracker/publish")).status).toBe(403);
+    expect((await call(hP, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [item1] } })).status).toBe(403);
+    expect((await call(hP, tracker.PATCH, "/api/tracker", { method: "PATCH", body: { enabled: false } })).status).toBe(403);
+    for (const action of ["accept", "return", "cancel", "reopen"]) expect([400, 403]).toContain((await call(hP, transition.POST, `/api/items/${item1}/transition`, { method: "POST", id: item1, body: { version: await ver(item1), action, comment: "текст", reason: "текст" } })).status);
+    // ЗГД: рабочие маршруты дирекции ему закрыты
+    expect([403, 404]).toContain((await call(zP, transition.POST, `/api/items/${item1}/transition`, { method: "POST", id: item1, body: { version: await ver(item1), action: "accept" } })).status);
+    expect([403, 404]).toContain((await call(zP, workflow.GET, `/api/items/${item1}/workflow`, { id: item1 })).status);
+    expect([403, 404]).toContain((await call(zP, item.PATCH, `/api/items/${item1}`, { method: "PATCH", id: item1, body: { version: await ver(item1), title: "взлом" } })).status);
+    expect([403, 404]).toContain((await call(zP, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [item1] } })).status);
+    expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: item1 } })).title).toBe(`${TAG} проверка 1`);
+    // ЗГД не видит и не трогает неподтверждённое: ни действия, ни карточка с запросами
+    expect((await zg(zP, { action: "request", itemId: item2, text: "Вопрос" })).status).toBe(404);
+    expect((await call(zP, zgd.GET, `/api/zgd?itemId=${item2}`)).status).toBe(403);
+    // без входа
+    expect((await call(null, tracker.GET, "/api/tracker")).status).toBe(401);
+    expect((await zg(null, { action: "control", itemId: item1, on: true })).status).toBe(401);
+    expect((await call(null, transition.POST, `/api/items/${item1}/transition`, { method: "POST", id: item1, body: { version: 1, action: "submit", result: "x" } })).status).toBe(401);
+    expect((await call(null, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [item1] } })).status).toBe(401);
+  });
+
+  it("подтверждение при отправке справки не плодит копии: без изменений — новой строки нет, с изменением — есть; решение директора не мешает", async () => {
+    const rec = () => prisma.operationalItem.findUniqueOrThrow({ where: { id: item2 } });
+    const me = { id: dP.id, name: dP.name };
+    await publishAll([await rec()], me, "отправлена справка", { dedupe: true });
+    const base = await prisma.itemPublication.count({ where: { itemId: item2 } });
+    expect(await publishAll([await rec()], me, "отправлена справка", { dedupe: true })).toBe(0);
+    expect(await publishAll([await rec()], me, "отправлена справка", { dedupe: true })).toBe(0);
+    expect(await prisma.itemPublication.count({ where: { itemId: item2 } })).toBe(base);
+    expect((await rec()).publishedAt).not.toBeNull(); // «подтверждено» у директора обновилось и без новой строки
+    await prisma.operationalItem.update({ where: { id: item2 }, data: { comment: "Изменили после справки" } });
+    expect(await publishAll([await rec()], me, "отправлена справка", { dedupe: true })).toBe(1);
+    // явное «Обновить для ЗГД» (без dedupe) строку пишет всегда — у него своя дата и автор
+    expect(await publishAll([await rec()], me, "подтвердил(а) актуальность для ЗГД")).toBe(1);
+  });
+
+  it("перегрузка: частые действия трекера упираются в ограничение (429), а не в базу; первое обращение при этом обычное", async () => {
+    const spammer = await mk("spam", "Спамер", "HEAD", dirP);
+    invalidateDicts();
+    const statuses: number[] = [];
+    for (let i = 0; i < 80; i++) statuses.push((await call(spammer, transition.POST, "/api/items/net-takoj/transition", { method: "POST", id: "net-takoj", body: { version: 1, action: "unblock" } })).status);
+    expect(statuses[0]).not.toBe(429);
+    expect(statuses).toContain(429);
+    const zStatuses: number[] = [];
+    for (let i = 0; i < 80; i++) zStatuses.push((await zg(spammer, { action: "deadline-request", itemId: "net-takoj", newDeadline: "2027-01-01", reason: "x" })).status);
+    expect(zStatuses).toContain(429);
+    await prisma.rateLimit.deleteMany({ where: { key: { contains: spammer.id } } });
   });
 });

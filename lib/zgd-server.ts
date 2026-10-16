@@ -183,7 +183,8 @@ export async function decideDeadline(actor: Actor, requestId: string, approve: b
 
 /** Для карточки ЗГД: его запросы и ответы, комментарии (только по задачам, которые ЗГД видит — подтверждённым). */
 export async function zgdItemInfo(actor: Actor, itemId: string) {
-  if (actor.role !== "EXECUTIVE") return null;
+  // как и действия ЗГД: неподтверждённая или удалённая задача для него не существует — и её запросы, и комментарии тоже
+  if (!(await zgdItem(actor, itemId))) return null;
   const [requests, notes] = await Promise.all([
     prisma.zgdRequest.findMany({ where: { itemId }, orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.itemNote.findMany({ where: { itemId, author: { role: "EXECUTIVE" } }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, author: { select: { name: true } } } }),

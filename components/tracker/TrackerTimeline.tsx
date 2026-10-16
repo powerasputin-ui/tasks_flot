@@ -113,7 +113,8 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
   const days = zoom === "fit" ? dataDays : Math.max(dataDays, Math.ceil(Math.max(0, boxW - nameW) / pxDay));
   const rangeTo = range.from + days * DAY;
   const width = Math.ceil(days * pxDay);
-  const xs = (ms: number) => ((ms - range.from) / DAY) * pxDay; // ms — московское время
+  // за пределы шкалы (дата-выброс) метка не уезжает: упирается в край
+  const xs = (ms: number) => Math.max(-20, Math.min(width + 20, ((ms - range.from) / DAY) * pxDay)); // ms — московское время
   const xEv = (d: string | number | Date) => xs(shift(d));
   const xDay = (d: string | Date) => xs(dateDay(d) + DAY / 2);
   const today = xs(nowS);

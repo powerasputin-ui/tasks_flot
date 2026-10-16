@@ -168,7 +168,10 @@ export function summarize(events: TrackerEvent[], now: Date = new Date()): TaskS
 
 /** Недели оси таймлайна: от понедельника недели самого раннего события до недели после max(срок, сегодня). */
 export function timelineRange(dates: Array<Date | string | null | undefined>, now: Date = new Date()): { from: number; to: number } {
-  const ts = dates.filter((d): d is Date | string => !!d).map((d) => new Date(d).getTime());
+  // шкала строится по разумному окну (3 года в обе стороны): одна ошибочная дата не должна растянуть её на тысячи дней
+  const lo = now.getTime() - 3 * 365 * DAY;
+  const hi = now.getTime() + 3 * 365 * DAY;
+  const ts = dates.filter((d): d is Date | string => !!d).map((d) => new Date(d).getTime()).filter((t) => Number.isFinite(t) && t >= lo && t <= hi);
   const monday = (t: number) => {
     const d = new Date(t);
     const wd = (d.getUTCDay() + 6) % 7;

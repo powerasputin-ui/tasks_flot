@@ -173,7 +173,7 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
       data: { ...version, rows: archiveRows as unknown as Prisma.InputJsonValue, columns: layout as unknown as Prisma.InputJsonValue },
       select: { id: true },
     });
-  });
+  }, { timeout: 20_000, maxWait: 5_000 });
   if (created === "CHANGED") return { ok: false, error: "CHANGED", message: "Пока готовилась отправка, кто-то подал или снял позицию. Проверьте справку и отправьте ещё раз." };
   // отправленная справка — подтверждение для ЗГД всех строк дирекции: таблица — в memo_versions.rows, полный снимок
   // каждой задачи (блокер, отмена, сдача) — в item_publications; updatedAt не трогаем
@@ -182,7 +182,7 @@ export async function finalizeCycle(actor: Actor & { name: string }, id: string,
   if (cycle.directorateId) {
     try {
       const items = await prisma.operationalItem.findMany({ where: { directorateId: cycle.directorateId, archivedAt: null } });
-      await publishAll(items, { id: actor.id, name: actor.name }, MEMO_PUBLICATION);
+      await publishAll(items, { id: actor.id, name: actor.name }, MEMO_PUBLICATION, { dedupe: true });
     } catch (e) {
       console.error("memo publish for ZGD failed", e);
     }

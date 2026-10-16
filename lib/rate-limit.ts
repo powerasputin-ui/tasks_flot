@@ -57,6 +57,16 @@ export function burstLimited(key: string, limit: number, windowMs: number): Next
   return NextResponse.json({ error: "RATE_LIMITED", message: `Слишком много запросов. Попробуйте через ${retry} с.` }, { status: 429, headers: { "Retry-After": String(retry) } });
 }
 
+/**
+ * Действия трекера (сдать, принять, запрос ЗГД, поручение, перенос срока, подтверждение): каждое пишет в журнал и рассылает
+ * уведомления, поэтому зациклившаяся вкладка или чья-то учётка не должны засыпать директора сотнями событий.
+ * Живому человеку хватает с запасом; kind — отдельный счётчик на вид действия.
+ */
+export async function trackerActionLimited(kind: "zgd" | "tr" | "pub", actorId: string): Promise<NextResponse | null> {
+  const limit = kind === "pub" ? 20 : 60;
+  return burstLimited(`${kind}:${actorId}`, 30, 10_000) ?? (await enforceRateLimit(`${kind}:${actorId}`, limit, 60_000, "действий"));
+}
+
 /** Тяжёлые выгрузки (Excel, PDF, Word, PowerPoint): не больше 60 за 10 минут на человека. */
 export async function exportLimited(actorId: string): Promise<NextResponse | null> {
   return burstLimited(`export:${actorId}`, 20, 60_000) ?? (await enforceRateLimit(`export:${actorId}`, 60, 600_000, "выгрузок"));

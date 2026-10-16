@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { sensibleDate } from "@/lib/validation";
+import { trackerActionLimited } from "@/lib/rate-limit";
 import { requireActor } from "@/lib/session";
 import { rowFromRecord } from "@/lib/table-view";
 import { performTransition } from "@/lib/workflow-server";
@@ -11,7 +13,7 @@ const schema = z.object({
   result: z.string().max(2000).optional(),
   comment: z.string().max(2000).optional(),
   blockedBy: z.string().max(500).optional(),
-  blockedUntil: z.coerce.date().nullable().optional(),
+  blockedUntil: sensibleDate.nullable().optional(),
   reason: z.string().max(1000).optional(),
   files: z.array(z.object({ id: z.string().max(80).optional(), path: z.string().max(700) })).max(5).optional(),
 });
@@ -20,6 +22,8 @@ const schema = z.object({
 async function POSTHandler(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   if (actor.viewAs) return NextResponse.json({ error: "FORBIDDEN", message: "В режиме просмотра менять задачи нельзя." }, { status: 403 });
+  const tooMany = await trackerActionLimited("tr", actor.id);
+  if (tooMany) return tooMany;
   const { id } = await params;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
