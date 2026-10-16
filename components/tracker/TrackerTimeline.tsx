@@ -69,7 +69,7 @@ type CardState = { row: TRow; groups: Array<[number, TrackerEvent[]]>; rect: DOM
  * закрытия; ромб — текущий срок, полый — исходный; после «сегодня» до срока — пунктир (план), просрочка — красным.
  * Точка — события дня (близкие дни склеиваются, число — сколько событий); подсказка — что, когда (время) и кто.
  */
-export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, colors, onOpen }: { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; statusColumns: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; events: Map<string, TrackerEvent[]>; colors: Map<string, string>; onOpen: (r: TRow, tab?: "details" | "history") => void }) {
+export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, colors, onOpen, onMenu }: { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; statusColumns: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; events: Map<string, TrackerEvent[]>; colors: Map<string, string>; onOpen: (r: TRow, tab?: "details" | "history") => void; onMenu?: (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void }) {
   const mobile = useIsMobile();
   const nameW = mobile ? 150 : 300;
   const [now] = useState(() => Date.now()); // «сегодня» — на момент открытия страницы
@@ -289,6 +289,7 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
                   now={now}
                   nameW={nameW}
                   onOpen={onOpen}
+                  onMenu={onMenu}
                   onPoint={(groups, rect, pinned) => {
                     keepCard();
                     setCard({ row: r, groups, rect, pinned });
@@ -373,7 +374,7 @@ function EventCard({ state, onOpen }: { state: CardState; onOpen: () => void }) 
 }
 
 function TimelineRow({
-  row, col, statusColumns, hot, events, xs, xEv, xDay, pxDay, width, today, now, nameW, onOpen, onPoint, onPointLeave, mobile,
+  row, col, statusColumns, hot, events, xs, xEv, xDay, pxDay, width, today, now, nameW, onOpen, onMenu, onPoint, onPointLeave, mobile,
 }: {
   row: TRow;
   col: TrackerColumnKey;
@@ -389,6 +390,7 @@ function TimelineRow({
   now: number;
   nameW: number;
   onOpen: (r: TRow, tab?: "details" | "history") => void;
+  onMenu?: (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void;
   onPoint: (groups: Array<[number, TrackerEvent[]]>, rect: DOMRect, pinned: boolean) => void;
   onPointLeave: () => void;
   mobile: boolean;
@@ -436,7 +438,7 @@ function TimelineRow({
 
   return (
     <div className="flex border-b border-outline-variant/50 hover:bg-surface-low">
-      <button onClick={() => onOpen(row)} className="sticky left-0 z-[5] shrink-0 border-r border-outline-variant bg-surface px-3 py-2 text-left hover:bg-surface-low md:px-4" style={{ width: nameW }} title={row.name}>
+      <button onClick={() => onOpen(row)} onContextMenu={(e) => onMenu?.(row, e)} className="sticky left-0 z-[5] shrink-0 border-r border-outline-variant bg-surface px-3 py-2 text-left hover:bg-surface-low md:px-4" style={{ width: nameW }} title={row.name}>
         <span className="line-clamp-2 text-[12px] leading-4 text-on-surface">
           {hot && <span className="mr-1 font-bold text-status-red" title={hot.reasons.join("\n")}>●</span>}
           {row.name}
@@ -445,7 +447,7 @@ function TimelineRow({
           {row.ownerName ?? "не назначен"} · {row.statusName ?? "без статуса"}
         </span>
       </button>
-      <div className="relative" style={{ width, minHeight: mobile ? 56 : 52 }}>
+      <div className="relative" style={{ width, minHeight: mobile ? 56 : 52 }} onContextMenu={(e) => onMenu?.(row, e)}>
         {historyMark && (
           <span className="absolute inset-y-1 z-[2] border-l-2 border-dashed border-outline" style={{ left: xEv(historyMark.at) }} title={`История известна с ${ruDay(historyMark.at)}${historyMark.kind === "created" ? " (первая справка с задачей)" : ""}`} />
         )}

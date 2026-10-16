@@ -8,7 +8,7 @@ import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
-import { askText } from "@/components/ui/Dialog";
+import { askConfirm, askText } from "@/components/ui/Dialog";
 import { ASK } from "@/components/WorkflowSection";
 import { ACTION_LABEL, type WorkflowAction } from "@/lib/workflow";
 import { PersonAvatar } from "@/components/ui/Person";
@@ -259,6 +259,41 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
     if (body?.error === "CONFLICT") setTick((t) => t + 1);
   }
 
+  // Правая кнопка по задаче (список, доска, таймлайн): открыть, удалить / вернуть — как в таблице
+  const [ctx, setCtx] = useState<{ x: number; y: number; row: TRow } | null>(null);
+  useEffect(() => {
+    if (!ctx) return;
+    const close = () => setCtx(null);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", key);
+    };
+  }, [ctx]);
+  const openMenu = (row: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => {
+    if (sent) return; // у ЗГД своё меню действий в карточке
+    e.preventDefault();
+    setCtx({ x: e.clientX, y: e.clientY, row });
+  };
+  const canDeleteRow = (r: TRow) => !!me && !preview && canDeleteItem({ id: me.id, role: me.role as never }, { responsibleId: r.ownerId, createdById: r.createdById, origin: r.origin });
+  async function removeRow(row: TRow) {
+    setCtx(null);
+    const ok = await askConfirm({ title: "Удалить задачу?", message: `«${row.name.slice(0, 120)}» уйдёт в «Удалённые» — оттуда её можно вернуть.`, okLabel: "Удалить", danger: true });
+    if (!ok) return;
+    const res = await fetch(`/api/items/${row.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setError(null);
+      setNotice(`«${row.name.slice(0, 80)}» удалена. Найти её можно в «Удалённых».`);
+      setTick((t) => t + 1);
+    } else setError((await res.json().catch(() => null))?.message ?? "Не удалось удалить задачу: удалять может только тот, кто её ведёт.");
+  }
+
   // вернуть удалённую задачу: сразу видна и в таблице, и в рабочем трекере (это одна и та же позиция)
   async function restore(row: TRow) {
     const res = await fetch(`/api/items/${row.id}/restore`, { method: "POST" });
@@ -400,9 +435,9 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       {!data && !error && <div className="skeleton h-64 w-full rounded-lg" />}
       {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
 
-      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} deletedInfo={deletedInfo} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
-      {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} />}
+      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
+      {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} onMenu={openMenu} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
       {aiUser && sent && <AiChat versionIds={[]} scopeLabel="трекер и последние справки дирекций" inherit quick={TRACKER_QUICK} />}
@@ -449,6 +484,31 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
           }}
         />
       )}
+      {ctx && (
+        <div
+          className="fixed z-50 w-56 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
+          style={{ left: Math.max(8, Math.min(ctx.x, window.innerWidth - 232)), top: Math.max(8, Math.min(ctx.y, window.innerHeight - 150)) }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button onClick={() => { const r = ctx.row; setCtx(null); openRow(r); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
+            Открыть
+          </button>
+          {deleted ? (
+            canEditRow(ctx.row) && (
+              <button onClick={() => { const r = ctx.row; setCtx(null); void restore(r); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
+                <RotateCcw size={14} className="text-outline" /> Вернуть
+              </button>
+            )
+          ) : canDeleteRow(ctx.row) ? (
+            <button onClick={() => void removeRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
+              <Trash2 size={14} /> Удалить
+            </button>
+          ) : (
+            <p className="px-3.5 py-2 text-[11px] text-outline">{ctx.row.origin ? "Поручение удаляет директор." : "Удалять может только тот, кто ведёт задачу."}</p>
+          )}
+        </div>
+      )}
       {editor && !sent && (
         <ItemPanel
           key={editor.id}
@@ -479,7 +539,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
   );
 }
 
-type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean };
+type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Правая кнопка по задаче. */ onMenu?: (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void };
 
 /** Сегмент → трек → задачи, в порядке появления. */
 function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
@@ -537,7 +597,7 @@ function Deadline({ row, col }: { row: TRow; col: TrackerColumnKey }) {
   return <span className={overdue(row, col) ? "font-semibold text-status-red" : "text-on-surface-variant"}>до {ruDay(row.deadline)}</span>;
 }
 
-function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed, deletedInfo, onRestore, canRestore }: Common) {
+function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unconfirmed, deletedInfo, onRestore, canRestore }: Common) {
   return (
     <div className="space-y-4">
       {groupRows(rows).map((g) => (
@@ -553,7 +613,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed,
                   const col = columnOf(r.statusId, colOf);
                   return (
                     <li key={r.id} className={deletedInfo?.(r) ? "flex items-stretch border-t border-outline-variant/50 opacity-80" : undefined}>
-                      <button onClick={() => onOpen(r)} className={`row-hover flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left ${deletedInfo?.(r) ? "" : "border-t border-outline-variant/50"}`}>
+                      <button onClick={() => onOpen(r)} onContextMenu={(e) => onMenu?.(r, e)} className={`row-hover flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left ${deletedInfo?.(r) ? "" : "border-t border-outline-variant/50"}`}>
                         <span className="min-w-0 flex-1 basis-72 text-[13px] text-on-surface [overflow-wrap:anywhere]">{r.name}</span>
                         <span className="flex flex-wrap items-center gap-1.5">
                           <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
@@ -581,7 +641,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, unconfirmed,
   );
 }
 
-function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, canDone, onMove, mainStatus, unconfirmed, deletedInfo }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
+function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, canMove, canDone, onMove, mainStatus, unconfirmed, deletedInfo }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
   const [drag, setDrag] = useState<TRow | null>(null);
   const [over, setOver] = useState<TrackerColumnKey | null>(null);
   // руководитель: свои задачи до «На проверке»; сданную и выполненную двигает только директор (принять / вернуть / переоткрыть)
@@ -625,6 +685,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, canMove, ca
                     setOver(null);
                   }}
                   onClick={() => onOpen(r)}
+                  onContextMenu={(e) => onMenu?.(r, e)}
                   onKeyDown={(e) => e.key === "Enter" && onOpen(r)}
                   tabIndex={0}
                   role="button"
