@@ -16,13 +16,13 @@ const dayStart = (ms: number) => Math.floor(ms / DAY) * DAY;
 const dateDay = (d: string | Date) => dayStart(new Date(d).getTime());
 
 type Zoom = "fit" | "day" | "week" | "month";
-const ZOOMS: Array<[Zoom, string]> = [["fit", "Вписать"], ["day", "Дни"], ["week", "Недели"], ["month", "Месяцы"]];
+const ZOOMS: Array<[Zoom, string]> = [["fit", "Весь период"], ["day", "Дни"], ["week", "Недели"], ["month", "Месяцы"]];
 const ZOOM_PX: Record<Exclude<Zoom, "fit">, number> = { day: 48, week: 16, month: 5 };
 const ZOOM_KEY = "tracker.timeline.zoom";
 const H_MONTH = 22;
 const H_WEEK = 22;
 const H_DAY = 20;
-const CLUSTER_PX = 14;
+const CLUSTER_PX = 24;
 
 /** Цвет точки по виду события; сдвиг срока позже — красный. */
 const KIND_COLOR: Record<TrackerEventKind, string> = {
@@ -193,7 +193,7 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
       <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant px-3 py-2">
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[12px]" aria-label="Масштаб">
           {ZOOMS.map(([k, label]) => (
-            <button key={k} onClick={() => setZoom(k)} aria-pressed={zoom === k} className={`rounded px-2.5 py-1 font-semibold ${zoom === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>
+            <button key={k} onClick={() => setZoom(k)} aria-pressed={zoom === k} title={k === "fit" ? "Весь период от первого события до последнего срока — на ширину экрана, без прокрутки" : "Фиксированный масштаб: шире — прокручивайте вбок"} className={`rounded px-2.5 py-1 font-semibold ${zoom === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>
               {label}
             </button>
           ))}
@@ -263,7 +263,7 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
             {weeks.map((w) => (
               <span key={w} className="absolute inset-y-0 border-l border-outline-variant/50" style={{ left: xs(w) }} />
             ))}
-            <span className="absolute inset-y-0 w-0.5 bg-primary/60" style={{ left: today }} />
+            <span className="absolute inset-y-0 w-px bg-primary/70" style={{ left: today }} />
             {hover !== null && <span className="absolute inset-y-0 border-l border-dashed border-on-surface-variant/50" style={{ left: hover }} />}
           </div>
 
@@ -312,8 +312,8 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
 }
 
 function Legend() {
-  const dot = (c: string) => <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c }} />;
-  const bar = (bg: string) => <span className="h-1.5 w-5 shrink-0 rounded-sm" style={{ background: bg }} />;
+  const dot = (c: string) => <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ background: c }} />;
+  const bar = (bg: string) => <span className="h-1 w-6 shrink-0 rounded-sm" style={{ background: bg }} />;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-on-surface-variant">
       <span className="flex items-center gap-1.5">{bar(PHASE_COLOR.TODO)} сделать</span>
@@ -321,14 +321,14 @@ function Legend() {
       <span className="flex items-center gap-1.5">{bar(PHASE_COLOR.REVIEW)} на проверке</span>
       <span className="flex items-center gap-1.5">{bar(STOP_BG)} на стопе</span>
       <span className="flex items-center gap-1.5">
-        <span className="h-0 w-5 border-t-2 border-dashed border-outline" /> план до срока
+        <span className="h-0 w-6 border-t border-dashed border-outline" /> план до срока
       </span>
       <span className="flex items-center gap-1.5">{bar("#dc2626")} просрочка</span>
       <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rotate-45 border-2 border-on-surface bg-surface" /> срок
+        <span className="h-3.5 w-3.5 rotate-45 border-2 border-on-surface bg-surface" /> срок
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rotate-45 border-2 border-dashed border-outline bg-surface" /> исходный срок
+        <span className="h-3.5 w-3.5 rotate-45 border-2 border-dashed border-outline bg-surface" /> исходный срок
       </span>
       <span className="flex items-center gap-1.5">{dot(KIND_COLOR.workflow)} сдача / приёмка / стоп</span>
       <span className="flex items-center gap-1.5">{dot(KIND_COLOR.status)} статус</span>
@@ -447,7 +447,7 @@ function TimelineRow({
           {row.ownerName ?? "не назначен"} · {row.statusName ?? "без статуса"}
         </span>
       </button>
-      <div className="relative" style={{ width, minHeight: mobile ? 56 : 52 }} onContextMenu={(e) => onMenu?.(row, e)}>
+      <div className="relative" style={{ width, minHeight: mobile ? 68 : 64 }} onContextMenu={(e) => onMenu?.(row, e)}>
         {historyMark && (
           <span className="absolute inset-y-1 z-[2] border-l-2 border-dashed border-outline" style={{ left: xEv(historyMark.at) }} title={`История известна с ${ruDay(historyMark.at)}${historyMark.kind === "created" ? " (первая справка с задачей)" : ""}`} />
         )}
@@ -457,29 +457,29 @@ function TimelineRow({
           return (
             <span
               key={i}
-              className="absolute top-1/2 z-[2] h-1.5 -translate-y-1/2 rounded-sm"
+              className="absolute top-1/2 z-[2] h-1 -translate-y-1/2 rounded-sm"
               style={{ left, width: Math.max(2, xEv(p.to) - left), background: p.stop ? STOP_BG : PHASE_COLOR[p.column] }}
               title={`${p.stop ? "На стопе" : p.status ?? PHASE_LABEL[p.column]}: ${ruDay(new Date(p.from))} – ${ruDay(new Date(p.to))} (${daysWord(Math.max(0, Math.round((p.to - p.from) / DAY)))})`}
             />
           );
         })}
         {/* план до срока и просрочка */}
-        {open && dl !== null && dl > today && <span className="absolute top-1/2 z-[2] h-0 -translate-y-1/2 border-t-2 border-dashed border-outline/70" style={{ left: today, width: dl - today }} title={`До срока ${daysWord(Math.round((dl - today) / pxDay))}`} />}
-        {late && dl !== null && dl < today && <span className="absolute top-1/2 z-[2] h-1.5 -translate-y-1/2 rounded-sm bg-status-red" style={{ left: dl, width: today - dl }} title={`Просрочено на ${daysWord(Math.max(1, Math.round((today - dl) / pxDay)))}`} />}
+        {open && dl !== null && dl > today && <span className="absolute top-1/2 z-[2] h-0 -translate-y-1/2 border-t border-dashed border-outline/70" style={{ left: today, width: dl - today }} title={`До срока ${daysWord(Math.round((dl - today) / pxDay))}`} />}
+        {late && dl !== null && dl < today && <span className="absolute top-1/2 z-[2] h-1 -translate-y-1/2 rounded-sm bg-status-red" style={{ left: dl, width: today - dl }} title={`Просрочено на ${daysWord(Math.max(1, Math.round((today - dl) / pxDay)))}`} />}
         {closedAt !== null && !clusters.some((c) => Math.abs(c.x - xEv(closedAt)) < 10) && (
-          <span className={`absolute top-1/2 z-[3] flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-white ring-2 ring-surface ${col === "DONE" ? "bg-status-emerald" : "bg-outline"}`} style={{ left: xEv(closedAt) }} title={`${col === "DONE" ? "Выполнено" : "Отменена"} ${ruDay(new Date(closedAt))}`}>
-            {col === "DONE" ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
+          <span className={`absolute top-1/2 z-[3] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-white ring-[3px] ring-surface ${col === "DONE" ? "bg-status-emerald" : "bg-outline"}`} style={{ left: xEv(closedAt) }} title={`${col === "DONE" ? "Выполнено" : "Отменена"} ${ruDay(new Date(closedAt))}`}>
+            {col === "DONE" ? <Check size={14} strokeWidth={3} /> : <X size={14} strokeWidth={3} />}
           </span>
         )}
         {/* исходный срок → текущий */}
         {orig !== null && dl !== null && (
           <>
-            <span className="absolute z-[2] h-0 border-t border-dashed border-outline" style={{ top: "calc(50% - 10px)", left: Math.min(orig, dl), width: Math.abs(dl - orig) }} />
-            <span className="absolute top-1/2 z-[3] h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-dashed border-outline bg-surface" style={{ left: orig }} title={`Исходный срок ${ruDay(row.originalDeadline!)}`} />
+            <span className="absolute z-[2] h-0 border-t border-dashed border-outline" style={{ top: "calc(50% - 16px)", left: Math.min(orig, dl), width: Math.abs(dl - orig) }} />
+            <span className="absolute top-1/2 z-[3] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-dashed border-outline bg-surface" style={{ left: orig }} title={`Исходный срок ${ruDay(row.originalDeadline!)}`} />
           </>
         )}
         {dl !== null && (
-          <span className={`absolute top-1/2 z-[3] h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 ${late ? "border-status-red bg-status-red/20" : "border-on-surface bg-surface"}`} style={{ left: dl }} title={dlTip} />
+          <span className={`absolute top-1/2 z-[3] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 ${late ? "border-status-red bg-status-red/20" : "border-on-surface bg-surface"}`} style={{ left: dl }} title={dlTip} />
         )}
         {clusters.map((c) => (
           <button
@@ -488,7 +488,7 @@ function TimelineRow({
             onMouseEnter={(e) => !mobile && onPoint(c.groups, e.currentTarget.getBoundingClientRect(), false)}
             onMouseLeave={() => !mobile && onPointLeave()}
             onClick={(e) => (mobile ? onPoint(c.groups, e.currentTarget.getBoundingClientRect(), true) : onOpen(row, "history"))}
-            className="absolute top-1/2 z-[4] flex h-4 min-w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white ring-2 ring-surface"
+            className="absolute top-1/2 z-[4] flex h-6 min-w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ring-[3px] ring-surface"
             style={{ left: c.x, background: c.color }}
             aria-label={c.groups.map(([d, evs]) => `${ru(d, { day: "2-digit", month: "2-digit" })}: ${evs.map((e) => e.text).join("; ")}`).join(". ")}
           >
