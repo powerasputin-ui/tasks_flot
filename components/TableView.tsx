@@ -730,10 +730,12 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
             <div className="min-w-0">
               <p className="label-caps flex items-center gap-3">
                 {defaultArchive === "archived" ? "Удалённые позиции" : "Рабочая таблица"}
-                {/* на телефоне нет всплывающего меню — переход к удалённым и обратно кнопкой */}
-                <Link href={defaultArchive === "archived" ? "/table" : "/archive"} className="inline-flex items-center gap-1 normal-case tracking-normal text-primary hover:underline">
-                  {defaultArchive === "archived" ? "← К таблице" : <><Trash2 size={12} /> Удалённые</>}
-                </Link>
+                {/* в самом списке удалённых — путь назад; из рабочей таблицы к удалённым ведёт меню (нижняя панель на телефоне) */}
+                {defaultArchive === "archived" && (
+                  <Link href="/table" className="inline-flex items-center gap-1 normal-case tracking-normal text-primary hover:underline">
+                    ← К таблице
+                  </Link>
+                )}
               </p>
               <h2 className="truncate text-2xl font-semibold leading-8 text-on-surface max-md:text-xl">{selectedName}</h2>
               <p className="mt-0.5 text-[12px] text-on-surface-variant">
