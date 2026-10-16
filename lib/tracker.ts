@@ -95,7 +95,7 @@ export function buildEvents(audit: RawAudit[], memos: MemoSent[], names: { statu
     if (a.action === "CREATE") out.push({ ...base, kind: "created", text: "задача создана" });
     else if (a.action === "ARCHIVE") out.push({ ...base, kind: "archived", text: "удалена из таблицы" });
     else if (a.action === "RESTORE") out.push({ ...base, kind: "restored", text: "возвращена из удалённых" });
-    else if (f === "statusId") out.push({ ...base, kind: "status", text: `статус: ${st(a.before)} → ${st(a.after)}` });
+    else if (f === "statusId") out.push({ ...base, kind: "status", text: `статус: ${st(a.before)} → ${st(a.after)}`, before: st(a.before), after: st(a.after) });
     else if (f === "deadline") {
       const slip = slipDays(a.before, a.after);
       const text = !a.before ? `назначен срок ${a.after ? ruDay(a.after) : "—"}` : !a.after ? `срок снят (был ${ruDay(a.before)})` : `срок: ${ruDay(a.before)} → ${ruDay(a.after)}${slip ? ` (${slip > 0 ? "+" : ""}${slip} дн.)` : ""}`;
@@ -112,10 +112,13 @@ export function buildEvents(audit: RawAudit[], memos: MemoSent[], names: { statu
   out.sort((x, y) => x.at.localeCompare(y.at));
   // одно сохранение = одно событие на вид (заголовок и комментарий разом → «обновлён текст задачи»);
   // смена статуса, сделанная действием трекера (сдал / принял / вернул…), описана самим действием — без повтора
-  const wf = new Set(out.filter((e) => e.kind === "workflow").map((e) => `${e.itemId}|${e.at.slice(0, 16)}`));
+  // (но сама смена — было → стало — переходит в событие действия: по ней считаются дни в колонке и фазы на таймлайне)
+  const minute = (e: TrackerEvent) => `${e.itemId}|${e.at.slice(0, 16)}`;
+  const wf = new Set(out.filter((e) => e.kind === "workflow").map(minute));
+  const moved = new Map(out.filter((e) => e.kind === "status" && wf.has(minute(e))).map((e) => [minute(e), e]));
   const seen = new Set<string>();
-  return out.filter((e) => {
-    if (e.kind === "status" && wf.has(`${e.itemId}|${e.at.slice(0, 16)}`)) return false;
+  return out.map((e) => (e.kind === "workflow" && moved.has(minute(e)) ? { ...e, before: moved.get(minute(e))!.before, after: moved.get(minute(e))!.after } : e)).filter((e) => {
+    if (e.kind === "status" && wf.has(minute(e))) return false;
     const k = `${e.itemId}|${e.kind}|${e.at.slice(0, 16)}|${e.kind === "status" || e.kind === "deadline" || e.kind === "owner" || e.kind === "memo" || e.kind === "workflow" ? e.text : ""}`;
     if (seen.has(k)) return false;
     seen.add(k);
@@ -158,6 +161,41 @@ export function timelineRange(dates: Array<Date | string | null | undefined>, no
   return { from: monday(min), to: monday(max) + 14 * DAY };
 }
 
+/** Смена статуса: отдельная правка или действие трекера, которое сменило статус (сдал, принял, на стоп…). */
+export const isStatusChange = (e: TrackerEvent) => (e.kind === "status" || e.kind === "workflow") && !!e.after;
+
+/** Отрезок жизни задачи на таймлайне: в каком статусе (колонке) была с from по to (мс). */
+export type Phase = { from: number; to: number; status: string | null; column: TrackerColumnKey; stop: boolean };
+
+/**
+ * Фазы задачи по сменам статуса: с первого известного события до сегодня (у закрытой — до дня закрытия).
+ * Статус до первой смены — «было» этой смены, иначе текущий. Только что было известно из истории — раньше неё ничего не рисуем.
+ */
+export function phasesOf(events: TrackerEvent[], current: { status: string | null; column: TrackerColumnKey }, columnOfName: (name: string | null) => TrackerColumnKey, now: number = Date.now()): { phases: Phase[]; closedAt: number | null } {
+  if (!events.length) return { phases: [], closedAt: null };
+  const changes = events.filter(isStatusChange);
+  const closed = current.column === "DONE" || current.column === "HIDDEN";
+  const out: Phase[] = [];
+  let status: string | null = changes[0]?.before ?? current.status;
+  let t = new Date(events[0].at).getTime();
+  const push = (to: number) => {
+    if (to > t) out.push({ from: t, to, status, column: columnOfName(status), stop: status === STOP_STATUS });
+  };
+  for (const c of changes) {
+    const at = new Date(c.at).getTime();
+    push(at);
+    status = c.after ?? status;
+    t = Math.max(t, at);
+  }
+  // история могла не знать последней смены — хвост рисуем текущим статусом
+  const knownClose = closed && changes.length > 0 && columnOfName(status) === current.column;
+  if (status !== current.status) status = current.status;
+  // день закрытия известен, только если в истории есть сама смена на «Выполнено» / «Не актуально»
+  if (closed) return { phases: out, closedAt: knownClose ? t : null };
+  push(Math.max(now, t));
+  return { phases: out, closedAt: null };
+}
+
 /** Движение задачи для ИИ и списков: колонка и сколько дней в ней, переносы срока, простой, короткая история. */
 export type Motion = {
   column: TrackerColumnKey;
@@ -172,7 +210,7 @@ export type Motion = {
 
 export function motionOf(events: TrackerEvent[], column: TrackerColumnKey, now: Date = new Date(), historyMax = 8): Motion {
   const s = summarize(events, now);
-  const lastCol = [...events].reverse().find((e) => e.kind === "status" || e.kind === "created");
+  const lastCol = [...events].reverse().find((e) => isStatusChange(e) || e.kind === "created");
   return {
     column,
     inColumnDays: lastCol ? Math.max(0, Math.floor((now.getTime() - new Date(lastCol.at).getTime()) / DAY)) : null,

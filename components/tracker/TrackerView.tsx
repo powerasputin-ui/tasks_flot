@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { isOverdueRow } from "@/lib/overdue";
 import { CalendarClock, Flame, KanbanSquare, List, Plus, Search, ShieldCheck, Star, Timer } from "lucide-react";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
@@ -75,8 +76,9 @@ const SIGNAL_HINT: Record<SignalKind, string> = {
 };
 
 /** Просрочено: срок прошёл, а задача не «Выполнено»/«Не показывать». */
+/** Просрочено — общее правило (lib/overdue.ts): в сам день срока ещё нет, закрытая по колонке — нет. */
 export function overdue(r: TRow, col: TrackerColumnKey): boolean {
-  return !!r.deadline && col !== "DONE" && col !== "HIDDEN" && new Date(r.deadline).getTime() < Date.now() - 24 * 3600 * 1000;
+  return isOverdueRow({ deadline: r.deadline, statusName: r.statusName, statusColumn: col, archived: r.archived });
 }
 
 export function TrackerView() {
@@ -101,6 +103,15 @@ export function TrackerView() {
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [editor, setEditor] = useState<TRow | null>(null);
+  // с таймлайна задача открывается сразу на «Истории» — видно событие, на которое нажали
+  const [editorTab, setEditorTab] = useState<"details" | "history">("details");
+  const openRow = (r: TRow, tab: "details" | "history" = "details") => {
+    setEditorTab(tab);
+    setEditor(r);
+  };
+  useEffect(() => {
+    if (!editor) setEditorTab("details");
+  }, [editor]);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -342,9 +353,9 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       {!data && !error && <div className="skeleton h-64 w-full rounded-lg" />}
       {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
 
-      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} unconfirmed={unconfirmed} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={setEditor} unconfirmed={unconfirmed} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
-      {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} hot={data.hot} events={byItem} colors={colors} onOpen={setEditor} />}
+      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} unconfirmed={unconfirmed} canMove={(r) => !sent && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
+      {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
       {aiUser && sent && <AiChat versionIds={[]} scopeLabel="трекер и последние справки дирекций" inherit quick={TRACKER_QUICK} />}
@@ -395,6 +406,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
         <ItemPanel
           key={editor.id}
           row={editor}
+          initialTab={editorTab}
           prefill={null}
           onRowUpdated={() => setTick((t) => t + 1)}
           refs={refs}

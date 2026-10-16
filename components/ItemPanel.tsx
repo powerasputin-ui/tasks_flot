@@ -134,6 +134,7 @@ export function ItemPanel({
   onSaved,
   onRowUpdated,
   actor = null,
+  initialTab = "details",
 }: {
   row: ItemRow | null;
   refs: Refs;
@@ -157,6 +158,8 @@ export function ItemPanel({
   onRowUpdated?: (row: ItemRow) => void;
   /** Кто смотрит — для действий трекера (сдать, принять, вернуть…). */
   actor?: { id: string; role: string } | null;
+  /** С какой вкладки открыть (с таймлайна — сразу «История»). */
+  initialTab?: "details" | "history";
 }) {
   const [base, setBase] = useState<ItemRow | null>(row);
   const [form, setForm] = useState<FormState>(fromRow(row, defaultResponsibleId, prefill));
@@ -166,7 +169,7 @@ export function ItemPanel({
   const pathname = usePathname() ?? "";
   const L = (key: string) => labels[key] || DEFAULT_LABEL[key as keyof typeof DEFAULT_LABEL] || key;
   const [addingTrack, setAddingTrack] = useState(false);
-  const [tab, setTab] = useState<"details" | "history">("details");
+  const [tab, setTab] = useState<"details" | "history">(row ? initialTab : "details");
   const [history, setHistory] = useState<Event[] | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const isNew = row === null;
@@ -614,7 +617,14 @@ export function ItemPanel({
                       e.action
                     )
                   }
-                  detail={e.fieldName ? <AuditChange before={showValue(e.fieldName, e.before)} after={showValue(e.fieldName, e.after)} /> : undefined}
+                  detail={
+                    // действие трекера (сдал, на стоп, ответ ЗГД…) — это запись с текстом, а не правка поля «было → стало»
+                    e.fieldName && isTrackerEvent(e.fieldName) && e.fieldName !== "zgdControl" ? (
+                      e.after ? <p className="whitespace-pre-wrap text-[12px] text-on-surface-variant [overflow-wrap:anywhere]">{e.after}</p> : undefined
+                    ) : e.fieldName ? (
+                      <AuditChange before={showValue(e.fieldName, e.before)} after={showValue(e.fieldName, e.after)} />
+                    ) : undefined
+                  }
                 />
               ))}
             </ul>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEvents, columnOf, motionOf, statusForColumn, summarize, timelineRange, type RawAudit } from "@/lib/tracker";
+import { buildEvents, columnOf, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit } from "@/lib/tracker";
 import { buildSentTracker, buildZgdTracker, MEMO_PUBLICATION } from "@/lib/tracker-sent";
 import type { ArchiveRow } from "@/lib/archive-table";
 import { canSetStatus } from "@/lib/permissions";
@@ -52,9 +52,42 @@ describe("трекер: события", () => {
     ]);
     expect(e[2].slip).toBe(11);
   });
-  it("смена статуса действием трекера не повторяется отдельной строкой «статус: …»", () => {
+  it("смена статуса действием трекера не повторяется отдельной строкой «статус: …», но сама смена остаётся в действии", () => {
     const e = buildEvents([ev({ fieldName: "statusId", before: "s1", after: "s2" }), ev({ fieldName: "workflow:submit", after: "отчёт готов" })], [], names);
     expect(e.map((x) => x.kind)).toEqual(["workflow"]);
+    expect(e[0]).toMatchObject({ before: "В работе", after: "На проверке" });
+  });
+  it("«на проверке N дн.» — от сдачи, а не от прошлой смены статуса", () => {
+    const e = buildEvents(
+      [
+        ev({ action: "CREATE", timestamp: "2026-10-01T10:00:00.000Z" }),
+        ev({ fieldName: "statusId", before: null, after: "s1", timestamp: "2026-10-02T10:00:00.000Z" }),
+        ev({ fieldName: "statusId", before: "s1", after: "s2", timestamp: "2026-10-10T10:00:00.000Z" }),
+        ev({ fieldName: "workflow:submit", after: "отчёт", timestamp: "2026-10-10T10:00:20.000Z" }),
+      ],
+      [],
+      names,
+    );
+    expect(motionOf(e, "REVIEW", new Date("2026-10-12T11:00:00.000Z")).inColumnDays).toBe(2);
+  });
+  it("фазы на таймлайне: по сменам статуса, стоп отдельно, закрытая задача обрывается в день закрытия", () => {
+    const cols = new Map<string, "TODO" | "DOING" | "REVIEW" | "DONE" | "HIDDEN">([["Не начато", "TODO"], ["В работе", "DOING"], ["На стопе", "DOING"], ["На проверке", "REVIEW"], ["Завершено", "DONE"]]);
+    const col = (n: string | null) => (n ? cols.get(n) : null) ?? "TODO";
+    const at = (d: string) => `2026-10-${d}T10:00:00.000Z`;
+    const evs = [
+      { itemId: "i1", at: at("01"), kind: "created" as const, who: null, text: "задача создана" },
+      { itemId: "i1", at: at("03"), kind: "status" as const, who: null, text: "", before: "Не начато", after: "В работе" },
+      { itemId: "i1", at: at("05"), kind: "workflow" as const, who: null, text: "на стопе", before: "В работе", after: "На стопе" },
+      { itemId: "i1", at: at("07"), kind: "workflow" as const, who: null, text: "снята со стопа", before: "На стопе", after: "В работе" },
+      { itemId: "i1", at: at("09"), kind: "workflow" as const, who: null, text: "сдана", before: "В работе", after: "На проверке" },
+      { itemId: "i1", at: at("11"), kind: "workflow" as const, who: null, text: "принята", before: "На проверке", after: "Завершено" },
+    ];
+    const r = phasesOf(evs, { status: "Завершено", column: "DONE" }, col, new Date(at("20")).getTime());
+    expect(r.phases.map((p) => (p.stop ? "STOP" : p.column))).toEqual(["TODO", "DOING", "STOP", "DOING", "REVIEW"]);
+    expect(r.closedAt).toBe(new Date(at("11")).getTime());
+    const open = phasesOf(evs.slice(0, 3), { status: "На стопе", column: "DOING" }, col, new Date(at("06")).getTime());
+    expect(open.closedAt).toBeNull();
+    expect(open.phases[open.phases.length - 1]).toMatchObject({ stop: true, to: new Date(at("06")).getTime() });
   });
   it("заголовок и комментарий одним сохранением — одно событие", () => {
     const e = buildEvents([ev({ fieldName: "title" }), ev({ fieldName: "comment" })], [], names);

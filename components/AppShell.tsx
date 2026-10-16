@@ -10,6 +10,7 @@ import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { clearAiChat } from "@/components/AiChat";
 import { setPreview } from "@/lib/preview-as";
 import { Avatar } from "@/components/ui/Avatar";
+import { TooltipLayer } from "@/components/ui/Tooltip";
 import { MenuItem, Popover } from "@/components/ui/Popover";
 
 type Me = {
@@ -202,6 +203,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <>
+      <TooltipLayer />
       {/* на очень узком экране лишнее обрезается по ширине (clip, а не auto: auto заодно обрезал бы выпадающие меню по высоте) */}
       <header className="z-30 flex h-16 shrink-0 items-center gap-2 overflow-x-clip sm:gap-4 border-b border-outline-variant bg-surface px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" title="ГШП Оперативка">
