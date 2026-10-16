@@ -357,3 +357,51 @@ export function filtersFromParams(get: (k: string) => string | null, kinds: read
 
 /** Есть ли что-то, что можно «сбросить» (кроме «Отменённых» и «Выполнено: все» — это режимы показа, а не отбор). */
 export const hasActiveFilters = (f: TrackerFilters) => !!(f.kind || f.scope !== "all" || f.mine || f.slip || f.col || f.seg.length || f.owner.length || f.q.trim());
+
+// ---------- доска: срок-чип, причина запрета переноса, отбор плашек
+
+export type DeadlineChip = { text: string; tone: "red" | "amber" | "grey" | "green" | "none"; title: string };
+const dayStart = (d: string | Date) => {
+  const x = new Date(d);
+  return Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate());
+};
+
+/**
+ * Срок как чип: «просрочено на N дн.» (красный), «сегодня» / «через N дн.» (≤ 3 дн, янтарный), далее серый «до дд.мм.гг»;
+ * у выполненных — зелёный «принято дд.мм.гг». today — полночь UTC сегодняшнего дня по Москве (mskToday); overdue — общее правило
+ * lib/overdue.ts (в сам день срока ещё не просрочка, закрытые — нет).
+ */
+export function deadlineChip(deadline: string | Date | null | undefined, today: number, o: { overdue: boolean; column: TrackerColumnKey; closedAt?: string | Date | null }): DeadlineChip {
+  if (o.column === "DONE" && o.closedAt) return { text: `принято ${ruDay(o.closedAt)}`, tone: "green", title: deadline ? `Срок был до ${ruDay(deadline)}` : "Срока не было" };
+  if (!deadline) return { text: "срока нет", tone: "none", title: "Срок не назначен" };
+  const diff = Math.round((dayStart(deadline) - today) / DAY);
+  const plain: DeadlineChip = { text: `до ${ruDay(deadline)}`, tone: o.column === "DONE" ? "green" : "grey", title: `Срок: ${ruDay(deadline)}` };
+  if (o.column === "DONE" || o.column === "HIDDEN") return plain;
+  if (o.overdue && diff < 0) return { text: `просрочено на ${-diff} дн.`, tone: "red", title: `Срок был ${ruDay(deadline)}` };
+  if (diff === 0) return { text: "сегодня", tone: "amber", title: `Срок: ${ruDay(deadline)}` };
+  if (diff > 0 && diff <= 3) return { text: `через ${diff} дн.`, tone: "amber", title: `Срок: ${ruDay(deadline)}` };
+  return plain;
+}
+
+/** Почему карточку нельзя перенести «из → в» (подсказка в запрещённой колонке); null — можно (то же, что dropTargets). */
+export function dropBlockReason(from: TrackerColumnKey, to: TrackerColumnKey, director: boolean): string | null {
+  if (from === to || dropTargets(from, director).includes(to)) return null;
+  if (!director && (from === "REVIEW" || from === "DONE" || from === "HIDDEN")) return from === "REVIEW" ? "Задачу на проверке двигает директор: принять или вернуть на доработку" : "Переоткрыть задачу может только директор";
+  if (to === "DONE") return !director ? "Принять задачу может только директор" : "В «Выполнено» — только через «На проверке»";
+  if (to === "HIDDEN") return !director ? "Отменить («Не актуально») может только директор" : "Закрытую задачу не отменяют — сначала переоткройте";
+  if (from === "REVIEW" && to === "TODO") return "Из «На проверке» — только «Вернуть на доработку» (в «В работе»)";
+  if ((from === "DONE" || from === "HIDDEN") && to !== "DOING") return "Закрытую задачу можно только переоткрыть — в «В работе»";
+  return "Такой перенос недоступен";
+}
+
+/** Не больше max самых важных элементов (меньший rank — важнее, порядок при равенстве сохраняется); остальные — в «+N». */
+export function pickTop<T extends { rank: number }>(items: T[], max: number): { shown: T[]; hidden: T[] } {
+  const sorted = items.map((x, i) => ({ x, i })).sort((a, b) => a.x.rank - b.x.rank || a.i - b.i).map((s) => s.x);
+  return { shown: sorted.slice(0, max), hidden: sorted.slice(max) };
+}
+
+/** Полночь UTC сегодняшнего дня по Москве (сроки хранятся датой без времени) — для чипов срока на доске. */
+export const mskDay = (now: number): number => {
+  const m = new Date(now + 3 * 3600 * 1000);
+  return Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), m.getUTCDate());
+};

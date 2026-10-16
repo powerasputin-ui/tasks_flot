@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEvents, closedAtOf, columnOf, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
+import { buildEvents, closedAtOf, columnOf, deadlineChip, dropAction, dropBlockReason, pickTop, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 import { buildSentTracker, buildZgdTracker, MEMO_PUBLICATION } from "@/lib/tracker-sent";
 import type { ArchiveRow } from "@/lib/archive-table";
 import { canSetStatus } from "@/lib/permissions";
@@ -249,5 +249,38 @@ describe("фильтры в адресе", () => {
     expect(f).toMatchObject({ kind: null, scope: "all", col: null, seg: ["a", "b"] });
     expect(hasActiveFilters(f)).toBe(true);
     expect(hasActiveFilters({ ...EMPTY_FILTERS, cancelled: true, doneAll: true })).toBe(false); // режимы показа — не отбор
+  });
+});
+
+describe("доска: срок-чип, причины запрета, отбор плашек", () => {
+  const today = Date.UTC(2026, 9, 16);
+  const chip = (deadline: string | null, o: Partial<Parameters<typeof deadlineChip>[2]> = {}) => deadlineChip(deadline, today, { overdue: false, column: "DOING", ...o });
+  it("просрочка, сегодня, ближайшие дни, далёкий срок, нет срока", () => {
+    expect(chip("2026-10-13", { overdue: true })).toMatchObject({ text: "просрочено на 3 дн.", tone: "red" });
+    expect(chip("2026-10-16")).toMatchObject({ text: "сегодня", tone: "amber" });
+    expect(chip("2026-10-19")).toMatchObject({ text: "через 3 дн.", tone: "amber" });
+    expect(chip("2026-10-20")).toMatchObject({ tone: "grey" });
+    expect(chip(null)).toMatchObject({ text: "срока нет", tone: "none" });
+  });
+  it("прошедший срок без признака просрочки (например, закрыта) не красный; выполненная — «принято»", () => {
+    expect(chip("2026-10-13", { overdue: false }).tone).toBe("grey");
+    expect(chip("2026-10-13", { column: "DONE", closedAt: "2026-10-14T09:00:00Z" })).toMatchObject({ text: "принято 14.10.26", tone: "green" });
+    expect(chip("2026-10-13", { column: "HIDDEN" }).tone).toBe("grey");
+  });
+  it("dropBlockReason: причина есть ровно у недопустимых переходов", () => {
+    const cols = ["TODO", "DOING", "REVIEW", "DONE", "HIDDEN"] as const;
+    for (const director of [false, true])
+      for (const from of cols)
+        for (const to of cols) {
+          const ok = from === to || dropTargets(from, director).includes(to);
+          expect(dropBlockReason(from, to, director) === null).toBe(ok);
+        }
+    expect(dropBlockReason("REVIEW", "TODO", true)).toMatch(/Вернуть на доработку/);
+    expect(dropBlockReason("DOING", "DONE", false)).toMatch(/директор/);
+  });
+  it("pickTop: самые важные, порядок при равенстве сохраняется", () => {
+    const r = pickTop([{ rank: 5, k: "a" }, { rank: 1, k: "b" }, { rank: 5, k: "c" }, { rank: 2, k: "d" }], 3);
+    expect(r.shown.map((x) => x.k)).toEqual(["b", "d", "a"]);
+    expect(r.hidden.map((x) => x.k)).toEqual(["c"]);
   });
 });

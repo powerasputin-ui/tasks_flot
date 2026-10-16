@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isOverdueRow } from "@/lib/overdue";
-import { CalendarClock, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, Star, Timer, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, Star, Timer, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
@@ -15,13 +15,14 @@ import { STOP_STATUS } from "@/lib/statuses";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
-import { canDeleteItem, isDirectorial } from "@/lib/permissions";
+import { canCreateItem, canDeleteItem, isDirectorial } from "@/lib/permissions";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import { usePreviewAs } from "@/lib/preview-as";
 import { useIsMobile } from "@/lib/use-mobile";
 import { SIGNAL_LABEL, type SignalKind } from "@/lib/ai-table";
-import { BOARD_COLUMNS, columnOf, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
+import { BOARD_COLUMNS, closedAtOf, columnOf, deadlineChip, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, mskDay, pickTop, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
+import { TrackerBoard } from "@/components/tracker/TrackerBoard";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
 import { Operativshchik } from "@/components/Operativshchik";
 import { OrderPanel, ZgdPanel } from "@/components/tracker/ZgdPanel";
@@ -118,6 +119,9 @@ export function TrackerView() {
     if (!editor) setEditorTab("details");
   }, [editor]);
   const [tick, setTick] = useState(0);
+  // «сегодня» по Москве — для чипов срока; обновляется при смене вида/данных, не в рендере (react-hooks/purity)
+  const [today, setToday] = useState(() => mskDay(Date.now()));
+  useEffect(() => setToday(mskDay(Date.now())), [tick]);
   useEffect(() => {
     // фильтры → адрес (поиск — с задержкой, чтобы не писать в историю каждую букву)
     const t = setTimeout(() => {
@@ -241,6 +245,17 @@ export function TrackerView() {
     }),
     [boot],
   );
+
+  // «+ Задача» на доске: только название, остальное (срок, исполнитель) доводят в карточке; ответ — текст ошибки или null
+  async function quickAdd(title: string): Promise<string | null> {
+    const res = await fetch("/api/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) });
+    if (res.ok) {
+      setTick((t) => t + 1);
+      return null;
+    }
+    const body = await res.json().catch(() => null);
+    return body?.message ?? (res.status === 400 ? "Проверьте название: до 300 символов." : res.status === 403 ? "Нет прав создавать задачи." : "Не удалось создать задачу — попробуйте ещё раз.");
+  }
 
   // действие трекера с диалогом (результат, замечание, причина, на чём ждём): перетаскивание, меню и кнопки — один путь
   async function runAction(row: TRow, action: WorkflowAction) {
@@ -501,7 +516,16 @@ export function TrackerView() {
       </div>
 
       {error && <div className="mb-3 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{error}</div>}
-      {!data && !error && <div className="skeleton h-64 w-full rounded-lg" />}
+      {!data && !error && (view === "board" ? (
+        <div className="flex gap-3">
+          {[0, 1, 2, 3].map((c) => (
+            <div key={c} className="min-w-64 flex-1 space-y-2 rounded-lg border border-outline-variant bg-surface-low p-2">
+              <div className="skeleton h-5 w-24 rounded" />
+              {[0, 1, 2].slice(0, 3 - (c % 2)).map((k) => <div key={k} className="skeleton h-24 w-full rounded-lg" />)}
+            </div>
+          ))}
+        </div>
+      ) : <div className="skeleton h-64 w-full rounded-lg" />)}
       {data && rows.length === 0 && (
         <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">
           <p>{hasActiveFilters(filters) ? "Задач по этим условиям нет." : deleted ? "Удалённых задач нет." : "Задач пока нет."}</p>
@@ -513,8 +537,10 @@ export function TrackerView() {
         </div>
       )}
 
-      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
+      {data && rows.length > 0 && view === "list" && <TrackerList today={today} rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
+      {data && rows.length > 0 && view === "board" && (
+        <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} today={today} doneAt={(r) => new Date(closedAtOf(byItem.get(r.id) ?? [], r.updatedAt)).toISOString()} onQuickAdd={!sent && !deleted && !preview && me && canCreateItem(me.role as never) ? quickAdd : undefined} />
+      )}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
@@ -610,8 +636,8 @@ export function TrackerView() {
   );
 }
 
-type MenuHandler = (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void;
-type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Меню действий: правая кнопка и кнопка «⋯» (для телефона и клавиатуры). */ onMenu?: MenuHandler };
+export type MenuHandler = (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void;
+export type Common = { today: number; rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Меню действий: правая кнопка и кнопка «⋯» (для телефона и клавиатуры). */ onMenu?: MenuHandler };
 
 /** Кнопка «⋯» — то же меню действий, что по правой кнопке: на телефоне и с клавиатуры других путей к нему нет. */
 export function MenuButton({ row, onMenu, className = "" }: { row: TRow; onMenu?: MenuHandler; className?: string }) {
@@ -646,8 +672,11 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
   return [...segs.values()].map((s) => ({ ...s, tracks: [...s.tracks].map(([track, rows]) => ({ track, rows })) }));
 }
 
-/** Метки задачи: горит, срок сдвигали, давно без движения. */
-function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cancelled }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean; deletedInfo?: string; cancelled?: boolean }) {
+/** Важность плашки на доске: меньше — важнее (просрочка → стоп → запрос ЗГД → срок сдвигали → поручение → контроль → подтверждение). */
+const SIGNAL_RANK: Record<SignalKind, number> = { overdue: 1, blocker: 2, request: 3, deadlineRequest: 4, slipped: 4, review: 5, soon: 6, data: 9, report: 9 };
+
+/** Метки задачи: горит, срок сдвигали, давно без движения. max — сколько показать (доска: 3 важнейших и «+N»), без max — все (список). */
+export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cancelled, max }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean; deletedInfo?: string; cancelled?: boolean; max?: number }) {
   // удалённая задача — только кто и когда удалил: сигналы и «не подтверждено» к архиву не относятся
   if (deletedInfo)
     return (
@@ -656,41 +685,47 @@ function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cancelled }:
         <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant">{deletedInfo}</span>
       </>
     );
+  const items: Array<{ rank: number; label: string; node: React.ReactNode }> = [];
+  const add = (rank: number, label: string, node: React.ReactNode) => items.push({ rank, label, node });
+  if (cancelled) add(0, `отменена${row.cancelReason ? `: ${row.cancelReason}` : ""}`, <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant">отменена{row.cancelReason ? `: ${row.cancelReason.slice(0, 60)}` : ""}</span>);
+  if (row.origin) add(7, row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора", <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>);
+  if (row.zgdControl) add(8, "на контроле у ЗГД", <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>);
+  if (unconfirmed) add(9, "не подтверждено для ЗГД", <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>);
+  // сигнал = вид + причина и «что сделать» в подсказке; на доске «срок близко» и «просрочка» не дублируем: их показывает чип срока
+  for (const k of hot?.kinds ?? []) {
+    if (max !== undefined && (k === "soon" || k === "overdue")) continue;
+    add(SIGNAL_RANK[k], SIGNAL_LABEL[k].toLowerCase(), (
+      <span className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-[11px] font-semibold ${SIGNAL_TONE[k].off}`} title={hot?.reasons.filter((x) => x.startsWith(SIGNAL_LABEL[k])).join("\n")}>
+        {k === "overdue" && <Flame size={11} />} {SIGNAL_LABEL[k].toLowerCase()}
+      </span>
+    ));
+  }
+  if (summary && summary.slips > 0)
+    add(4, `срок сдвигали ${summary.slips}×`, <span className="rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="Срок переносили позже">срок сдвигали {summary.slips}× (+{summary.slipDays} дн.)</span>);
+  if (!done && !cancelled && summary?.idleDays !== null && summary && summary.idleDays >= 14)
+    add(9, `без движения ${summary.idleDays} дн.`, <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant" title="Последнее изменение задачи">без движения {summary.idleDays} дн.</span>);
+  if (row.inMemo !== undefined) {
+    if (row.inMemo) add(10, "в справке", <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary" title="Вошла в последнюю отправленную справку">в справке</span>);
+  } else if (row.operFlag) add(10, "подана в справку", <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary">подана в справку</span>);
+  // список — по порядку важности тоже, но целиком; доска — max важнейших и «+N» с перечнем
+  const { shown, hidden } = max === undefined ? { shown: items.sort((a, b) => a.rank - b.rank), hidden: [] } : pickTop(items, max);
   return (
     <>
-      {cancelled && <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant">отменена{row.cancelReason ? `: ${row.cancelReason.slice(0, 60)}` : ""}</span>}
-      {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>}
-      {row.zgdControl && <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>}
-      {unconfirmed && <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>}
-      {/* сигнал = вид + причина и «что сделать» в подсказке */}
-      {hot?.kinds.map((k) => (
-        <span key={k} className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-[11px] font-semibold ${SIGNAL_TONE[k].off}`} title={hot.reasons.filter((x) => x.startsWith(SIGNAL_LABEL[k])).join("\n")}>
-          {k === "overdue" && <Flame size={11} />} {SIGNAL_LABEL[k].toLowerCase()}
-        </span>
-      ))}
-      {summary && summary.slips > 0 && (
-        <span className="rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="Срок переносили позже">
-          срок сдвигали {summary.slips}× (+{summary.slipDays} дн.)
-        </span>
-      )}
-      {!done && !cancelled && summary?.idleDays !== null && summary && summary.idleDays >= 14 && (
-        <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant" title="Последнее изменение задачи">
-          без движения {summary.idleDays} дн.
-        </span>
-      )}
-      {row.inMemo !== undefined
-        ? row.inMemo && <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary" title="Вошла в последнюю отправленную справку">в справке</span>
-        : row.operFlag && <span className="rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary">подана в справку</span>}
+      {shown.map((m, i) => <Fragment key={i}>{m.node}</Fragment>)}
+      {hidden.length > 0 && <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant" title={hidden.map((h) => h.label).join("\n")}>+{hidden.length}</span>}
     </>
   );
 }
 
-function Deadline({ row, col }: { row: TRow; col: TrackerColumnKey }) {
-  if (!row.deadline) return <span className="text-outline">срока нет</span>;
-  return <span className={overdue(row, col) ? "font-semibold text-status-red" : "text-on-surface-variant"}>до {ruDay(row.deadline)}</span>;
+/** Срок: чип по близости (красный — просрочено, янтарный — ≤ 3 дн.) или «принято дд.мм» у выполненных. */
+export function Deadline({ row, col, today, closedAt, chip = false }: { row: TRow; col: TrackerColumnKey; today: number; closedAt?: string | null; chip?: boolean }) {
+  const c = deadlineChip(row.deadline, today, { overdue: overdue(row, col), column: col, closedAt });
+  if (!chip) return <span className={c.tone === "red" ? "font-semibold text-status-red" : c.tone === "none" ? "text-outline" : "text-on-surface-variant"} title={c.title}>{c.tone === "red" ? c.text : row.deadline ? `до ${ruDay(row.deadline)}` : c.text}</span>;
+  const tone = { red: "bg-status-red/10 text-status-red", amber: "bg-status-amber/15 text-[#b45309]", green: "bg-status-emerald/10 text-status-emerald", grey: "bg-surface-high text-on-surface-variant", none: "text-outline" }[c.tone];
+  return <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${tone}`} title={c.title}>{c.tone === "red" && <Flame size={11} />}{c.tone === "green" && <Check size={11} />}{c.text}</span>;
 }
 
-function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unconfirmed, deletedInfo, onRestore, canRestore }: Common) {
+function TrackerList({ today, rows, colOf, hot, summaries, colors, onOpen, onMenu, unconfirmed, deletedInfo, onRestore, canRestore }: Common) {
   return (
     <div className="space-y-4">
       {groupRows(rows).map((g) => (
@@ -716,7 +751,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unco
                         <span className="flex w-40 shrink-0 items-center gap-1.5 truncate text-[12px] text-on-surface-variant">
                           {r.ownerName && <PersonAvatar name={r.ownerName} size={20} />} {r.ownerName ?? "не назначен"}
                         </span>
-                        <span className="w-24 shrink-0 text-[12px]"><Deadline row={r} col={col} /></span>
+                        <span className="w-24 shrink-0 text-[12px]"><Deadline row={r} col={col} today={today} /></span>
                       </button>
                       {deletedInfo?.(r) && canRestore?.(r) && (
                         <button onClick={() => onRestore?.(r)} className="btn-ghost m-1.5 h-8 shrink-0 self-center">
@@ -732,88 +767,6 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unco
           ))}
         </section>
       ))}
-    </div>
-  );
-}
-
-type BoardColumn = { key: TrackerColumnKey; label: string };
-
-function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, columns, canMove, director, onMove, mainStatus, unconfirmed, deletedInfo }: Common & { columns: BoardColumn[]; canMove: (r: TRow) => boolean; director: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
-  const [drag, setDrag] = useState<TRow | null>(null);
-  const [over, setOver] = useState<TrackerColumnKey | null>(null);
-  // куда можно перенести карточку — таблица переходов lib/tracker.ts (dropTargets): руководитель «Сделать ↔ В работе» и на
-  // проверку; принять, вернуть, отменить, переоткрыть — директор; остальное недопустимо, а не «как-нибудь»
-  const targets = (r: TRow) => dropTargets(columnOf(r.statusId, colOf), director);
-  return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {columns.map((c) => {
-        const items = rows.filter((r) => columnOf(r.statusId, colOf) === c.key);
-        const droppable = !!drag && targets(drag).includes(c.key);
-        return (
-          <section
-            key={c.key}
-            aria-label={c.label}
-            onDragOver={(e: DragEvent) => {
-              if (!droppable) return;
-              e.preventDefault();
-              setOver(c.key);
-            }}
-            onDragLeave={() => setOver((o) => (o === c.key ? null : o))}
-            onDrop={(e: DragEvent) => {
-              e.preventDefault();
-              setOver(null);
-              if (drag && droppable) onMove(drag, c.key);
-              setDrag(null);
-            }}
-            className={`flex min-w-64 flex-1 basis-0 flex-col rounded-lg border bg-surface-low p-2 transition-colors ${over === c.key ? "border-primary bg-primary-soft" : "border-outline-variant"} ${drag && !droppable && columnOf(drag.statusId, colOf) !== c.key ? "opacity-50" : ""}`}
-          >
-            <header className="mb-2 flex items-center justify-between px-1">
-              <span className="text-[13px] font-bold text-on-surface">{c.label}</span>
-              <span className="rounded-full bg-surface-high px-2 text-[11px] font-semibold text-on-surface-variant">{items.length}</span>
-            </header>
-            {c.key === "DONE" && !director && <p className="mb-2 px-1 text-[11px] text-outline">Сюда задачу переносит директор — переведите её в «На проверке».</p>}
-            <div className="flex min-h-24 flex-col gap-2">
-              {items.map((r) => (
-                <article
-                  key={r.id}
-                  draggable={canMove(r) && targets(r).length > 0}
-                  onDragStart={() => setDrag(r)}
-                  onDragEnd={() => {
-                    setDrag(null);
-                    setOver(null);
-                  }}
-                  onClick={() => onOpen(r)}
-                  onContextMenu={(e) => onMenu?.(r, e)}
-                  onKeyDown={(e) => e.key === "Enter" && onOpen(r)}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`Задача: ${r.name}`}
-                  className={`surface group relative cursor-pointer border-l-4 p-3 outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary ${deletedInfo?.(r) || c.key === "HIDDEN" ? "opacity-75" : ""}`}
-                  style={{ borderLeftColor: colors.get(r.segmentId ?? "none") ?? "#94a3b8" }}
-                >
-                  <MenuButton row={r} onMenu={onMenu} className="absolute right-1.5 top-1.5" />
-                  <div className="truncate pr-7 text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || "Без сегмента"}</div>
-                  <div className="mt-0.5 line-clamp-3 text-[13px] font-medium text-on-surface [overflow-wrap:anywhere]">{r.name}</div>
-                  {r.statusName && r.statusId !== mainStatus.get(c.key) && (
-                    <div className="mt-1.5">
-                      <StatusPill name={r.statusName} color={r.statusColor} />
-                    </div>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} cancelled={c.key === "HIDDEN"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
-                    <span className="flex min-w-0 items-center gap-1.5 truncate text-on-surface-variant">
-                      {r.ownerName && <PersonAvatar name={r.ownerName} size={20} />} <span className="truncate">{r.ownerName ?? "не назначен"}</span>
-                    </span>
-                    <Deadline row={r} col={c.key} />
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        );
-      })}
     </div>
   );
 }
