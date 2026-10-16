@@ -9,7 +9,7 @@ import { useIsMobile } from "@/lib/use-mobile";
 import { CHAT_MAX_TEXT } from "@/lib/chat-rules";
 import type { ChatMessageView, ChatPersonView, ChatThreadDetail, ChatThreadView } from "@/lib/chat-server";
 
-const POS_KEY = "operativka.chat.pos";
+const POS_KEY = "operativka.chat.pos.v2";
 const ROLE_LABEL: Record<string, string> = { HEAD: "руководитель", DIRECTOR: "директор", ADMIN: "админ", EXECUTIVE: "ЗГД" };
 
 const hm = (iso: string) => new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" });
@@ -30,20 +30,53 @@ async function api<T>(url: string, init?: RequestInit): Promise<{ ok: true; data
 
 type Screen = { kind: "list" } | { kind: "new" } | { kind: "thread"; threadId: string | null; other: ChatPersonView };
 
-/** Кнопка чата в шапке (со значком непрочитанного) и плавающее окно: переносится за заголовок, положение запоминается; на телефоне — на весь экран. */
+const BALL = 56;
+const GAP = 12;
+const W = 384; // 24rem
+const H = 544; // 34rem
+
+/**
+ * Чат — круглая кнопка того же размера, что шар «Оперативщика»: перетаскивается куда угодно (место запоминается, двойной щелчок —
+ * вернуть), щелчок открывает и сворачивает окно. Если на странице есть шар Оперативщика, кнопка чата стоит над ним (как в Facebook) —
+ * пока человек не поставил её сам. Окно раскрывается рядом с кнопкой; на телефоне — на весь экран.
+ */
 export function ChatDock({ meId }: { meId: string }) {
   const mobile = useIsMobile();
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+  const [saved, setSaved] = useState<{ x: number; y: number } | null>(null);
+  const [base, setBase] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  const drag = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null);
+  const clamp = (x: number, y: number) => ({ x: Math.min(Math.max(8, x), window.innerWidth - BALL - 8), y: Math.min(Math.max(8, y), window.innerHeight - BALL - 8) });
+
+  useEffect(() => {
+    setMounted(true);
     try {
-      return JSON.parse(localStorage.getItem(POS_KEY) ?? "null");
+      const s = JSON.parse(localStorage.getItem(POS_KEY) ?? "null") as { x: number; y: number } | null;
+      if (s && typeof s.x === "number" && typeof s.y === "number") setSaved(s);
     } catch {
-      return null;
+      /* память браузера недоступна — место по умолчанию */
     }
-  });
-  const drag = useRef<{ dx: number; dy: number } | null>(null);
+  }, []);
+
+  // место по умолчанию: над шаром Оперативщика, если он на странице, иначе правый нижний угол (на телефоне — над нижней панелью)
+  useEffect(() => {
+    const place = () => {
+      const ai = document.querySelector("[data-ai-ball]")?.getBoundingClientRect();
+      const next = ai && ai.width > 0 ? clamp(ai.left, ai.top - BALL - GAP) : clamp(window.innerWidth - BALL - 20, window.innerHeight - BALL - (window.innerWidth < 768 ? 80 : 20));
+      setBase((b) => (b.x === next.x && b.y === next.y ? b : next));
+    };
+    place();
+    const t = setInterval(place, 500);
+    window.addEventListener("resize", place);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("resize", place);
+    };
+  }, []);
 
   // значок: пока окно закрыто — раз в 30 с (вкладка видна); открытое окно обновляет его само
   useEffect(() => {
@@ -72,69 +105,80 @@ export function ChatDock({ meId }: { meId: string }) {
     return () => window.removeEventListener("chat:open", onOpen);
   }, []);
 
-  const clamp = (x: number, y: number) => ({ x: Math.min(Math.max(8, x), window.innerWidth - 120), y: Math.min(Math.max(8, y), window.innerHeight - 60) });
+  if (!mounted || typeof document === "undefined") return null;
+  const pos = dragPos ?? (saved ? clamp(saved.x, saved.y) : base);
+  // окно — рядом с кнопкой: справа или слева от неё и выше или ниже, где хватает места
+  const winLeft = Math.min(Math.max(8, pos.x + BALL - W), window.innerWidth - W - 8);
+  const above = pos.y > H + GAP + 8 || pos.y > window.innerHeight / 2;
+  const winStyle = above ? { left: winLeft, bottom: window.innerHeight - pos.y + GAP } : { left: winLeft, top: pos.y + BALL + GAP };
 
-  const win = open
-    ? createPortal(
-        <div
-          role="dialog"
-          aria-label="Чат"
-          className={`fixed z-[45] flex flex-col overflow-hidden border border-outline-variant bg-surface shadow-2xl ${mobile ? "inset-x-0 bottom-0 top-16 rounded-t-xl" : "h-[34rem] max-h-[calc(100dvh-5rem)] w-[24rem] rounded-xl"}`}
-          style={mobile ? undefined : pos ? { left: pos.x, top: pos.y } : { right: 96, bottom: 24 }}
-        >
-          <Window
-            meId={meId}
-            screen={screen}
-            setScreen={setScreen}
-            onClose={() => setOpen(false)}
-            onUnread={setUnread}
-            dragHandlers={
-              mobile
-                ? {}
-                : {
-                    onPointerDown: (e) => {
-                      if ((e.target as HTMLElement).closest("button,a,input,textarea")) return;
-                      const box = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
-                      drag.current = { dx: e.clientX - box.left, dy: e.clientY - box.top };
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                    },
-                    onPointerMove: (e) => {
-                      if (drag.current) setPos(clamp(e.clientX - drag.current.dx, e.clientY - drag.current.dy));
-                    },
-                    onPointerUp: (e) => {
-                      const d = drag.current;
-                      if (!d) return;
-                      drag.current = null;
-                      try {
-                        localStorage.setItem(POS_KEY, JSON.stringify(clamp(e.clientX - d.dx, e.clientY - d.dy)));
-                      } catch {
-                        /* положение просто не запомнится */
-                      }
-                    },
-                  }
-            }
-          />
-        </div>,
-        document.body,
-      )
-    : null;
-
-  return (
+  return createPortal(
     <>
-      <button onClick={() => setOpen((o) => !o)} aria-label="Чат" aria-expanded={open} title="Чат" className="btn-icon relative">
-        <MessageSquare size={18} />
-        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-red px-1 text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span>}
-      </button>
-      {win}
-    </>
+      {open && (
+        <div role="dialog" aria-label="Чат" className={`fixed z-[45] flex flex-col overflow-hidden border border-outline-variant bg-surface shadow-2xl ${mobile ? "inset-x-0 bottom-0 top-16 rounded-t-xl" : "rounded-xl"}`} style={mobile ? undefined : { ...winStyle, width: W, height: Math.min(H, window.innerHeight - 24) }}>
+          <Window meId={meId} screen={screen} setScreen={setScreen} onClose={() => setOpen(false)} onUnread={setUnread} />
+        </div>
+      )}
+      {!(open && mobile) && (
+        <button
+          aria-label="Чат"
+          aria-expanded={open}
+          title={open ? "Свернуть чат" : "Чат · можно перетащить"}
+          className="fixed z-40 flex cursor-grab touch-none select-none items-center justify-center rounded-full bg-primary text-white shadow-lg transition-transform hover:scale-105 active:scale-95 active:cursor-grabbing"
+          style={{ left: pos.x, top: pos.y, width: BALL, height: BALL }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, sx: e.clientX, sy: e.clientY, moved: false };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d) return;
+            // меньше 5 px — это ещё щелчок, а не перетаскивание
+            if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
+            d.moved = true;
+            setDragPos(clamp(e.clientX - d.dx, e.clientY - d.dy));
+          }}
+          onPointerUp={(e) => {
+            const d = drag.current;
+            drag.current = null;
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+            if (d?.moved) {
+              const p = clamp(e.clientX - d.dx, e.clientY - d.dy);
+              setSaved(p);
+              setDragPos(null);
+              try {
+                localStorage.setItem(POS_KEY, JSON.stringify(p));
+              } catch {
+                /* не сохранилось — останется до перезагрузки */
+              }
+            } else setOpen((o) => !o);
+          }}
+          onDoubleClick={() => {
+            // двойной щелчок — вернуть на место по умолчанию (над Оперативщиком или в угол)
+            setSaved(null);
+            try {
+              localStorage.removeItem(POS_KEY);
+            } catch {
+              /* ignore */
+            }
+          }}
+        >
+          <MessageSquare size={26} />
+          {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-status-red px-1 text-[11px] font-bold text-white">{unread > 99 ? "99+" : unread}</span>}
+        </button>
+      )}
+    </>,
+    document.body,
   );
 }
 
-function Window({ meId, screen, setScreen, onClose, onUnread, dragHandlers }: { meId: string; screen: Screen; setScreen: (s: Screen) => void; onClose: () => void; onUnread: (n: number) => void; dragHandlers: React.HTMLAttributes<HTMLDivElement> }) {
+function Window({ meId, screen, setScreen, onClose, onUnread }: { meId: string; screen: Screen; setScreen: (s: Screen) => void; onClose: () => void; onUnread: (n: number) => void }) {
   const title = screen.kind === "thread" ? screen.other.name : screen.kind === "new" ? "Новый диалог" : "Чат";
   return (
     <>
-      <div {...dragHandlers} className="flex shrink-0 cursor-grab items-center gap-2 border-b border-outline-variant bg-surface-low px-3 py-2.5 active:cursor-grabbing max-md:cursor-default">
+      <div className="flex shrink-0 items-center gap-2 border-b border-outline-variant bg-surface-low px-3 py-2.5">
         {screen.kind !== "list" && (
           <button onClick={() => setScreen({ kind: "list" })} aria-label="К списку диалогов" className="btn-icon h-7 w-7">
             <ArrowLeft size={16} />
@@ -256,6 +300,15 @@ function Thread({ meId, threadId: initialId, other, onUnread }: { meId: string; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // поле растёт по тексту до 7 строк; полоса прокрутки — только когда строк больше
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+    el.style.overflowY = el.scrollHeight > 140 ? "auto" : "hidden";
+  }, [text]);
   const last = useRef<string | null>(null);
 
   const merge = useCallback((incoming: ChatMessageView[], replace: boolean) => {
@@ -405,6 +458,7 @@ function Thread({ meId, threadId: initialId, other, onUnread }: { meId: string; 
               </button>
             )}
             <textarea
+              ref={taRef}
               value={text}
               rows={1}
               maxLength={CHAT_MAX_TEXT}
@@ -416,9 +470,9 @@ function Thread({ meId, threadId: initialId, other, onUnread }: { meId: string; 
                 }
               }}
               placeholder="Сообщение… Enter — отправить"
-              className="input max-h-28 min-h-8 flex-1 resize-none py-1.5 text-[13px]"
+              className="input min-h-8 flex-1 resize-none overflow-hidden py-1.5 text-[13px] leading-5"
             />
-            <button onClick={() => void send()} disabled={busy || !text.trim()} aria-label="Отправить" className="btn-primary h-8 w-8 shrink-0 px-0">
+            <button onClick={() => void send()} disabled={busy || !text.trim()} aria-label="Отправить" title="Отправить" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white disabled:opacity-40">
               <Send size={15} />
             </button>
           </div>

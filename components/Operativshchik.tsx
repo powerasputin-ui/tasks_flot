@@ -250,6 +250,7 @@ export function Operativshchik({ cycleId, versionIds = [], scope, disabledReason
 
   return (
     <div
+      data-ai-ball=""
       className={pos ? "fixed z-40" : "fixed bottom-5 right-5 z-40 max-md:bottom-[calc(4.2rem+env(safe-area-inset-bottom))] max-md:right-3"}
       style={pos ? { left: pos.x, top: pos.y } : undefined}
     >
