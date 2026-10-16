@@ -39,6 +39,8 @@ import * as fileShortcut from "@/app/api/items/[id]/files/[fileId]/shortcut/rout
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
 import { sendWeeklyDigests } from "@/lib/weekly-digest";
 import { publishAll } from "@/lib/workflow-server";
+import { loadAuditWindow } from "@/lib/audit-window";
+import { pruneNotifications } from "@/lib/notifications";
 import * as recent from "@/app/api/items/recent-changes/route";
 import * as columns from "@/app/api/columns/route";
 import * as column from "@/app/api/columns/[id]/route";
@@ -2918,5 +2920,57 @@ describe("poke holes: границы входа, права, изоляция д
     for (let i = 0; i < 80; i++) zStatuses.push((await zg(spammer, { action: "deadline-request", itemId: "net-takoj", newDeadline: "2027-01-01", reason: "x" })).status);
     expect(zStatuses).toContain(429);
     await prisma.rateLimit.deleteMany({ where: { key: { contains: spammer.id } } });
+  });
+});
+
+describe("эксплуатация: окно журнала для трекера и уборка старых уведомлений", () => {
+  it("журнал в трекере — окно по времени и потолок по строкам: старше 540 дней и сверх потолка отрезается, порядок по возрастанию", async () => {
+    const c = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} окно журнала` } });
+    const id = c.data.row.id as string;
+    created.items.push(id);
+    const day = 24 * 3600 * 1000;
+    const at = (ms: number) => new Date(Date.now() - ms);
+    await prisma.auditEvent.createMany({
+      data: [
+        { entityType: "OperationalItem", entityId: id, action: "UPDATE", fieldName: "comment", timestamp: at(600 * day) },
+        ...[5, 4, 3, 2, 1].map((m) => ({ entityType: "OperationalItem", entityId: id, action: "UPDATE" as const, fieldName: "comment", timestamp: at(m * 60_000) })),
+      ],
+    });
+    const all = await loadAuditWindow([id]);
+    expect(all.truncated).toBe(true); // старое за пределами окна есть
+    expect(all.rows.every((r) => r.timestamp.getTime() > Date.now() - 541 * day)).toBe(true);
+    const times = all.rows.map((r) => r.timestamp.getTime());
+    expect([...times].sort((a, b) => a - b)).toEqual(times); // по возрастанию
+    expect(all.rows.length).toBeGreaterThanOrEqual(6); // создание + 5 правок
+    // потолок: только самые свежие, порядок прежний
+    const capped = await loadAuditWindow([id], { max: 3 });
+    expect(capped.rows).toHaveLength(3);
+    expect(capped.truncated).toBe(true);
+    expect(capped.rows.map((r) => r.timestamp.getTime())).toEqual(times.slice(-3));
+    // окно пошире — видна и старая запись
+    expect((await loadAuditWindow([id], { days: 700 })).rows.length).toBe(all.rows.length + 1);
+    expect(await loadAuditWindow([])).toEqual({ rows: [], truncated: false });
+    // сам трекер живёт и с окном: задача на месте, события есть
+    const t = await call(head, tracker.GET, "/api/tracker");
+    expect(t.status).toBe(200);
+    expect((t.data.events as Array<{ itemId: string }>).filter((e) => e.itemId === id).length).toBeGreaterThan(0);
+  });
+
+  it("уборка уведомлений: прочитанные старше 60 дней и любые старше 180 — удаляются; свежие и непрочитанные средней давности остаются", async () => {
+    const u = await prisma.user.create({ data: { name: `${TAG} Уборка`, email: `${TAG}.prune@e2e.local`, passwordHash: "x", role: "HEAD", directorateId: head.directorateId } });
+    testUserIds.push(u.id);
+    const day = 24 * 3600 * 1000;
+    const mkN = (name: string, ageDays: number, isRead: boolean) => prisma.notification.create({ data: { userId: u.id, type: "CHANGE_ATTENTION", message: `${TAG} ${name}`, isRead, createdAt: new Date(Date.now() - ageDays * day) } });
+    const readOld = await mkN("прочитано давно", 70, true);
+    const unreadMid = await mkN("не прочитано 70 дней", 70, false);
+    const unreadOld = await mkN("не прочитано полгода", 200, false);
+    const readNew = await mkN("прочитано недавно", 10, true);
+    expect(await pruneNotifications(new Date(), { userIds: [u.id] })).toBe(2);
+    const left = (await prisma.notification.findMany({ where: { userId: u.id }, select: { id: true } })).map((n) => n.id).sort();
+    expect(left).toEqual([unreadMid.id, readNew.id].sort());
+    expect(left).not.toContain(readOld.id);
+    expect(left).not.toContain(unreadOld.id);
+    // повтор ничего не находит
+    expect(await pruneNotifications(new Date(), { userIds: [u.id] })).toBe(0);
   });
 });

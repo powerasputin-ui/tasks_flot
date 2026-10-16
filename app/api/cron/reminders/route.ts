@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { sendMissingReminders } from "@/lib/cycles";
 import { sendDeadlineReminders } from "@/lib/deadline-reminders";
 import { isDigestWindowMsk, sendWeeklyDigests } from "@/lib/weekly-digest";
+import { pruneNotifications } from "@/lib/notifications";
 
 // сводки обходят все дирекции — с запасом по времени (по умолчанию функция обрывается раньше)
 export const maxDuration = 60;
@@ -34,5 +35,12 @@ export async function GET(request: NextRequest) {
       weekly = { error: true };
     }
   }
-  return NextResponse.json({ cycles: cycles.length, people, deadlines, weekly });
+  // уборка старых уведомлений — последней и без права ронять запуск
+  let pruned = 0;
+  try {
+    pruned = await pruneNotifications();
+  } catch (e) {
+    console.error("notifications prune failed", e);
+  }
+  return NextResponse.json({ cycles: cycles.length, people, deadlines, weekly, pruned });
 }

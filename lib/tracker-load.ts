@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { loadAuditWindow } from "@/lib/audit-window";
 import { getDicts } from "@/lib/dictionaries";
 import { loadTableRows, type TableRow } from "@/lib/table-view";
 import { signals, todayMsk, type FactEvent, type FactItem } from "@/lib/ai-table";
@@ -53,13 +54,8 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
     prisma.memoVersion.findMany({ where: { directorateId }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true, revision: true } }),
   ]);
   const ids = rows.map((r) => r.id);
-  const audit = ids.length
-    ? await prisma.auditEvent.findMany({
-        where: { entityType: "OperationalItem", entityId: { in: ids } },
-        orderBy: { timestamp: "asc" },
-        select: { entityId: true, action: true, fieldName: true, before: true, after: true, timestamp: true, actor: { select: { name: true } } },
-      })
-    : [];
+  // журнал — окно по времени и потолок по строкам (lib/audit-window.ts): иначе каждое открытие читало бы всё, что накопилось
+  const { rows: audit } = await loadAuditWindow(ids);
   const known = new Set(ids);
   const memos: MemoSent[] = versions.map((v) => ({
     at: v.sentAt,

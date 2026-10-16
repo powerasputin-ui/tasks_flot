@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { loadAuditWindow } from "@/lib/audit-window";
 import { canViewItems, type Actor } from "@/lib/permissions";
 import { readFiles } from "@/lib/item-files";
 import type { FactEvent, FactItem } from "@/lib/ai-table";
@@ -83,11 +84,7 @@ async function attachMotion(items: FactItem[], rows: Array<{ id: string; statusI
   const ids = rows.map((r) => r.id);
   if (!ids.length) return;
   const [audit, versions, requests, pendingDl] = await Promise.all([
-    prisma.auditEvent.findMany({
-      where: { entityType: "OperationalItem", entityId: { in: ids } },
-      orderBy: { timestamp: "asc" },
-      select: { entityId: true, action: true, fieldName: true, before: true, after: true, timestamp: true, actor: { select: { name: true } } },
-    }),
+    loadAuditWindow(ids).then((w) => w.rows),
     prisma.memoVersion.findMany({ where: { directorateId: dir }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true, revision: true } }),
     prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }),
     prisma.deadlineRequest.findMany({ where: { itemId: { in: ids }, decision: null }, select: { itemId: true, newDeadline: true, reason: true } }),
