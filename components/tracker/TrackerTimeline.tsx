@@ -187,7 +187,8 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
   }, [rows, colors]);
 
   return (
-    <div className="surface overflow-hidden">
+    // overflow-clip, а не hidden: hidden сделал бы блок контейнером прокрутки и шапка шкалы перестала бы прилипать
+    <div className="surface overflow-clip">
       <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant px-3 py-2">
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[12px]" aria-label="Масштаб">
           {ZOOMS.map(([k, label]) => (
@@ -207,14 +208,14 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
         )}
         {(!mobile || legend) && <Legend />}
       </div>
-      <div ref={box} onMouseMove={onMove} onMouseLeave={() => setHover(null)} onScroll={(e) => setScrollX(e.currentTarget.scrollLeft)} className="overflow-auto" style={{ maxHeight: "calc(100dvh - 230px)", minHeight: 280 }}>
-        <div className="relative" style={{ width: nameW + width }}>
-          {/* шкала: месяцы → недели → дни */}
-          <div className="sticky top-0 z-20 flex border-b border-outline-variant bg-surface-low">
-            <div className="sticky left-0 z-30 flex shrink-0 items-end border-r border-outline-variant bg-surface-low px-4 pb-1.5 label-caps" style={{ width: nameW, height: headerH }}>
-              Задача
-            </div>
-            <div className="relative" style={{ width, height: headerH }}>
+      {/* шкала: месяцы → недели → дни. Вне прокручиваемой области (прилипает к верху страницы, вертикальная прокрутка
+          одна — у страницы), по горизонтали сдвигается вместе со строками */}
+      <div className="sticky top-0 z-20 flex border-b border-outline-variant bg-surface-low">
+        <div className="z-30 flex shrink-0 items-end border-r border-outline-variant bg-surface-low px-4 pb-1.5 label-caps" style={{ width: nameW, height: headerH }}>
+          Задача
+        </div>
+        <div className="relative min-w-0 flex-1 overflow-hidden" style={{ height: headerH }}>
+            <div className="absolute inset-y-0 left-0" style={{ width, transform: `translateX(${-scrollX}px)` }}>
               {months.map((m) => (
                 <span key={m.from} className="absolute top-0 overflow-hidden whitespace-nowrap border-l border-outline-variant px-1.5 text-[11px] font-semibold leading-[22px] text-on-surface" style={{ left: xs(m.from), width: xs(m.to) - xs(m.from), height: H_MONTH }}>
                   <span style={{ marginLeft: Math.max(0, Math.min(scrollX - xs(m.from), xs(m.to) - xs(m.from) - 120)) }}>{xs(m.to) - xs(m.from) > 70 ? m.label : ru(m.from, { month: "short" })}</span>
@@ -248,10 +249,12 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
                 </span>
               )}
             </div>
-          </div>
-
+        </div>
+      </div>
+      <div ref={box} onMouseMove={onMove} onMouseLeave={() => setHover(null)} onScroll={(e) => setScrollX(e.currentTarget.scrollLeft)} className="overflow-x-auto">
+        <div className="relative" style={{ width: nameW + width }}>
           {/* сетка поверх строк: выходные, недели, сегодня, курсор */}
-          <div className="pointer-events-none absolute bottom-0 z-[1]" style={{ top: headerH, left: nameW, width }}>
+          <div className="pointer-events-none absolute bottom-0 top-0 z-[1]" style={{ left: nameW, width }}>
             {pxDay >= 8 &&
               dayList
                 .filter((d) => [0, 6].includes(new Date(d).getUTCDay()))
