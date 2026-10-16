@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ClipboardList, Eye, KanbanSquare, LogOut, Search, Settings, Table2, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, Eye, KanbanSquare, LogOut, Search, Settings, Sun, Table2, Trash2, X } from "lucide-react";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { ChatDock } from "@/components/ChatDock";
 import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
@@ -36,20 +36,26 @@ const ROLE_ORDER: Record<string, number> = { EXECUTIVE: 0, ADMIN: 1, DIRECTOR: 2
 
 export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>> = {
   HEAD: [
+    { href: "/today", label: "Мой день" },
     { href: "/table", label: "Таблица" },
     { href: "/archive", label: "Удалённые" },
   ],
   DIRECTOR: [
+    { href: "/today", label: "Мой день" },
     { href: "/operativka", label: "Оперативка" },
     { href: "/table", label: "Общая таблица" },
     { href: "/archive", label: "Удалённые" },
   ],
   ADMIN: [
+    { href: "/today", label: "Мой день" },
     { href: "/operativka", label: "Оперативка" },
     { href: "/table", label: "Общая таблица" },
     { href: "/archive", label: "Удалённые" },
   ],
-  EXECUTIVE: [{ href: "/operativka", label: "Оперативка" }],
+  EXECUTIVE: [
+    { href: "/today", label: "Мой день" },
+    { href: "/operativka", label: "Оперативка" },
+  ],
   SYSTEM_ADMIN: [
     { href: "/table", label: "Таблица" },
     { href: "/archive", label: "Удалённые" },
@@ -60,6 +66,7 @@ const SEARCH_PATHS = ["/table", "/archive"];
 
 /** Значки разделов для нижней панели на телефоне. */
 const NAV_ICON: Record<string, ReactNode> = {
+  "/today": <Sun size={20} />,
   "/operativka": <ClipboardList size={20} />,
   "/table": <Table2 size={20} />,
   "/tracker": <KanbanSquare size={20} />,
@@ -196,7 +203,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const effRole = me?.role;
   const baseNav = effRole ? NAV_BY_ROLE[effRole] ?? [] : [];
   // назначенный админом составитель справки (руководитель) видит «Оперативку»
-  const withMemo = effRole === "HEAD" && me?.memoEditor ? [baseNav[0], { href: "/operativka", label: "Оперативка" }, ...baseNav.slice(1)] : baseNav;
+  const memoAt = baseNav.findIndex((n) => n.href === "/table") + 1;
+  const withMemo = effRole === "HEAD" && me?.memoEditor ? [...baseNav.slice(0, memoAt), { href: "/operativka", label: "Оперативка" }, ...baseNav.slice(memoAt)] : baseNav;
   // «Трекер» — виды той же таблицы (доска, таймлайн): после «Таблицы»; админ может скрыть его в Настройках → Статусы
   const tableAt = withMemo.findIndex((n) => n.href === "/table");
   // у ЗГД таблицы нет — «Трекер» после «Оперативки» (по отправленным справкам)

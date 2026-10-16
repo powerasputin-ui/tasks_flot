@@ -40,6 +40,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },
+      // воркер браузер перепроверяет при каждом открытии: обновление действует сразу, а не через сутки
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Content-Type", value: "application/javascript; charset=utf-8" }] },
       // анимация помощника не меняется — браузер держит её в кэше неделю и не перекачивает при каждом открытии
       ...["/operativshchik.webp", "/operativshchik-still.webp", "/wllama/wllama.wasm"].map((source) => ({ source, headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }] })),
     ];

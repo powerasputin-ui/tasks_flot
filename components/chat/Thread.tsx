@@ -122,7 +122,7 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
   // кого можно упомянуть: участники группы или собеседник
   const people: Array<{ id: string; name: string }> = group ? (detail?.members ?? []).filter((m) => m.id !== meId && m.isActive) : peer ? [peer] : [];
   const nameOf = (id: string) => (id === meId ? "Вы" : detail?.members.find((m) => m.id === id)?.name ?? (peer?.id === id ? peer.name : "участник"));
-  const mq = /@([^\s@]*)$/.exec(text);
+  const mq = /@([^@\n]{0,40})$/.exec(text);
   const suggestions = mq ? people.filter((p) => p.name.toLowerCase().includes(mq[1].toLowerCase())).slice(0, 5) : [];
 
   async function send() {
@@ -237,7 +237,7 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
                 <li key={p.id}>
                   <button
                     onClick={() => {
-                      setText((t) => t.replace(/@([^\s@]*)$/, `@${p.name} `));
+                      setText((t) => t.replace(/@([^@\n]{0,40})$/, `@${p.name} `));
                       taRef.current?.focus();
                     }}
                     className="block w-full truncate px-2 py-1.5 text-left text-[12px] hover:bg-surface-low"
