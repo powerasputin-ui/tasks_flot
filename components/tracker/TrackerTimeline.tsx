@@ -131,6 +131,12 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, mobile]);
   const [legend, setLegend] = useState(false);
+  // «Сегодня» только прокручивает шкалу вбок: если вся шкала на экране (режим «Весь период», короткий период), кнопка не нужна
+  const [scrollable, setScrollable] = useState(false);
+  useEffect(() => {
+    const el = box.current;
+    if (el) setScrollable(el.scrollWidth > el.clientWidth + 2);
+  }, [zoom, width, boxW, rows.length]);
 
   const months = useMemo(() => {
     const out: Array<{ from: number; to: number; label: string }> = [];
@@ -198,9 +204,11 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
             </button>
           ))}
         </div>
-        <button onClick={scrollToToday} className="btn-ghost h-8 text-[12px]">
-          Сегодня
-        </button>
+        {scrollable && (
+          <button onClick={scrollToToday} className="btn-ghost h-8 text-[12px]" title="Прокрутить шкалу к сегодняшнему дню">
+            Сегодня
+          </button>
+        )}
         {/* на телефоне обозначения по кнопке — иначе они занимают полэкрана */}
         {mobile && (
           <button onClick={() => setLegend((v) => !v)} aria-expanded={legend} className="btn-ghost h-8 text-[12px]">
