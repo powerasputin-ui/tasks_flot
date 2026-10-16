@@ -63,12 +63,25 @@ describe("трекер: события", () => {
         ev({ action: "CREATE", timestamp: "2026-10-01T10:00:00.000Z" }),
         ev({ fieldName: "statusId", before: null, after: "s1", timestamp: "2026-10-02T10:00:00.000Z" }),
         ev({ fieldName: "statusId", before: "s1", after: "s2", timestamp: "2026-10-10T10:00:00.000Z" }),
-        ev({ fieldName: "workflow:submit", after: "отчёт", timestamp: "2026-10-10T10:00:20.000Z" }),
+        ev({ fieldName: "workflow:submit", after: "отчёт", timestamp: "2026-10-10T10:00:00.040Z" }),
       ],
       [],
       names,
     );
     expect(motionOf(e, "REVIEW", new Date("2026-10-12T11:00:00.000Z")).inColumnDays).toBe(2);
+  });
+  it("сдали и сразу приняли в ту же минуту — у каждого действия своя смена статуса", () => {
+    const e = buildEvents(
+      [
+        ev({ fieldName: "statusId", before: "s1", after: "s2", timestamp: "2026-10-10T10:00:00.010Z" }),
+        ev({ fieldName: "workflow:submit", after: "отчёт", timestamp: "2026-10-10T10:00:00.020Z" }),
+        ev({ fieldName: "statusId", before: "s2", after: "s3", timestamp: "2026-10-10T10:00:30.010Z" }),
+        ev({ fieldName: "workflow:accept", timestamp: "2026-10-10T10:00:30.020Z" }),
+      ],
+      [],
+      { ...names, status: new Map([...names.status, ["s3", "Завершено"]]) },
+    );
+    expect(e.map((x) => [x.kind, x.after])).toEqual([["workflow", "На проверке"], ["workflow", "Завершено"]]);
   });
   it("фазы на таймлайне: по сменам статуса, стоп отдельно, закрытая задача обрывается в день закрытия", () => {
     const cols = new Map<string, "TODO" | "DOING" | "REVIEW" | "DONE" | "HIDDEN">([["Не начато", "TODO"], ["В работе", "DOING"], ["На стопе", "DOING"], ["На проверке", "REVIEW"], ["Завершено", "DONE"]]);

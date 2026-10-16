@@ -56,7 +56,7 @@ export type TrackerEvent = {
 export type RawAudit = { entityId: string; action: string; fieldName: string | null; before: string | null; after: string | null; timestamp: Date | string; who: string | null };
 
 /** Отправленная справка: когда, как называлась и какие позиции в неё вошли. */
-export type MemoSent = { at: Date | string; title: string; itemIds: string[] };
+export type MemoSent = { at: Date | string; title: string; itemIds: string[]; /** Редакция справки (после возврата ЗГД — 2, 3…). */ revision?: number };
 
 const FIELD_LABEL: Record<string, string> = { cost: "оценка", attractivenessId: "внимание", segmentId: "сегмент", trackId: "трек", expectedResult: "ожидаемый результат" };
 
@@ -71,6 +71,8 @@ const WORKFLOW_TEXT: Record<string, (t: string | null) => string> = {
   reopen: (t) => `переоткрыта${t ? `: ${t}` : ""}`,
 };
 const DAY = 24 * 3600 * 1000;
+/** Смена статуса и действие трекера из одной транзакции — не дальше этого друг от друга. */
+const PAIR_MS = 5000;
 const iso = (d: Date | string) => (typeof d === "string" ? new Date(d) : d).toISOString();
 export const ruDay = (d: Date | string) => new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Moscow" });
 
@@ -108,17 +110,33 @@ export function buildEvents(audit: RawAudit[], memos: MemoSent[], names: { statu
     else if (f === "deadlineReason") out.push({ ...base, kind: "deadline", text: `причина переноса срока: ${a.after ?? "—"}` });
     else if (f) out.push({ ...base, kind: "edit", text: `изменено: ${FIELD_LABEL[f] ?? (f.startsWith("custom:") ? "своя колонка" : f)}` });
   }
-  for (const m of memos) for (const id of m.itemIds) out.push({ itemId: id, at: iso(m.at), kind: "memo", who: null, text: `вошла в отправленную справку «${m.title}»` });
+  for (const m of memos) for (const id of m.itemIds) out.push({ itemId: id, at: iso(m.at), kind: "memo", who: null, text: `вошла в отправленную справку «${m.title}»${m.revision && m.revision > 1 ? ` (ред. ${m.revision})` : ""}` });
   out.sort((x, y) => x.at.localeCompare(y.at));
   // одно сохранение = одно событие на вид (заголовок и комментарий разом → «обновлён текст задачи»);
   // смена статуса, сделанная действием трекера (сдал / принял / вернул…), описана самим действием — без повтора
   // (но сама смена — было → стало — переходит в событие действия: по ней считаются дни в колонке и фазы на таймлайне)
-  const minute = (e: TrackerEvent) => `${e.itemId}|${e.at.slice(0, 16)}`;
-  const wf = new Set(out.filter((e) => e.kind === "workflow").map(minute));
-  const moved = new Map(out.filter((e) => e.kind === "status" && wf.has(minute(e))).map((e) => [minute(e), e]));
+  // Пара «действие ↔ смена статуса» — по ближайшему времени (обе записи пишутся одной транзакцией, разница — миллисекунды),
+  // каждая смена — только одному действию: сдали и тут же приняли в ту же минуту — у каждого действия своя смена.
+  const statuses = out.filter((e) => e.kind === "status");
+  const used = new Set<TrackerEvent>();
+  const pair = new Map<TrackerEvent, TrackerEvent>();
+  for (const w of out) {
+    if (w.kind !== "workflow") continue;
+    const t = Date.parse(w.at);
+    let best: TrackerEvent | null = null;
+    for (const s of statuses) {
+      if (s.itemId !== w.itemId || used.has(s)) continue;
+      const d = Math.abs(Date.parse(s.at) - t);
+      if (d <= PAIR_MS && (!best || d < Math.abs(Date.parse(best.at) - t))) best = s;
+    }
+    if (best) {
+      used.add(best);
+      pair.set(w, best);
+    }
+  }
   const seen = new Set<string>();
-  return out.map((e) => (e.kind === "workflow" && moved.has(minute(e)) ? { ...e, before: moved.get(minute(e))!.before, after: moved.get(minute(e))!.after } : e)).filter((e) => {
-    if (e.kind === "status" && wf.has(minute(e))) return false;
+  return out.map((e) => (pair.has(e) ? { ...e, before: pair.get(e)!.before, after: pair.get(e)!.after } : e)).filter((e) => {
+    if (used.has(e)) return false;
     const k = `${e.itemId}|${e.kind}|${e.at.slice(0, 16)}|${e.kind === "status" || e.kind === "deadline" || e.kind === "owner" || e.kind === "memo" || e.kind === "workflow" ? e.text : ""}`;
     if (seen.has(k)) return false;
     seen.add(k);

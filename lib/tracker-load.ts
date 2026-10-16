@@ -50,7 +50,7 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
     loadTableRows("active", directorateId),
     getDicts(),
     prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, color: true, trackerColumn: true } }),
-    prisma.memoVersion.findMany({ where: { directorateId }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true } }),
+    prisma.memoVersion.findMany({ where: { directorateId }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true, revision: true } }),
   ]);
   const ids = rows.map((r) => r.id);
   const audit = ids.length
@@ -64,6 +64,7 @@ export async function loadTracker(directorateId: string): Promise<TrackerData> {
   const memos: MemoSent[] = versions.map((v) => ({
     at: v.sentAt,
     title: v.title,
+    revision: v.revision,
     itemIds: (Array.isArray(v.sources) ? (v.sources as Array<{ id?: string }>) : []).map((s) => s.id ?? "").filter((id) => known.has(id)),
   }));
   const events = buildEvents(

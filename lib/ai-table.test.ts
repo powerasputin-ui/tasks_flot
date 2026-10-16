@@ -159,6 +159,7 @@ describe("«что горит»: сигналы по правилу програ
     const by = (t: string) => s.find((x) => x.item.title.startsWith(t))?.reasons.join("; ");
     expect(s[0].item.title).toMatch(/^Hai Qiang/); // просрочка — первой
     expect(by("Hai Qiang")).toContain("Просрочка: просрочено на 2 дн. → согласовать новый срок с причиной или закрыть");
+    expect(s.find((x) => x.item.title.startsWith("Hai Qiang"))?.kinds).not.toContain("soon"); // просроченная — не «скоро срок»
     expect(by("В БКК")).toContain("Скоро срок: срок через 2 дн.");
     expect(by("Ожидаем расчёты")).toContain("Нет данных: в тексте «ожидаем», а задача не на стопе → если ждём — «Поставить на стоп» с датой");
     expect(by("ШК типов")).toContain("Нет данных: нет срока → заполнить в карточке");

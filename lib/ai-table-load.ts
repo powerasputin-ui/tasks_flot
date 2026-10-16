@@ -88,7 +88,7 @@ async function attachMotion(items: FactItem[], rows: Array<{ id: string; statusI
       orderBy: { timestamp: "asc" },
       select: { entityId: true, action: true, fieldName: true, before: true, after: true, timestamp: true, actor: { select: { name: true } } },
     }),
-    prisma.memoVersion.findMany({ where: { directorateId: dir }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true } }),
+    prisma.memoVersion.findMany({ where: { directorateId: dir }, orderBy: { sentAt: "asc" }, select: { title: true, sentAt: true, sources: true, revision: true } }),
     prisma.zgdRequest.findMany({ where: { itemId: { in: ids }, answeredAt: null }, select: { itemId: true, dueAt: true } }),
     prisma.deadlineRequest.findMany({ where: { itemId: { in: ids }, decision: null }, select: { itemId: true, newDeadline: true, reason: true } }),
   ]);
@@ -96,7 +96,7 @@ async function attachMotion(items: FactItem[], rows: Array<{ id: string; statusI
   const names = new Map(named.map((x) => [x.id, x.name]));
   const events = buildEvents(
     audit.map((a) => ({ ...a, who: a.actor?.name ?? null })),
-    versions.map((v) => ({ at: v.sentAt, title: v.title, itemIds: (Array.isArray(v.sources) ? (v.sources as Array<{ id?: string }>) : []).map((x) => x.id ?? "").filter((id) => known.has(id)) })),
+    versions.map((v) => ({ at: v.sentAt, title: v.title, revision: v.revision, itemIds: (Array.isArray(v.sources) ? (v.sources as Array<{ id?: string }>) : []).map((x) => x.id ?? "").filter((id) => known.has(id)) })),
     { status: names, user: names },
   );
   const byItem = new Map<string, TrackerEvent[]>();

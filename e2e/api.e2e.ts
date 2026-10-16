@@ -2599,3 +2599,174 @@ describe("ЗГД в трекере: только подтверждённое д
     expect((await tr(director, { action: "accept" })).status).toBe(200);
   });
 });
+
+describe("сквозной сценарий: руководитель → справка ЗГД → трекер ЗГД → решения директора → возврат → ред. 2", () => {
+  // своя дирекция и люди — сценарий не зависит от остальных проверок и не мешает им
+  let dirF = "";
+  let dF: Actor;
+  let hF: Actor;
+  let zF: Actor;
+  let cycleId = "";
+  let a = "";
+  let b = "";
+  let v1 = "";
+  type ZRow = { id: string; name: string; comment: string | null; deadline: string | null; ownerName: string | null; statusName: string | null; confirmedBy: string; inMemo?: boolean; zgdControl: boolean; openRequest?: boolean; review?: { decision: string | null } | null };
+  const zgdData = async () => (await call(zF, tracker.GET, "/api/tracker")).data as { rows: ZRow[]; events: Array<{ itemId: string; text: string }> };
+  const zRow = async (id: string) => (await zgdData()).rows.find((r) => r.id === id);
+  const live = async (id: string) => ((await call(dF, tracker.GET, "/api/tracker")).data.rows as Array<ZRow & { updatedAt: string; publishedAt: string | null }>).find((r) => r.id === id)!;
+  const inbox = (u: Actor, type: string, contains?: string) => prisma.notification.count({ where: { userId: u.id, type: type as never, ...(contains ? { message: { contains } } : {}) } });
+  const ver = async (id: string) => (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+  const patchF = async (who: Actor, id: string, body: Record<string, unknown>) => call(who, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: await ver(id), ...body } });
+  const trF = async (who: Actor, id: string, body: Record<string, unknown>) => call(who, transition.POST, `/api/items/${id}/transition`, { method: "POST", id, body: { version: await ver(id), ...body } });
+
+  beforeAll(async () => {
+    dirF = (await prisma.directorate.create({ data: { name: `${TAG} Сквозная дирекция`, shortName: "Сквозная" } })).id;
+    const mk = async (key: string, name: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE", directorateId: string | null): Promise<Actor> => {
+      const u = await prisma.user.create({ data: { name: `${TAG} ${name}`, email: `${TAG}.flow-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+      testUserIds.push(u.id);
+      return { id: u.id, name: u.name, role, directorateId };
+    };
+    dF = await mk("dir", "Директор", "DIRECTOR", dirF);
+    hF = await mk("head", "Руководитель", "HEAD", dirF);
+    zF = await mk("zgd", "ЗГД", "EXECUTIVE", null);
+    invalidateDicts();
+  });
+
+  afterAll(async () => {
+    if (!dirF) return;
+    const ids = (await prisma.operationalItem.findMany({ where: { directorateId: dirF }, select: { id: true } })).map((i) => i.id);
+    const people = [dF?.id, hF?.id, zF?.id].filter(Boolean) as string[];
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: { in: ids } }, { actorId: { in: people } }] } });
+    await prisma.itemNote.deleteMany({ where: { itemId: { in: ids } } });
+    await prisma.notification.deleteMany({ where: { OR: [{ userId: { in: people } }, { link: { contains: dirF } }, ...ids.map((i) => ({ link: { contains: i } }))] } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: dirF } });
+    await prisma.cycle.deleteMany({ where: { directorateId: dirF } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: dirF } });
+  });
+
+  it("руководитель заводит и подаёт две задачи: трекер директора их видит, ЗГД — ещё нет", async () => {
+    const ca = await call(hF, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} Сквозная А`, comment: "Исходный текст А", deadline: "2026-11-20", operFlag: true } });
+    const cb = await call(hF, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} Сквозная Б`, comment: "Исходный текст Б", operFlag: true } });
+    expect([ca.status, cb.status]).toEqual([201, 201]);
+    a = ca.data.row.id;
+    b = cb.data.row.id;
+    expect((await live(a)).publishedAt).toBeNull(); // у директора — «не подтверждено для ЗГД»
+    expect(await zRow(a)).toBeUndefined();
+  });
+
+  it("оперативка: сборка → справка из поданного → отправка: версия, уведомление ЗГД, подтверждение задач, подача сброшена", async () => {
+    const start = await call(dF, cycles.POST, "/api/cycles", { method: "POST", body: { deadline: new Date(Date.now() + 5 * 864e5).toISOString() } });
+    expect(start.status).toBe(201);
+    cycleId = start.data.id;
+    expect((await call(dF, cycleReview.POST, `/api/cycles/${cycleId}/review`, { method: "POST", id: cycleId })).status).toBe(200);
+    const m = await call(dF, memo.GET, `/api/cycles/${cycleId}/memo`, { id: cycleId });
+    const used = (m.data.doc.sections as Array<{ bullets: Array<{ itemIds: string[]; text: string }> }>).flatMap((s) => s.bullets);
+    expect(used.flatMap((x) => x.itemIds).sort()).toEqual([a, b].sort());
+    expect(used.map((x) => x.text)).toEqual(expect.arrayContaining(["Исходный текст А", "Исходный текст Б"]));
+    // руководитель на сборке поданное не меняет
+    expect((await patchF(hF, a, { comment: "поздняя правка" })).status).toBe(409);
+    const fin = await call(dF, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId, body: { note: "Для ОС" } });
+    expect(fin.status).toBe(200);
+    expect(fin.data.count).toBe(2);
+    v1 = (await prisma.memoVersion.findFirstOrThrow({ where: { cycleId } })).id;
+    expect(await inbox(zF, "MEMO_SENT")).toBe(1);
+    expect(await prisma.itemPublication.count({ where: { itemId: { in: [a, b] }, reason: "отправлена справка" } })).toBe(2);
+    expect((await prisma.operationalItem.findMany({ where: { id: { in: [a, b] } } })).every((i) => !i.operFlag)).toBe(true);
+    expect((await live(a)).publishedAt).not.toBeNull();
+  });
+
+  it("ЗГД читает ровно то, что ушло: справка, таблица на момент отправки и трекер совпадают с данными директора", async () => {
+    const list = await call(zF, archive.GET, "/api/memo-archive");
+    const row = list.data.versions.find((x: { id: string }) => x.id === v1);
+    expect(row).toMatchObject({ revision: 1, bullets: 2, returned: false });
+    const one = await call(zF, archiveOne.GET, `/api/memo-archive/${v1}`, { id: v1 });
+    expect(one.data.version.canReturn).toBe(true);
+    expect(JSON.stringify(one.data.version.doc)).toContain("Исходный текст А");
+    const table = await call(zF, archiveTable.GET, `/api/memo-archive/${v1}/table`, { id: v1 });
+    const ta = table.data.rows.find((r: { id: string }) => r.id === a);
+    expect(ta).toMatchObject({ name: `${TAG} Сквозная А`, comment: "Исходный текст А", ownerName: hF.name });
+    const za = (await zRow(a))!;
+    const la = await live(a);
+    expect(za).toMatchObject({ name: la.name, comment: la.comment, ownerName: la.ownerName, statusName: la.statusName, inMemo: true });
+    expect(za.deadline?.slice(0, 10)).toBe("2026-11-20");
+    expect(za.confirmedBy).toMatch(/справка от/);
+  });
+
+  it("после отправки: черновик руководителя ЗГД не видит; сдал → заморожено → директор принял → ЗГД видит только решение", async () => {
+    expect((await patchF(hF, a, { comment: "Черновик после справки" })).status).toBe(200);
+    expect((await zRow(a))!.comment).toBe("Исходный текст А");
+    expect((await trF(hF, a, { action: "submit", result: "Отчёт готов, в документах" })).status).toBe(200);
+    expect(await inbox(dF, "REVIEW_SUBMITTED")).toBe(1);
+    expect((await patchF(hF, a, { comment: "ещё правка" })).status).toBe(409); // на проверке — до решения директора
+    expect((await zRow(a))!.statusName).not.toBe("На проверке"); // сдача руководителя — не решение директора
+    expect((await trF(dF, a, { action: "accept" })).status).toBe(200);
+    expect(await inbox(hF, "REVIEW_DECIDED")).toBe(1);
+    const za = (await zRow(a))!;
+    expect(za.statusName).toBe("Завершено");
+    expect(za.review?.decision).toBe("ACCEPTED");
+    expect(za.comment).toBe("Исходный текст А"); // черновик руководителя не ушёл вместе с решением
+    expect((await zgdData()).events.filter((e) => e.itemId === a).map((e) => e.text)).toEqual(expect.arrayContaining([expect.stringMatching(/^принял\(а\) задачу/)]));
+    const la = await live(a);
+    expect(new Date(la.updatedAt).getTime()).toBeGreaterThan(new Date(la.publishedAt!).getTime()); // у директора правка ждёт подтверждения
+  });
+
+  it("ЗГД: контроль и запрос по Б → директору сигнал и уведомление → ответ уходит ЗГД", async () => {
+    expect((await call(zF, zgd.POST, "/api/zgd", { method: "POST", body: { action: "control", itemId: b, on: true } })).status).toBe(200);
+    expect((await call(zF, zgd.POST, "/api/zgd", { method: "POST", body: { action: "request", itemId: b, text: "Когда будет результат?" } })).status).toBe(200);
+    expect(await inbox(dF, "ZGD_REQUEST")).toBe(1);
+    expect((await call(dF, tracker.GET, "/api/tracker")).data.hot[b]?.kinds ?? []).toContain("request");
+    expect((await zRow(b))!.openRequest).toBe(true);
+    const rq = await prisma.zgdRequest.findFirstOrThrow({ where: { itemId: b, answeredAt: null } });
+    expect((await call(dF, zgd.POST, "/api/zgd", { method: "POST", body: { action: "answer", requestId: rq.id, answer: "Результат к 05.12" } })).status).toBe(200);
+    expect(await inbox(zF, "ZGD_ANSWER")).toBe(1);
+    const zb = (await zRow(b))!;
+    expect(zb.openRequest).toBe(false);
+    expect(zb.zgdControl).toBe(true);
+    expect(zb.confirmedBy).toMatch(/ответил\(а\) на запрос/);
+  });
+
+  it("ЗГД возвращает справку: оперативка снова на сборке (ред. 2), поданное восстановлено, директору — уведомление", async () => {
+    expect((await call(zF, archiveReturn.POST, `/api/memo-archive/${v1}/return`, { method: "POST", id: v1, body: { comment: "Уточните срок по Б" } })).status).toBe(200);
+    const cyc = await prisma.cycle.findUniqueOrThrow({ where: { id: cycleId } });
+    expect(cyc).toMatchObject({ status: "IN_REVIEW", revision: 2 });
+    expect((await prisma.operationalItem.findMany({ where: { id: { in: [a, b] } } })).every((i) => i.operFlag)).toBe(true);
+    expect(await inbox(dF, "MEMO_RETURNED")).toBe(1);
+    const one = await call(zF, archiveOne.GET, `/api/memo-archive/${v1}`, { id: v1 });
+    expect(one.data.version.returnedAt).not.toBeNull();
+    expect(one.data.version.canReturn).toBe(false);
+    expect((await patchF(hF, b, { comment: "правка" })).status).toBe(409); // сборка — поданное заморожено
+  });
+
+  it("директор возвращает Б руководителю без замечания → правка и подача → повторная отправка: ред. 2 у ЗГД", async () => {
+    const back = await call(dF, ret.POST, `/api/items/${b}/return`, { method: "POST", id: b, body: { comment: "" } });
+    expect(back.status).toBe(200);
+    expect(back.data.row.operFlag).toBe(false);
+    expect((await patchF(hF, b, { comment: "Уточнённый текст Б", deadline: "2026-12-05" })).status).toBe(200);
+    expect((await patchF(hF, b, { operFlag: true })).status).toBe(200);
+    expect((await call(dF, memoRefresh.POST, `/api/cycles/${cycleId}/memo/refresh`, { method: "POST", id: cycleId })).status).toBe(200);
+    const fin = await call(dF, cycleFinalize.POST, `/api/cycles/${cycleId}/finalize`, { method: "POST", id: cycleId });
+    expect(fin.status).toBe(200);
+    expect(await inbox(zF, "MEMO_SENT", "ред. 2")).toBe(1);
+    const list = await call(zF, archive.GET, "/api/memo-archive");
+    const ours = new Set((await prisma.memoVersion.findMany({ where: { cycleId }, select: { id: true } })).map((x) => x.id));
+    const mine = list.data.versions.filter((x: { id: string }) => ours.has(x.id));
+    expect(mine).toHaveLength(1); // одна строка на оперативку — последняя ревизия
+    expect(mine[0]).toMatchObject({ revision: 2, revisions: 2 });
+    const zb = (await zRow(b))!;
+    expect(zb).toMatchObject({ comment: "Уточнённый текст Б", zgdControl: true });
+    expect(zb.deadline?.slice(0, 10)).toBe("2026-12-05");
+    // справка подтверждает всё: теперь и правка А, сделанная после первой отправки
+    expect((await zRow(a))!.comment).toBe("Черновик после справки");
+    const la = await live(a);
+    expect(new Date(la.updatedAt).getTime()).toBeLessThanOrEqual(new Date(la.publishedAt!).getTime());
+  });
+
+  it("история у директора: создание, сдача и приёмка (смена статуса — в самом действии), вхождение в обе справки", async () => {
+    const ev = ((await call(dF, tracker.GET, "/api/tracker")).data.events as Array<{ itemId: string; kind: string; text: string; before?: string; after?: string }>).filter((e) => e.itemId === a);
+    expect(ev.map((e) => e.kind)).toEqual(expect.arrayContaining(["created", "workflow", "memo"]));
+    expect(ev.find((e) => e.kind === "workflow" && e.text.startsWith("сдана"))).toMatchObject({ after: "На проверке" });
+    expect(ev.filter((e) => e.kind === "memo").length).toBe(2); // ред. 1 и ред. 2
+    expect(ev.some((e) => e.kind === "status" && e.text.includes("На проверке"))).toBe(false); // без повтора строки статуса
+  });
+});

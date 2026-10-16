@@ -265,7 +265,8 @@ export function signals(items: FactItem[], today: number): Signal[] {
     // исходное обязательство сорвано, хотя текущий срок ещё не прошёл (его перенесли)
     else if (i.originalDeadline && dayOf(i.originalDeadline) < today && i.deadline && dayOf(i.deadline) > dayOf(i.originalDeadline)) add("slipped", `исходный срок ${ru(i.originalDeadline)} нарушен, текущий — ${ru(i.deadline)}`, "держать на контроле: второй перенос — повод вмешаться", 2);
     if (pend) add("deadlineRequest", `просят перенести на ${ru(pend.newDeadline)}: ${pend.reason.slice(0, 120)}`, "директору согласовать или отклонить", 2);
-    else if (days !== null && days <= 3 && !review) add("soon", days === 0 ? "срок сегодня" : `срок через ${days} дн.${origMissed}`, "проверить готовность у ответственного", 3);
+    // «скоро» — только до срока (сегодня и вперёд); просроченная — уже «просрочка», а не «скоро срок»
+    else if (days !== null && days >= 0 && days <= 3 && !review) add("soon", days === 0 ? "срок сегодня" : `срок через ${days} дн.${origMissed}`, "проверить готовность у ответственного", 3);
     if (i.blockedBy) {
       const late = i.blockedUntil && dayOf(i.blockedUntil) < today;
       add("blocker", `ждём ${i.blockedBy}${i.blockedUntil ? `${late ? ", ожидали к " : " до "}${ru(i.blockedUntil)}` : ", дата не указана"}`, late || !i.blockedUntil ? "поднять вопрос выше / уточнить дату" : "следить за датой", late ? 3 : 2);
