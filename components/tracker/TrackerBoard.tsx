@@ -235,7 +235,7 @@ function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, de
       onDragEnd={onDragEnd}
       onClick={() => onOpen(r)}
       onContextMenu={(e) => onMenu?.(r, e)}
-      onKeyDown={(e) => e.key === "Enter" && onOpen(r)}
+      onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && onOpen(r)}
       tabIndex={0}
       role="button"
       aria-label={`Задача: ${r.name}`}

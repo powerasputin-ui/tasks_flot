@@ -148,6 +148,10 @@ export function ChatDock({ meId }: { meId: string }) {
               }
             } else setOpen((o) => !o);
           }}
+          onClick={(e) => {
+            // щелчок мышью и касание обрабатывает pointerup (там же перетаскивание); сюда доходит только клавиатура
+            if (e.detail === 0) setOpen((o) => !o);
+          }}
           onDoubleClick={() => {
             // двойной щелчок — вернуть на место по умолчанию (над Оперативщиком или в угол)
             setSaved(null);

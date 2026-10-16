@@ -6,7 +6,7 @@ import { ArrowLeft, Check, Paperclip, Send, Users, X } from "lucide-react";
 import { api, GroupAvatar, hm, postJson, sub } from "@/components/chat/shared";
 import { Members } from "@/components/chat/Members";
 import { PersonAvatar, personColor } from "@/components/ui/Person";
-import { CHAT_MAX_ITEMS, CHAT_MAX_TEXT, mentionsIn } from "@/lib/chat-rules";
+import { CHAT_MAX_ITEMS, CHAT_MAX_MENTIONS, CHAT_MAX_TEXT, mentionsIn } from "@/lib/chat-rules";
 import type { ChatMessageView, ChatPersonView, ChatThreadDetail } from "@/lib/chat-server";
 
 type Picked = { id: string; title: string };
@@ -48,12 +48,13 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const last = useRef<string | null>(null);
   const reload = useRef<() => void>(() => {});
+  const seen = useRef<Set<string>>(new Set());
 
   const merge = useCallback((incoming: ChatMessageView[], replace: boolean) => {
     setMessages((cur) => {
       const base = replace ? [] : cur;
       const seen = new Set(base.map((m) => m.id));
-      return [...base, ...incoming.filter((m) => !seen.has(m.id))];
+      return [...base, ...incoming.filter((m) => !seen.has(m.id))].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1));
     });
   }, []);
 
@@ -71,12 +72,14 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
         return;
       }
       setDetail(r.data);
+      const fresh = r.data.messages.some((m) => !seen.current.has(m.id));
+      for (const m of r.data.messages) seen.current.add(m.id);
       merge(r.data.messages, first || !last.current);
       const lastMsg = r.data.messages.at(-1);
       if (lastMsg) last.current = lastMsg.createdAt;
-      if (r.data.messages.length) {
-        const list = await api<{ unreadTotal: number }>("/api/chat");
-        if (!stop && list.ok) onUnread(list.data.unreadTotal);
+      if (fresh || first) {
+        const u = await api<{ unread: number }>("/api/chat/unread");
+        if (!stop && u.ok) onUnread(u.data.unread);
       }
     };
     reload.current = () => {
@@ -113,11 +116,12 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
     return () => clearTimeout(t);
   }, [picker, itemQuery]);
 
-  const kind = detail?.kind ?? (other ? "DIRECT" : "GROUP");
+  const peer = other ?? detail?.other ?? null;
+  const kind = detail?.kind ?? (peer ? "DIRECT" : "GROUP");
   const group = kind !== "DIRECT";
   // кого можно упомянуть: участники группы или собеседник
-  const people: Array<{ id: string; name: string }> = group ? (detail?.members ?? []).filter((m) => m.id !== meId && m.isActive) : other ? [other] : [];
-  const nameOf = (id: string) => (id === meId ? "Вы" : detail?.members.find((m) => m.id === id)?.name ?? (other?.id === id ? other.name : "участник"));
+  const people: Array<{ id: string; name: string }> = group ? (detail?.members ?? []).filter((m) => m.id !== meId && m.isActive) : peer ? [peer] : [];
+  const nameOf = (id: string) => (id === meId ? "Вы" : detail?.members.find((m) => m.id === id)?.name ?? (peer?.id === id ? peer.name : "участник"));
   const mq = /@([^\s@]*)$/.exec(text);
   const suggestions = mq ? people.filter((p) => p.name.toLowerCase().includes(mq[1].toLowerCase())).slice(0, 5) : [];
 
@@ -125,16 +129,16 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
     if (busy || !text.trim()) return;
     setBusy(true);
     setError(null);
-    const mentionIds = mentionsIn(text, people);
+    const mentionIds = mentionsIn(text, people).slice(0, CHAT_MAX_MENTIONS);
     const base = { text, itemIds: items.map((i) => i.id), mentionIds };
-    const r = await postJson<{ threadId: string; message: ChatMessageView }>("/api/chat", threadId ? { threadId, ...base } : { toUserId: other!.id, ...base });
+    const r = await postJson<{ threadId: string; message: ChatMessageView }>("/api/chat", threadId ? { threadId, ...base } : { toUserId: peer!.id, ...base });
     setBusy(false);
     if (!r.ok) return setError(r.message);
     setText("");
     setItems([]);
     setPicker(false);
     merge([r.data.message], false);
-    last.current = r.data.message.createdAt;
+    seen.current.add(r.data.message.id);
     if (!threadId) setThreadId(r.data.threadId);
   }
 
@@ -146,7 +150,7 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
   }
 
   const canPost = threadId ? detail?.canPost ?? false : true;
-  const title = detail?.title ?? other?.name ?? "Чат";
+  const title = detail?.title ?? peer?.name ?? "Чат";
   const card = detail?.taskCard;
 
   return (
@@ -155,10 +159,10 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
         <button onClick={onBack} aria-label="К списку диалогов" className="btn-icon h-7 w-7">
           <ArrowLeft size={16} />
         </button>
-        {group ? <GroupAvatar title={title} size={30} /> : other && <PersonAvatar name={other.name} size={30} />}
+        {group ? <GroupAvatar title={title} size={30} /> : peer && <PersonAvatar name={peer.name} size={30} />}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-bold text-on-surface">{title}</div>
-          <div className="truncate text-[11px] text-on-surface-variant">{group ? `${kind === "TASK" ? "Обсуждение задачи · " : ""}${detail?.members.length ?? "…"} участн.` : other ? sub(other) : ""}</div>
+          <div className="truncate text-[11px] text-on-surface-variant">{group ? `${kind === "TASK" ? "Обсуждение задачи · " : ""}${detail?.members.length ?? "…"} участн.` : peer ? sub(peer) : ""}</div>
         </div>
         {group && detail && (
           <button onClick={() => setShowMembers(true)} aria-label="Участники" title="Участники" className="btn-icon h-7 w-7">
@@ -191,7 +195,7 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-surface-low/40 p-3">
         {threadId && !detail && !error && <div className="skeleton h-10 w-2/3 rounded-lg" />}
-        {!threadId && other && <p className="py-6 text-center text-[12px] text-on-surface-variant">Диалога ещё нет. Напишите первое сообщение — {other.name} увидит его в чате.</p>}
+        {!threadId && peer && <p className="py-6 text-center text-[12px] text-on-surface-variant">Диалога ещё нет. Напишите первое сообщение — {peer.name} увидит его в чате.</p>}
         {messages.map((m) => {
           if (m.kind === "SYSTEM") return <p key={m.id} className="py-0.5 text-center text-[11px] text-outline">{m.text}</p>;
           const mine = m.authorId === meId;
@@ -278,7 +282,7 @@ export function Thread({ meId, threadId: initialId, other, onUnread, onBack, onC
             </div>
           )}
           <div className="flex items-end gap-1.5">
-            {other?.role !== "EXECUTIVE" && (
+            {peer?.role !== "EXECUTIVE" && (
               <button onClick={() => setPicker((p) => !p)} aria-label="Прикрепить задачу" title="Прикрепить задачу (до 3)" className="btn-icon h-8 w-8 shrink-0">
                 <Paperclip size={16} />
               </button>

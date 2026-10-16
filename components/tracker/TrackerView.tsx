@@ -539,7 +539,7 @@ export function TrackerView() {
 
       {data && rows.length > 0 && view === "list" && <TrackerList today={today} rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
       {data && rows.length > 0 && view === "board" && (
-        <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} today={today} doneAt={(r) => new Date(closedAtOf(byItem.get(r.id) ?? [], r.updatedAt)).toISOString()} onQuickAdd={!sent && !deleted && !preview && me && canCreateItem(me.role as never) ? quickAdd : undefined} />
+        <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={filters.col ? boardColumns.filter((c) => c.key === filters.col) : boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} today={today} doneAt={(r) => new Date(closedAtOf(byItem.get(r.id) ?? [], r.updatedAt)).toISOString()} onQuickAdd={!sent && !deleted && !preview && me && canCreateItem(me.role as never) ? quickAdd : undefined} />
       )}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} />}
 
@@ -720,7 +720,7 @@ export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cance
 /** Срок: чип по близости (красный — просрочено, янтарный — ≤ 3 дн.) или «принято дд.мм» у выполненных. */
 export function Deadline({ row, col, today, closedAt, chip = false }: { row: TRow; col: TrackerColumnKey; today: number; closedAt?: string | null; chip?: boolean }) {
   const c = deadlineChip(row.deadline, today, { overdue: overdue(row, col), column: col, closedAt });
-  if (!chip) return <span className={c.tone === "red" ? "font-semibold text-status-red" : c.tone === "none" ? "text-outline" : "text-on-surface-variant"} title={c.title}>{c.tone === "red" ? c.text : row.deadline ? `до ${ruDay(row.deadline)}` : c.text}</span>;
+  if (!chip) return <span className={c.tone === "red" ? "font-semibold text-status-red" : c.tone === "none" ? "text-outline" : "text-on-surface-variant"} title={c.tone === "red" ? c.text : c.title}>{row.deadline ? `до ${ruDay(row.deadline)}` : c.text}</span>;
   const tone = { red: "bg-status-red/10 text-status-red", amber: "bg-status-amber/15 text-[#b45309]", green: "bg-status-emerald/10 text-status-emerald", grey: "bg-surface-high text-on-surface-variant", none: "text-outline" }[c.tone];
   return <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${tone}`} title={c.title}>{c.tone === "red" && <Flame size={11} />}{c.tone === "green" && <Check size={11} />}{c.text}</span>;
 }

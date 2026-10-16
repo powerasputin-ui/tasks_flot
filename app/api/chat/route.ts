@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireActor } from "@/lib/session";
 import { withApiErrors } from "@/lib/api-guard";
 import { burstLimited, enforceRateLimit } from "@/lib/rate-limit";
-import { CHAT_MAX_ITEMS, CHAT_MAX_TEXT, GROUP_MAX_MEMBERS } from "@/lib/chat-rules";
+import { CHAT_MAX_ITEMS, CHAT_MAX_MENTIONS, CHAT_MAX_TEXT } from "@/lib/chat-rules";
 import { listThreads, sendMessage } from "@/lib/chat-server";
 
 // Чат недоступен в режиме «Посмотреть как»: переписка личная, админ её чужими глазами не читает.
@@ -23,7 +23,7 @@ const sendSchema = z
     threadId: z.string().min(1).max(60).optional(),
     text: z.string().max(CHAT_MAX_TEXT + 500),
     itemIds: z.array(z.string().max(60)).max(CHAT_MAX_ITEMS).optional(),
-    mentionIds: z.array(z.string().max(60)).max(GROUP_MAX_MEMBERS).optional(),
+    mentionIds: z.array(z.string().max(60)).max(CHAT_MAX_MENTIONS).optional(),
   })
   .refine((v) => !!v.toUserId !== !!v.threadId, { message: "Нужен один адресат: человек или диалог" });
 

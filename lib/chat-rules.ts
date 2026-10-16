@@ -60,6 +60,8 @@ export const GROUP_MAX_MEMBERS = 50;
 export const GROUP_MAX_PER_USER = 100;
 export const GROUP_TITLE_MAX = 80;
 export const CHAT_MAX_ITEMS = 3;
+/** Упоминаний в одном сообщении: каждое — уведомление в колокольчик. */
+export const CHAT_MAX_MENTIONS = 10;
 
 /**
  * Можно ли adder добавить target в группу (и включить при создании): тех, кому adder и так вправе писать первым.

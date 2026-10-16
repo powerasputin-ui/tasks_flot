@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications";
-import { canAddToChat, canDiscussItem, canPostInChat, CHAT_MAX_ITEMS, CHAT_MAX_TEXT, CHAT_RETENTION_DAYS, chatBlockReason, GROUP_MAX_MEMBERS, GROUP_MAX_PER_USER, GROUP_TITLE_MAX, nextOwner, pairOf, type ChatPerson } from "@/lib/chat-rules";
+import { canAddToChat, canDiscussItem, canPostInChat, CHAT_MAX_ITEMS, CHAT_MAX_MENTIONS, CHAT_MAX_TEXT, CHAT_RETENTION_DAYS, chatBlockReason, GROUP_MAX_MEMBERS, GROUP_MAX_PER_USER, GROUP_TITLE_MAX, nextOwner, pairOf, type ChatPerson } from "@/lib/chat-rules";
 
 /** Чат: личные диалоги, группы и чат по задаче. Запросы к базе; права — lib/chat-rules.ts (те же функции проверяют каждое действие). */
 export type ChatResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; message: string };
@@ -173,7 +173,12 @@ export async function getThread(actorId: string, threadId: string, opts: { since
   const rows = opts.since
     ? await prisma.chatMessage.findMany({ where: { threadId, createdAt: { gte: opts.since } }, orderBy: { createdAt: "asc" }, take: 200 })
     : (await prisma.chatMessage.findMany({ where: { threadId }, orderBy: { createdAt: "desc" }, take: 100 })).reverse();
-  if (opts.markRead) await prisma.chatRead.upsert({ where: { threadId_userId: { threadId, userId: actorId } }, create: { threadId, userId: actorId }, update: { lastReadAt: new Date() } });
+  if (opts.markRead) {
+    const read = await prisma.chatRead.findUnique({ where: { threadId_userId: { threadId, userId: actorId } } });
+    const newest = rows.at(-1)?.createdAt;
+    if (!read) await prisma.chatRead.create({ data: { threadId, userId: actorId } });
+    else if (newest && newest > read.lastReadAt) await prisma.chatRead.update({ where: { threadId_userId: { threadId, userId: actorId } }, data: { lastReadAt: new Date() } });
+  }
   const state = { zgdSpoke: t.zgdSpoke, closed: !!t.closedAt };
   const direct = kind === "DIRECT" && other;
   const canPost = me.isActive !== false && (direct ? canPostInChat(me, other, state) : true);
@@ -251,7 +256,7 @@ export async function sendMessage(actorId: string, input: SendInput): Promise<Ch
     const found = me.role === "EXECUTIVE" ? new Map() : await resolveItems(me, itemIds);
     if (itemIds.some((i) => !found.get(i))) return fail(400, "Одна из задач недоступна для прикрепления.");
   }
-  const mentionIds = [...new Set(input.mentionIds ?? [])].filter((id) => id !== actorId && memberIds.includes(id));
+  const mentionIds = [...new Set(input.mentionIds ?? [])].filter((id) => id !== actorId && memberIds.includes(id)).slice(0, CHAT_MAX_MENTIONS);
   const zgdWrites = me.role === "EXECUTIVE" && !!direct;
 
   const { thread, message } = await prisma.$transaction(async (tx) => {
@@ -329,6 +334,7 @@ export async function openTaskChat(actorId: string, itemId: string): Promise<Cha
     if (!m) {
       await prisma.$transaction(async (tx) => {
         await tx.chatMember.create({ data: { threadId: found.id, userId: actorId, addedById: actorId } });
+        await tx.chatRead.upsert({ where: { threadId_userId: { threadId: found.id, userId: actorId } }, create: { threadId: found.id, userId: actorId }, update: {} });
         await addSystem(tx, found.id, actorId, `${me.name} присоединился(ась) к обсуждению`);
       });
     }
@@ -397,6 +403,7 @@ export async function manageGroup(actorId: string, threadId: string, a: GroupAct
     if (list.some((p) => !p || !canAddToChat(me, p))) return fail(403, "Одного из выбранных людей вам добавлять нельзя.");
     await prisma.$transaction(async (tx) => {
       await tx.chatMember.createMany({ data: ids.map((id) => ({ threadId, userId: id, addedById: actorId })), skipDuplicates: true });
+      await tx.chatRead.createMany({ data: ids.map((id) => ({ threadId, userId: id })), skipDuplicates: true });
       await addSystem(tx, threadId, actorId, `${me.name} добавил(а): ${names(list as PersonRow[])}`);
     });
     return { ok: true, data: {} };
