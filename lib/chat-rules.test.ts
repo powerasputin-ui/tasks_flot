@@ -55,3 +55,41 @@ describe("правила чата", () => {
     expect(pairOf("a", "b")).toEqual({ userAId: "a", userBId: "b" });
   });
 });
+
+import { canAddToChat, canDiscussItem, mentionsIn, nextOwner } from "@/lib/chat-rules";
+
+describe("группы и чат по задаче", () => {
+  it("добавлять в группу можно тех, кому вправе писать первым; ЗГД и админ — любых", () => {
+    expect(canAddToChat(head, head2)).toBe(true);
+    expect(canAddToChat(head, otherHead)).toBe(false);
+    expect(canAddToChat(head, zgd)).toBe(false);
+    expect(canAddToChat(dir, zgd)).toBe(true);
+    expect(canAddToChat(dir, otherHead)).toBe(false);
+    expect(canAddToChat(zgd, otherHead)).toBe(true);
+    expect(canAddToChat(admin, otherDir)).toBe(true);
+    expect(canAddToChat(head, sys)).toBe(false);
+  });
+  it("владение переходит самому давнему действующему участнику", () => {
+    const m = [
+      { userId: "a", joinedAt: "2026-01-01" },
+      { userId: "b", joinedAt: "2026-01-02", isActive: false },
+      { userId: "c", joinedAt: "2026-01-03" },
+    ];
+    expect(nextOwner(m, "a")).toBe("c");
+    expect(nextOwner(m.slice(0, 2), "a")).toBeNull();
+  });
+  it("чат по задаче: директор своей дирекции, админ, ответственный; не чужой руководитель и не ЗГД", () => {
+    const item = { directorateId: "d1", responsibleId: "head" };
+    expect(canDiscussItem(dir, item)).toBe(true);
+    expect(canDiscussItem(admin, item)).toBe(true);
+    expect(canDiscussItem(head, item)).toBe(true);
+    expect(canDiscussItem(head2, item)).toBe(false);
+    expect(canDiscussItem(otherDir, item)).toBe(false);
+    expect(canDiscussItem(zgd, item)).toBe(false);
+  });
+  it("упоминания: только участники, чьё имя набрано с «@»", () => {
+    const members = [{ id: "1", name: "Иванов И.И." }, { id: "2", name: "Петров П.П." }];
+    expect(mentionsIn("@Иванов И.И., посмотрите", members)).toEqual(["1"]);
+    expect(mentionsIn("Иванов без собаки", members)).toEqual([]);
+  });
+});

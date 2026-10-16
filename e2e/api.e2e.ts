@@ -63,6 +63,7 @@ import * as chat from "@/app/api/chat/route";
 import * as chatThread from "@/app/api/chat/threads/[id]/route";
 import * as chatPeople from "@/app/api/chat/people/route";
 import * as chatUnread from "@/app/api/chat/unread/route";
+import * as chatGroups from "@/app/api/chat/groups/route";
 import { pruneChat } from "@/lib/chat-server";
 import * as publish from "@/app/api/tracker/publish/route";
 import * as report from "@/app/api/report/route";
@@ -3199,7 +3200,7 @@ describe("чат 1 на 1", () => {
     testUserIds.push(u.id);
     return { id: u.id, name: u.name, role, directorateId };
   };
-  const send = (who: Actor | null, to: Actor, text: string, itemId?: string) => call(who, chat.POST, "/api/chat", { method: "POST", body: { toUserId: to.id, text, ...(itemId ? { itemId } : {}) } });
+  const send = (who: Actor | null, to: Actor, text: string, itemId?: string) => call(who, chat.POST, "/api/chat", { method: "POST", body: { toUserId: to.id, text, ...(itemId ? { itemIds: [itemId] } : {}) } });
   const open = (who: Actor | null, threadId: string, qs = "") => call(who, chatThread.GET, `/api/chat/threads/${threadId}${qs}`, { id: threadId });
   const unread = async (who: Actor) => (await call(who, chatUnread.GET, "/api/chat/unread")).data.unread as number;
 
@@ -3220,7 +3221,7 @@ describe("чат 1 на 1", () => {
     const people = [zC, dirC, headC, head2C, otherC, adminC].filter(Boolean).map((p) => p.id);
     if (!people.length) return;
     await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
-    await prisma.chatThread.deleteMany({ where: { OR: [{ userAId: { in: people } }, { userBId: { in: people } }] } });
+    await prisma.chatThread.deleteMany({ where: { OR: [{ members: { some: { userId: { in: people } } } }, { userAId: { in: people } }, { userBId: { in: people } }] } });
     await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: itemC }, { actorId: { in: people } }] } });
     await prisma.operationalItem.deleteMany({ where: { directorateId: { in: [dA, dB] } } });
     await prisma.user.deleteMany({ where: { id: { in: people } } });
@@ -3268,9 +3269,9 @@ describe("чат 1 на 1", () => {
     expect((await send(otherC, headC, "И наоборот")).status).toBe(403);
     const withItem = await send(headC, dirC, "Посмотрите задачу", itemC);
     expect(withItem.status).toBe(201);
-    expect(withItem.data.message.item).toMatchObject({ id: itemC });
-    const asDir = (await open(dirC, withItem.data.threadId)).data.messages as Array<{ item: { id: string } | null }>;
-    expect(asDir.at(-1)?.item?.id).toBe(itemC);
+    expect(withItem.data.message.items[0]).toMatchObject({ id: itemC });
+    const asDir = (await open(dirC, withItem.data.threadId)).data.messages as Array<{ items: Array<{ id: string }> }>;
+    expect(asDir.at(-1)?.items[0]?.id).toBe(itemC);
     expect((await send(zC, headC, "с задачей", itemC)).status).toBe(400);
     expect((await send(otherC, adminC, "чужая задача", itemC)).status).toBe(400);
   });
@@ -3296,5 +3297,168 @@ describe("чат 1 на 1", () => {
     const r = await pruneChat();
     expect(r.messages).toBeGreaterThanOrEqual(1);
     expect(await prisma.chatMessage.count()).toBe(before);
+  });
+});
+
+describe("чат: группы, чат по задаче, задачи и упоминания", () => {
+  let dA = "";
+  let dB = "";
+  let zG: Actor;
+  let dirG: Actor;
+  let headG: Actor;
+  let head2G: Actor;
+  let otherG: Actor;
+  let itemG = "";
+  let itemG2 = "";
+  let itemG3 = "";
+  let itemG4 = "";
+  const mk = async (key: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE", directorateId: string | null): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} g-${key}`, email: `${TAG}.grp-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  const group = (who: Actor, title: string, memberIds: string[]) => call(who, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { title, memberIds } });
+  const manage = (who: Actor, id: string, body: Record<string, unknown>) => call(who, chatThread.POST, `/api/chat/threads/${id}`, { method: "POST", id, body });
+  const open = (who: Actor, id: string, qs = "") => call(who, chatThread.GET, `/api/chat/threads/${id}${qs}`, { id });
+  const say = (who: Actor, threadId: string, text: string, extra: Record<string, unknown> = {}) => call(who, chat.POST, "/api/chat", { method: "POST", body: { threadId, text, ...extra } });
+  const unreadOf = async (who: Actor) => (await call(who, chatUnread.GET, "/api/chat/unread")).data.unread as number;
+  const texts = (d: { messages: Array<{ kind: string; text: string }> }) => d.messages.filter((m) => m.kind === "TEXT").map((m) => m.text);
+
+  beforeAll(async () => {
+    dA = (await prisma.directorate.create({ data: { name: `${TAG} Груп А`, shortName: "ГрА" } })).id;
+    dB = (await prisma.directorate.create({ data: { name: `${TAG} Груп Б`, shortName: "ГрБ" } })).id;
+    zG = await mk("zgd", "EXECUTIVE", null);
+    dirG = await mk("dir", "DIRECTOR", dA);
+    headG = await mk("head", "HEAD", dA);
+    head2G = await mk("head2", "HEAD", dA);
+    otherG = await mk("other", "HEAD", dB);
+    invalidateDicts();
+    const mkItem = async (title: string) => (await call(headG, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} ${title}` } })).data.row.id as string;
+    itemG = await mkItem("задача чата 1");
+    itemG2 = await mkItem("задача чата 2");
+    itemG3 = await mkItem("задача чата 3");
+    itemG4 = await mkItem("задача чата 4");
+  });
+
+  afterAll(async () => {
+    const people = [zG, dirG, headG, head2G, otherG].filter(Boolean).map((p) => p.id);
+    if (!people.length) return;
+    await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
+    await prisma.chatThread.deleteMany({ where: { OR: [{ members: { some: { userId: { in: people } } } }, { userAId: { in: people } }, { userBId: { in: people } }] } });
+    await prisma.notification.deleteMany({ where: { userId: { in: people } } });
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ actorId: { in: people } }, { entityId: { in: [itemG, itemG2, itemG3, itemG4] } }] } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: { in: [dA, dB] } } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: { in: [dA, dB] } } });
+  });
+
+  let groupId = "";
+
+  it("создать группу может любой участник чата — с теми, кому вправе писать; чужие и ЗГД руководителю недоступны", async () => {
+    expect((await group(headG, "Пустая", [])).status).toBe(400);
+    expect((await group(headG, "   ", [head2G.id])).status).toBe(400);
+    expect((await group(headG, "я".repeat(81), [head2G.id])).status).toBe(400);
+    expect((await group(headG, "С чужим", [head2G.id, otherG.id])).status).toBe(403);
+    expect((await group(headG, "С ЗГД", [head2G.id, zG.id])).status).toBe(403);
+    const ok = await group(headG, "Рабочая группа", [head2G.id]);
+    expect(ok.status).toBe(201);
+    groupId = ok.data.threadId;
+    // ЗГД собирает кого угодно, в том числе из разных дирекций
+    const zgdGroup = await group(zG, "Совещание", [otherG.id, headG.id, dirG.id]);
+    expect(zgdGroup.status).toBe(201);
+  });
+
+  it("системные записи не считаются непрочитанными; пишет любой участник; не участник — 404", async () => {
+    expect(await unreadOf(head2G)).toBe(0);
+    expect((await say(headG, groupId, "Коллеги, договор готов")).status).toBe(201);
+    expect(await unreadOf(head2G)).toBe(1);
+    expect((await say(head2G, groupId, "Вижу, смотрю")).status).toBe(201);
+    expect((await open(dirG, groupId)).status).toBe(404);
+    expect((await say(dirG, groupId, "посторонний")).status).toBe(404);
+  });
+
+  it("добавленный позже видит всю историю; руководитель не может добавить чужого и ЗГД; убранный теряет доступ сразу", async () => {
+    expect((await manage(headG, groupId, { action: "add", userIds: [otherG.id] })).status).toBe(403);
+    expect((await manage(headG, groupId, { action: "add", userIds: [zG.id] })).status).toBe(403);
+    expect((await manage(headG, groupId, { action: "add", userIds: [dirG.id] })).status).toBe(200);
+    const asDir = (await open(dirG, groupId, "?markRead=1")).data;
+    expect(texts(asDir)).toEqual(["Коллеги, договор готов", "Вижу, смотрю"]);
+    expect(asDir.members.map((m: { id: string }) => m.id).sort()).toEqual([dirG.id, head2G.id, headG.id].sort());
+    expect(asDir.canAdd).toBe(true);
+    expect(asDir.canManage).toBe(false);
+    // убрать может только владелец
+    expect((await manage(head2G, groupId, { action: "remove", userId: dirG.id })).status).toBe(403);
+    expect((await manage(headG, groupId, { action: "remove", userId: dirG.id })).status).toBe(200);
+    expect((await open(dirG, groupId)).status).toBe(404);
+    expect((await say(dirG, groupId, "я ещё тут?")).status).toBe(404);
+  });
+
+  it("переименовать и удалить — владелец; владелец вышел — владение переходит; последний — группа удаляется", async () => {
+    expect((await manage(head2G, groupId, { action: "rename", title: "Чужое имя" })).status).toBe(403);
+    expect((await manage(headG, groupId, { action: "rename", title: "Договоры" })).status).toBe(200);
+    expect((await open(headG, groupId)).data.title).toBe("Договоры");
+    expect((await manage(head2G, groupId, { action: "delete" })).status).toBe(403);
+    expect((await manage(headG, groupId, { action: "leave" })).status).toBe(200);
+    const asHead2 = (await open(head2G, groupId)).data;
+    expect(asHead2.canManage).toBe(true);
+    expect(asHead2.members.find((m: { id: string; isOwner: boolean }) => m.id === head2G.id).isOwner).toBe(true);
+    expect((await open(headG, groupId)).status).toBe(404);
+    // остался один человек — выходя, он удаляет группу
+    const gone = await manage(head2G, groupId, { action: "leave" });
+    expect(gone.data.deleted).toBe(true);
+    expect(await prisma.chatThread.count({ where: { id: groupId } })).toBe(0);
+  });
+
+  it("упоминания: уведомление только участнику; чужой id игнорируется; в списке метка «@»", async () => {
+    const g = (await group(dirG, "Обсуждение", [headG.id, head2G.id])).data.threadId as string;
+    const r = await say(dirG, g, "Посмотрите, пожалуйста", { mentionIds: [headG.id, otherG.id] });
+    expect(r.status).toBe(201);
+    expect(r.data.message.mentions.map((m: { id: string }) => m.id)).toEqual([headG.id]);
+    const n = await prisma.notification.findMany({ where: { userId: headG.id, type: "CHANGE_ATTENTION", message: { contains: "упомянул" } } });
+    expect(n).toHaveLength(1);
+    expect(n[0].link).toContain(`chat=${g}`);
+    expect(await prisma.notification.count({ where: { userId: otherG.id, message: { contains: "упомянул" } } })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: head2G.id, message: { contains: "упомянул" } } })).toBe(0);
+    const list = (await call(headG, chat.GET, "/api/chat")).data.threads as Array<{ id: string; mention: boolean; kind: string; memberCount: number }>;
+    expect(list.find((t) => t.id === g)).toMatchObject({ mention: true, kind: "GROUP", memberCount: 3 });
+    const listOther = (await call(head2G, chat.GET, "/api/chat")).data.threads as Array<{ id: string; mention: boolean }>;
+    expect(listOther.find((t) => t.id === g)?.mention).toBe(false);
+  });
+
+  it("до трёх задач в сообщении; недоступная или лишняя — отказ; получатель без доступа видит только число скрытых", async () => {
+    const g = (await group(zG, "С задачами", [headG.id, dirG.id])).data.threadId as string;
+    expect((await say(headG, g, "три задачи", { itemIds: [itemG, itemG2, itemG3] })).data.message.items).toHaveLength(3);
+    expect((await say(headG, g, "четыре", { itemIds: [itemG, itemG2, itemG3, itemG4] })).status).toBe(400);
+    const other = await prisma.operationalItem.create({ data: { title: `${TAG} чужая`, directorateId: dB, createdById: otherG.id } });
+    expect((await say(headG, g, "чужая", { itemIds: [other.id] })).status).toBe(400);
+    expect((await say(zG, g, "ЗГД без задач", { itemIds: [itemG] })).status).toBe(400);
+    const asZgd = (await open(zG, g)).data.messages.find((m: { text: string }) => m.text === "три задачи");
+    expect(asZgd.items).toHaveLength(0);
+    expect(asZgd.hiddenItems).toBe(3);
+    const asDir = (await open(dirG, g)).data.messages.find((m: { text: string }) => m.text === "три задачи");
+    expect(asDir.items).toHaveLength(3);
+    await prisma.operationalItem.delete({ where: { id: other.id } });
+  });
+
+  it("чат по задаче: один на задачу, участники по умолчанию, карточка скрыта у недоступных; чужие не открывают", async () => {
+    expect((await call(head2G, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { itemId: itemG } })).status).toBe(403);
+    expect((await call(zG, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { itemId: itemG } })).status).toBe(403);
+    expect((await call(otherG, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { itemId: itemG } })).status).toBe(403);
+    const first = await call(headG, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { itemId: itemG } });
+    expect(first.status).toBe(201);
+    const id = first.data.threadId as string;
+    const again = await call(dirG, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { itemId: itemG } });
+    expect(again.data.threadId).toBe(id);
+    const d = (await open(dirG, id)).data;
+    expect(d.kind).toBe("TASK");
+    expect(d.members.map((m: { id: string }) => m.id).sort()).toEqual([dirG.id, headG.id].sort());
+    expect(d.taskCard).toMatchObject({ itemId: itemG, state: "ok" });
+    expect(d.title).toContain("задача чата 1");
+    // ЗГД добавляет директор: карточку он не видит (задача ему не подтверждена), а чат — да
+    expect((await manage(dirG, id, { action: "add", userIds: [zG.id] })).status).toBe(200);
+    const asZgd = (await open(zG, id)).data;
+    expect(asZgd.taskCard.state).toBe("unavailable");
+    expect(asZgd.taskCard.title).toBeUndefined();
+    expect((await manage(headG, id, { action: "rename", title: "x" })).status).toBe(400);
   });
 });

@@ -4,7 +4,7 @@ import { fetchRetry } from "@/lib/fetch-retry";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, RotateCcw, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, MessageSquare, RotateCcw, Send, Trash2 } from "lucide-react";
 import { AuditChange } from "@/components/AuditChange";
 import { HistoryEntry } from "@/components/HistoryEntry";
 import { attractivenessText } from "@/lib/attractiveness";
@@ -322,6 +322,22 @@ export function ItemPanel({
 
   const disabled = !canEdit || (base?.archived ?? false) || reviewLocked;
   const editable = canEdit && !(base?.archived ?? false) && !previewMode;
+  // «Обсудить»: чат по задаче (директор и админ; руководитель — по своей); окно чата открывает событие chat:open
+  const [discussing, setDiscussing] = useState(false);
+  const canDiscuss = !!actor && (actor.role === "DIRECTOR" || actor.role === "ADMIN" || (actor.role === "HEAD" && base?.ownerId === actor.id));
+  async function discuss() {
+    if (!base) return;
+    setDiscussing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/chat/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: base.id }) });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.threadId) window.dispatchEvent(new CustomEvent("chat:open", { detail: { threadId: body.threadId } }));
+      else setError(body?.message ?? "Не удалось открыть чат по задаче.");
+    } finally {
+      setDiscussing(false);
+    }
+  }
 
   // подтверждение удаления занимает всю панель вместо кнопок — иначе на узкой карточке «Нет» уезжает за край
   const footer = confirmArchive && !isNew && !base!.archived && canDelete && !previewMode ? (
@@ -345,6 +361,11 @@ export function ItemPanel({
           </button>
         )}
         <button onClick={onClose} className="btn-ghost">{editable ? "Отмена" : "Закрыть"}</button>
+        {!isNew && !base!.archived && !previewMode && canDiscuss && (
+          <button onClick={() => void discuss()} disabled={discussing} className="btn-ghost" title="Чат по этой задаче: открыть или создать">
+            <MessageSquare size={15} /> Обсудить
+          </button>
+        )}
         {previewMode ? (
           <span className="text-[11px] text-on-surface-variant">Режим просмотра — изменения не сохраняются</span>
         ) : (

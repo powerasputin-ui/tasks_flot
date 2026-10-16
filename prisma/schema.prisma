@@ -526,21 +526,27 @@ model DeadlineRequest {
   @@map("deadline_requests")
 }
 
-/// Личный чат двух человек (1 на 1). Пара хранится в порядке id (userAId < userBId): одна пара — один диалог.
+/// Диалог чата: личный (DIRECT, пара людей в порядке id), группа (GROUP) или чат по задаче (TASK, один на задачу).
+/// Участники — chat_members: убрали или вышел = строка удалена и доступ к истории пропал.
 model ChatThread {
-  id            String   @id @default(cuid())
-  userAId       String
-  userBId       String
+  id            String    @id @default(cuid())
+  kind          String    @default("DIRECT")
+  title         String?
+  itemId        String?   @unique
+  ownerId       String?
+  userAId       String?
+  userBId       String?
   startedById   String
-  /// ЗГД уже писал в этом диалоге: после этого руководитель может отвечать (до закрытия диалога ЗГД).
-  zgdSpoke      Boolean  @default(false)
-  /// ЗГД закрыл диалог: руководитель снова может писать ЗГД только после его нового сообщения.
+  /// ЗГД уже писал в личном диалоге: после этого руководитель может отвечать (до закрытия диалога ЗГД).
+  zgdSpoke      Boolean   @default(false)
+  /// ЗГД закрыл личный диалог: руководитель снова может писать ЗГД только после его нового сообщения.
   closedAt      DateTime?
-  lastMessageAt DateTime @default(now())
-  createdAt     DateTime @default(now())
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
 
   messages ChatMessage[]
   reads    ChatRead[]
+  members  ChatMember[]
 
   @@unique([userAId, userBId])
   @@index([userAId, lastMessageAt])
@@ -548,15 +554,33 @@ model ChatThread {
   @@map("chat_threads")
 }
 
-model ChatMessage {
-  id        String   @id @default(cuid())
+model ChatMember {
   threadId  String
   thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  authorId  String
-  text      String
-  /// Приложенная задача (ссылка): название видит только тот, кому задача доступна.
-  itemId    String?
-  createdAt DateTime @default(now())
+  userId    String
+  /// OWNER — создатель (переименовывает, убирает людей, удаляет группу); MEMBER — остальные.
+  role      String     @default("MEMBER")
+  addedById String?
+  joinedAt  DateTime   @default(now())
+
+  @@id([threadId, userId])
+  @@index([userId])
+  @@map("chat_members")
+}
+
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId   String
+  /// TEXT — сообщение человека; SYSTEM — запись («Иванов добавил Петрова»), в непрочитанное не входит.
+  kind       String     @default("TEXT")
+  text       String
+  /// Приложенная задача (прежнее поле, одна) и до трёх задач (itemIds): название видит только тот, кому задача доступна.
+  itemId     String?
+  itemIds    Json?
+  mentionIds Json?
+  createdAt  DateTime   @default(now())
 
   @@index([threadId, createdAt])
   @@map("chat_messages")

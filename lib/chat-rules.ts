@@ -53,3 +53,38 @@ export function chatBlockReason(actor: ChatPerson, other: ChatPerson, state: Cha
 export const CHAT_MAX_TEXT = 2000;
 /** Сообщения старше этого срока убирает ежедневная уборка (cron). */
 export const CHAT_RETENTION_DAYS = 180;
+
+// ---------- группы и чат по задаче
+
+export const GROUP_MAX_MEMBERS = 50;
+export const GROUP_MAX_PER_USER = 100;
+export const GROUP_TITLE_MAX = 80;
+export const CHAT_MAX_ITEMS = 3;
+
+/**
+ * Можно ли adder добавить target в группу (и включить при создании): тех, кому adder и так вправе писать первым.
+ * ЗГД и админ могут писать любому, поэтому и добавлять — любых; руководитель — коллег по дирекции и директора, но не ЗГД.
+ */
+export function canAddToChat(adder: ChatPerson, target: ChatPerson): boolean {
+  return canStartChat(adder, target);
+}
+
+/** Следующий владелец группы, когда владелец вышел: самый давний из действующих участников; нет таких — null (группу удаляют). */
+export function nextOwner(members: Array<{ userId: string; joinedAt: Date | string; isActive?: boolean }>, leavingId: string): string | null {
+  const rest = members.filter((m) => m.userId !== leavingId && m.isActive !== false).sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+  return rest[0]?.userId ?? null;
+}
+
+/** Может ли человек открыть/создать чат по задаче: директор и админ дирекции задачи, ответственный руководитель. ЗГД — нет. */
+export function canDiscussItem(actor: ChatPerson, item: { directorateId: string | null; responsibleId: string | null }): boolean {
+  if (actor.isActive === false) return false;
+  if (actor.role === "ADMIN") return true;
+  if (actor.role === "DIRECTOR") return !!actor.directorateId && actor.directorateId === item.directorateId;
+  if (actor.role === "HEAD") return item.responsibleId === actor.id;
+  return false;
+}
+
+/** «@Фамилия И.О.» из текста — только имена участников, выбранных в подсказке; остальное текстом остаётся как есть. */
+export function mentionsIn(text: string, members: Array<{ id: string; name: string }>): string[] {
+  return members.filter((m) => text.includes(`@${m.name}`)).map((m) => m.id);
+}
