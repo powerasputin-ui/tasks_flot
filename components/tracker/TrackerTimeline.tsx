@@ -475,7 +475,7 @@ function TimelineRow({
         {open && dl !== null && dl > today && <span className="absolute top-1/2 z-[2] h-0 -translate-y-1/2 border-t border-dashed border-outline/70" style={{ left: today, width: dl - today }} title={`До срока ${daysWord(Math.round((dl - today) / pxDay))}`} />}
         {late && dl !== null && dl < today && <span className="absolute top-1/2 z-[2] h-1 -translate-y-1/2 rounded-sm bg-status-red" style={{ left: dl, width: today - dl }} title={`Просрочено на ${daysWord(Math.max(1, Math.round((today - dl) / pxDay)))}`} />}
         {closedAt !== null && !clusters.some((c) => Math.abs(c.x - xEv(closedAt)) < 10) && (
-          <span className={`absolute top-1/2 z-[3] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-white ring-[3px] ring-surface ${col === "DONE" ? "bg-status-emerald" : "bg-outline"}`} style={{ left: xEv(closedAt) }} title={`${col === "DONE" ? "Выполнено" : "Отменена"} ${ruDay(new Date(closedAt))}`}>
+          <span className={`absolute top-1/2 z-[3] flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-white ${col === "DONE" ? "bg-status-emerald" : "bg-outline"}`} style={{ left: xEv(closedAt) }} title={`${col === "DONE" ? "Выполнено" : "Отменена"} ${ruDay(new Date(closedAt))}`}>
             {col === "DONE" ? <Check size={14} strokeWidth={3} /> : <X size={14} strokeWidth={3} />}
           </span>
         )}
@@ -496,7 +496,7 @@ function TimelineRow({
             onMouseEnter={(e) => !mobile && onPoint(c.groups, e.currentTarget.getBoundingClientRect(), false)}
             onMouseLeave={() => !mobile && onPointLeave()}
             onClick={(e) => (mobile ? onPoint(c.groups, e.currentTarget.getBoundingClientRect(), true) : onOpen(row, "history"))}
-            className="absolute top-1/2 z-[4] flex h-6 min-w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ring-[3px] ring-surface"
+            className="absolute top-1/2 z-[4] flex h-6 min-w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
             style={{ left: c.x, background: c.color }}
             aria-label={c.groups.map(([d, evs]) => `${ru(d, { day: "2-digit", month: "2-digit" })}: ${evs.map((e) => e.text).join("; ")}`).join(". ")}
           >
