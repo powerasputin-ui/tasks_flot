@@ -475,7 +475,8 @@ export function ItemPanel({
                 row={base}
                 column={colOfStatus(base.statusId ?? "")}
                 actor={actor}
-                readOnly={previewMode || dirty}
+                readOnly={previewMode}
+                dirty={dirty}
                 onChanged={async (r) => {
                   // ответ на запрос / перенос срока — строку перечитываем (действие вернуло только «готово»)
                   const next = (r as ItemRow | null) ?? ((await fetch(`/api/items/${base.id}`).then((x) => (x.ok ? x.json() : null)))?.row as ItemRow | undefined);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEvents, columnOf, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit } from "@/lib/tracker";
+import { buildEvents, closedAtOf, columnOf, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 import { buildSentTracker, buildZgdTracker, MEMO_PUBLICATION } from "@/lib/tracker-sent";
 import type { ArchiveRow } from "@/lib/archive-table";
 import { canSetStatus } from "@/lib/permissions";
@@ -189,5 +189,65 @@ describe("трекер ЗГД: история по отправленным сп
     const m = motionOf(e, "REVIEW", new Date("2026-10-12T09:00:00.000Z"));
     expect(m).toMatchObject({ column: "REVIEW", inColumnDays: 4, slips: 0, idleDays: 4 });
     expect(m.history[1]).toBe("08.10.26 — статус: В работе → На проверке (Майков Т.Г.)");
+  });
+});
+
+describe("доска: допустимые переходы", () => {
+  const cols: TrackerColumnKey[] = ["TODO", "DOING", "REVIEW", "DONE", "HIDDEN"];
+  it("руководитель: «Сделать ↔ В работе» и на проверку; сданное, выполненное и отменённое не двигает", () => {
+    expect(dropTargets("TODO", false)).toEqual(["DOING", "REVIEW"]);
+    expect(dropTargets("DOING", false)).toEqual(["TODO", "REVIEW"]);
+    for (const c of ["REVIEW", "DONE", "HIDDEN"] as const) expect(dropTargets(c, false)).toEqual([]);
+  });
+  it("директор: принять и вернуть из проверки, отменить, переоткрыть; «Сделать → Выполнено» и «Выполнено → На проверке» нельзя", () => {
+    expect(dropTargets("REVIEW", true)).toEqual(["DOING", "DONE", "HIDDEN"]);
+    expect(dropTargets("DONE", true)).toEqual(["DOING"]);
+    expect(dropTargets("HIDDEN", true)).toEqual(["DOING"]);
+    expect(dropTargets("TODO", true)).not.toContain("DONE");
+    expect(dropTargets("DONE", true)).not.toContain("REVIEW");
+    // из «На проверке» нельзя в «Сделать»: раньше это молча превращалось в «вернуть в работу»
+    expect(dropTargets("REVIEW", true)).not.toContain("TODO");
+  });
+  it("каждому допустимому переходу соответствует понятное действие; одинаковая колонка — не переход", () => {
+    for (const from of cols) for (const to of dropTargets(from, true)) expect(from).not.toBe(to);
+    expect(dropAction("TODO", "REVIEW")).toBe("submit");
+    expect(dropAction("REVIEW", "DONE")).toBe("accept");
+    expect(dropAction("REVIEW", "DOING")).toBe("return");
+    expect(dropAction("DONE", "DOING")).toBe("reopen");
+    expect(dropAction("HIDDEN", "DOING")).toBe("reopen");
+    expect(dropAction("DOING", "HIDDEN")).toBe("cancel");
+    expect(dropAction("TODO", "DOING")).toBeNull(); // обычная смена статуса
+  });
+});
+
+describe("окно «Выполнено»", () => {
+  const ev = (text: string, at: string): TrackerEvent => ({ itemId: "i", at, kind: "workflow", who: null, text });
+  const now = new Date("2026-10-30T10:00:00Z").getTime();
+  it("дата приёмки — из журнала, запасная — последняя правка", () => {
+    expect(closedAtOf([ev("сдана на проверку", "2026-10-01T10:00:00Z"), ev("принята директором", "2026-10-20T10:00:00Z")], "2026-09-01")).toBe(new Date("2026-10-20T10:00:00Z").getTime());
+    expect(closedAtOf([], "2026-09-01T00:00:00Z")).toBe(new Date("2026-09-01T00:00:00Z").getTime());
+  });
+  it("за последние 14 дней — видно, раньше — только по «показать все»", () => {
+    expect(isRecentlyDone([ev("принята директором", "2026-10-20T10:00:00Z")], "2026-09-01", now)).toBe(true);
+    expect(isRecentlyDone([ev("принята директором", "2026-10-10T10:00:00Z")], "2026-09-01", now)).toBe(false);
+    expect(isRecentlyDone([], "2026-10-25T10:00:00Z", now)).toBe(true);
+  });
+});
+
+describe("фильтры в адресе", () => {
+  const kinds = ["overdue", "review"] as const;
+  const scopes = ["all", "control", "orders"] as const;
+  const get = (p: Record<string, string>) => (k: string) => p[k] ?? null;
+  it("пустые фильтры — пустой адрес; заполненные восстанавливаются без потерь", () => {
+    expect(filtersToParams(EMPTY_FILTERS)).toEqual({});
+    const f = { ...EMPTY_FILTERS, kind: "review", scope: "orders", mine: true, col: "DOING" as const, seg: ["a", "b"], owner: ["u1"], q: " срок договора ", cancelled: true, doneAll: true, slip: true };
+    const back = filtersFromParams(get(filtersToParams(f)), kinds, scopes);
+    expect(back).toEqual({ ...f, q: "срок договора" });
+  });
+  it("испорченная ссылка не ломает вид: неизвестные виды, охват и колонки игнорируются", () => {
+    const f = filtersFromParams(get({ kind: "хак", scope: "x", col: "DROP", seg: "a,,b" }), kinds, scopes);
+    expect(f).toMatchObject({ kind: null, scope: "all", col: null, seg: ["a", "b"] });
+    expect(hasActiveFilters(f)).toBe(true);
+    expect(hasActiveFilters({ ...EMPTY_FILTERS, cancelled: true, doneAll: true })).toBe(false); // режимы показа — не отбор
   });
 });

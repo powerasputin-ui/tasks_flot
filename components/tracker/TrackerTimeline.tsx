@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Check, X } from "lucide-react";
 import { columnOf, phasesOf, ruDay, timelineRange, type HotInfo, type TrackerColumnKey, type TrackerEvent, type TrackerEventKind } from "@/lib/tracker";
-import { overdue, type TRow } from "@/components/tracker/TrackerView";
+import { MenuButton, overdue, type TRow } from "@/components/tracker/TrackerView";
 import { AnchoredCard } from "@/components/ui/Tooltip";
 import { useIsMobile } from "@/lib/use-mobile";
 
@@ -131,12 +131,6 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, mobile]);
   const [legend, setLegend] = useState(false);
-  // «Сегодня» только прокручивает шкалу вбок: если вся шкала на экране (режим «Весь период», короткий период), кнопка не нужна
-  const [scrollable, setScrollable] = useState(false);
-  useEffect(() => {
-    const el = box.current;
-    if (el) setScrollable(el.scrollWidth > el.clientWidth + 2);
-  }, [zoom, width, boxW, rows.length]);
 
   const months = useMemo(() => {
     const out: Array<{ from: number; to: number; label: string }> = [];
@@ -204,11 +198,6 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
             </button>
           ))}
         </div>
-        {scrollable && (
-          <button onClick={scrollToToday} className="btn-ghost h-8 text-[12px]" title="Прокрутить шкалу к сегодняшнему дню">
-            Сегодня
-          </button>
-        )}
         {/* на телефоне обозначения по кнопке — иначе они занимают полэкрана */}
         {mobile && (
           <button onClick={() => setLegend((v) => !v)} aria-expanded={legend} className="btn-ghost h-8 text-[12px]">
@@ -446,7 +435,8 @@ function TimelineRow({
 
   return (
     <div className="flex border-b border-outline-variant/50 hover:bg-surface-low">
-      <button onClick={() => onOpen(row)} onContextMenu={(e) => onMenu?.(row, e)} className="sticky left-0 z-[5] shrink-0 border-r border-outline-variant bg-surface px-3 py-2 text-left hover:bg-surface-low md:px-4" style={{ width: nameW }} title={row.name}>
+      <div className="group sticky left-0 z-[5] shrink-0 border-r border-outline-variant bg-surface hover:bg-surface-low" style={{ width: nameW }}>
+      <button onClick={() => onOpen(row)} onContextMenu={(e) => onMenu?.(row, e)} className="block h-full w-full px-3 py-2 pr-9 text-left md:px-4 md:pr-9" title={row.name}>
         <span className="line-clamp-2 text-[12px] leading-4 text-on-surface">
           {hot && <span className="mr-1 font-bold text-status-red" title={hot.reasons.join("\n")}>●</span>}
           {row.name}
@@ -455,6 +445,8 @@ function TimelineRow({
           {row.ownerName ?? "не назначен"} · {row.statusName ?? "без статуса"}
         </span>
       </button>
+      <MenuButton row={row} onMenu={onMenu} className="absolute right-1 top-2" />
+      </div>
       <div className="relative" style={{ width, minHeight: mobile ? 68 : 64 }} onContextMenu={(e) => onMenu?.(row, e)}>
         {historyMark && (
           <span className="absolute inset-y-1 z-[2] border-l-2 border-dashed border-outline" style={{ left: xEv(historyMark.at) }} title={`История известна с ${ruDay(historyMark.at)}${historyMark.kind === "created" ? " (первая справка с задачей)" : ""}`} />

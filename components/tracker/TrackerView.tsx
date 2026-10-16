@@ -3,14 +3,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isOverdueRow } from "@/lib/overdue";
-import { CalendarClock, Flame, KanbanSquare, List, Plus, RotateCcw, Search, ShieldCheck, Star, Timer, Trash2 } from "lucide-react";
+import { CalendarClock, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, Star, Timer, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
 import { askConfirm, askText } from "@/components/ui/Dialog";
 import { ASK } from "@/components/WorkflowSection";
-import { ACTION_LABEL, type WorkflowAction } from "@/lib/workflow";
+import { ACTION_LABEL, availableActions, type WorkflowAction } from "@/lib/workflow";
+import { STOP_STATUS } from "@/lib/statuses";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
@@ -19,7 +20,7 @@ import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import { usePreviewAs } from "@/lib/preview-as";
 import { useIsMobile } from "@/lib/use-mobile";
 import { SIGNAL_LABEL, type SignalKind } from "@/lib/ai-table";
-import { BOARD_COLUMNS, columnOf, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
+import { BOARD_COLUMNS, columnOf, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
 import { Operativshchik } from "@/components/Operativshchik";
@@ -57,6 +58,9 @@ const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
   { key: "timeline", label: "Таймлайн", icon: CalendarClock },
 ];
 const VIEW_KEY = "operativka.tracker.view";
+const SCOPES = ["all", "control", "orders", "mine", "waiting"] as const;
+/** Параметры адреса, которыми управляют фильтры (остальные — view, deleted, item — не трогаем). */
+const FILTER_KEYS = ["kind", "scope", "mine", "slip", "col", "cancelled", "done", "seg", "owner", "q"];
 
 // сигналы: порядок, цвет (красный — исполнение под угрозой, жёлтый — внимание, серый — данные и отчётность), подсказка-определение
 const SIGNAL_ORDER: SignalKind[] = ["overdue", "slipped", "deadlineRequest", "blocker", "request", "review", "soon", "data", "report"];
@@ -94,18 +98,15 @@ export function TrackerView() {
   const [error, setError] = useState<string | null>(null);
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [view, setView] = useState<View>("list");
-  const [mine, setMine] = useState(false);
-  // фильтр по виду сигнала (просрочка, блокер, ждёт приёмки…) — вместо одного «горит»
-  // ссылка из сводки за неделю открывает трекер сразу с нужным фильтром (?kind=review, ?scope=mine)
-  const [kind, setKind] = useState<SignalKind | null>(() => SIGNAL_ORDER.find((k) => k === params.get("kind")) ?? null);
-  const [slipOnly, setSlipOnly] = useState(false);
-  // охват: все / на контроле ЗГД / поручения ЗГД / ждут ответа на запрос ЗГД
-  const [scopeRaw, setScope] = useState<"all" | "control" | "orders" | "mine" | "waiting">(() => (["control", "orders", "mine", "waiting"] as const).find((s) => s === params.get("scope")) ?? "all");
+  // Фильтры живут в адресе (?kind=&scope=&mine=&col=&seg=&owner=&q=…): вид можно переслать ссылкой, он переживает перезагрузку
+  // и ссылки из сводок и уведомлений (?kind=review, ?scope=mine)
+  const [filters, setFilters] = useState<TrackerFilters>(() => filtersFromParams((k) => params.get(k), SIGNAL_ORDER, SCOPES));
+  const patch = (p: Partial<TrackerFilters>) => setFilters((f) => ({ ...f, ...p }));
+  const { mine, slip: slipOnly, seg: segmentIds, owner: ownerIds, q } = filters;
+  const kind = filters.kind as SignalKind | null;
+  const scopeRaw = filters.scope as "all" | "control" | "orders" | "mine" | "waiting";
   const [ordering, setOrdering] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [segmentIds, setSegmentIds] = useState<string[]>([]);
-  const [ownerIds, setOwnerIds] = useState<string[]>([]);
-  const [q, setQ] = useState("");
   const [editor, setEditor] = useState<TRow | null>(null);
   // с таймлайна задача открывается сразу на «Истории» — видно событие, на которое нажали
   const [editorTab, setEditorTab] = useState<"details" | "history">("details");
@@ -117,6 +118,19 @@ export function TrackerView() {
     if (!editor) setEditorTab("details");
   }, [editor]);
   const [tick, setTick] = useState(0);
+  useEffect(() => {
+    // фильтры → адрес (поиск — с задержкой, чтобы не писать в историю каждую букву)
+    const t = setTimeout(() => {
+      const next = new URLSearchParams(params.toString());
+      for (const k of FILTER_KEYS) next.delete(k);
+      for (const [k, v] of Object.entries(filtersToParams(filters))) next.set(k, v);
+      const s = next.toString();
+      if (s !== params.toString()) router.replace(s ? `/tracker?${s}` : "/tracker", { scroll: false });
+    }, 250);
+    return () => clearTimeout(t);
+    // params читаем в момент записи: зависеть от него нельзя — запись адреса меняет params и зациклила бы эффект
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   useEffect(() => {
     loadBootstrap().then(setBoot);
@@ -191,12 +205,17 @@ export function TrackerView() {
   );
   const colors = useMemo(() => segmentColors(segRefs), [segRefs]);
 
-  const rows = useMemo(() => {
+  // без фильтра по колонке: от него считаются плашки-счётчики (иначе при выбранной колонке остальные обнулились бы)
+  const baseRows = useMemo(() => {
     const tokens = tokenize(q);
     return (data?.rows ?? [])
       .map((r) => (manyDirs ? { ...r, segmentName: `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` } : r))
       .filter((r) => {
-      if (!deleted && columnOf(r.statusId, colOf) === "HIDDEN") return false;
+      const col = columnOf(r.statusId, colOf);
+      // «Не актуально» (отменённые) — только по переключателю: иначе их не найти и «Переоткрыть» недостижим
+      if (!deleted && col === "HIDDEN" && !filters.cancelled) return false;
+      // «Выполнено»: по умолчанию за последние 14 дней (как в Jira и Linear), остальное — «показать все»
+      if (!deleted && col === "DONE" && !filters.doneAll && !isRecentlyDone(byItem.get(r.id) ?? [], r.updatedAt)) return false;
       if (mine && r.ownerId !== me?.id && !(directorial && !r.ownerId && r.createdById === me?.id)) return false;
       if (kind && !data?.hot[r.id]?.kinds.includes(kind)) return false;
       if (slipOnly && !(summaries.get(r.id)?.slips ?? 0)) return false;
@@ -209,7 +228,8 @@ export function TrackerView() {
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.expectedResult, r.blockedBy, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted]);
+  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted, filters.cancelled, filters.doneAll, byItem]);
+  const rows = useMemo(() => (filters.col ? baseRows.filter((r) => columnOf(r.statusId, colOf) === filters.col) : baseRows), [baseRows, colOf, filters.col]);
 
   const refs: Refs = useMemo(
     () => ({
@@ -222,27 +242,30 @@ export function TrackerView() {
     [boot],
   );
 
+  // действие трекера с диалогом (результат, замечание, причина, на чём ждём): перетаскивание, меню и кнопки — один путь
+  async function runAction(row: TRow, action: WorkflowAction) {
+    setCtx(null);
+    if (preview) return setError("В режиме просмотра менять задачи нельзя.");
+    setError(null);
+    const ask = ASK[action];
+    const text = ask ? await askText({ title: ACTION_LABEL[action], message: `«${row.name.slice(0, 160)}»\n${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.optional, maxLength: 2000, okLabel: ACTION_LABEL[action] }) : "";
+    if (text === null) return;
+    const res = await fetch(`/api/items/${row.id}/transition`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, version: row.version, ...(ask ? { [ask.field]: text } : {}) }) });
+    const d = await res.json().catch(() => null);
+    if (!res.ok) setError(d?.message ?? "Не удалось выполнить действие.");
+    setTick((t) => t + 1);
+  }
+
+
   // перенос карточки на доске = смена статуса через обычное сохранение позиции (журнал, справка, права — как в таблице)
   // перенос в «На проверке» / «Выполнено» / обратно — действие трекера с диалогом (результат, замечание, причина)
   async function move(row: TRow, col: TrackerColumnKey) {
     if (!data || columnOf(row.statusId, colOf) === col) return;
     if (preview) return setError("В режиме просмотра менять задачи нельзя.");
     const from = columnOf(row.statusId, colOf);
-    const action: WorkflowAction | null =
-      col === "REVIEW" ? "submit" : col === "DONE" && from === "REVIEW" ? "accept" : from === "REVIEW" ? "return" : from === "DONE" || from === "HIDDEN" ? "reopen" : null;
-    if (col === "DONE" && from !== "REVIEW") return setError("Выполненной задача становится после приёмки: сначала перенесите её в «На проверке» с результатом.");
-    if (action) {
-      setError(null);
-      const ask = ASK[action];
-      const text = ask ? await askText({ title: ACTION_LABEL[action], message: `«${row.name.slice(0, 160)}»
-${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.optional, maxLength: 2000, okLabel: ACTION_LABEL[action] }) : "";
-      if (text === null) return;
-      const res = await fetch(`/api/items/${row.id}/transition`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, version: row.version, ...(ask ? { [ask.field]: text } : {}) }) });
-      const d = await res.json().catch(() => null);
-      if (!res.ok) setError(d?.message ?? "Не удалось выполнить действие.");
-      setTick((t) => t + 1);
-      return;
-    }
+    if (!dropTargets(from, directorial).includes(col)) return setError("Так задачу перенести нельзя: сдать на проверку, принять, вернуть, отменить и переоткрыть можно только по порядку (меню «⋯» подскажет доступное).");
+    const action = dropAction(from, col);
+    if (action) return runAction(row, action);
     const statusId = statusForColumn(col, data.statuses);
     if (!statusId) return setError("Для этой колонки не назначен ни один статус (Настройки → Статусы).");
     const prev = data;
@@ -259,7 +282,7 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
     if (body?.error === "CONFLICT") setTick((t) => t + 1);
   }
 
-  // Правая кнопка по задаче (список, доска, таймлайн): открыть, удалить / вернуть — как в таблице
+  // Меню задачи (список, доска, таймлайн): правая кнопка и «⋯» — открыть, перевести, сдать / принять / вернуть…, удалить / вернуть
   const [ctx, setCtx] = useState<{ x: number; y: number; row: TRow } | null>(null);
   useEffect(() => {
     if (!ctx) return;
@@ -294,6 +317,25 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
     } else setError((await res.json().catch(() => null))?.message ?? "Не удалось удалить задачу: удалять может только тот, кто её ведёт.");
   }
 
+  // Пункты меню задачи по роли и состоянию — те же правила, что у кнопок в карточке (lib/workflow.ts availableActions)
+  const menuItems = (row: TRow) => {
+    const items: Array<{ key: string; label: string; danger?: boolean; run: () => void }> = [{ key: "open", label: "Открыть", run: () => (setCtx(null), openRow(row)) }];
+    if (deleted) {
+      if (canEditRow(row)) items.push({ key: "restore", label: "Вернуть", run: () => (setCtx(null), void restore(row)) });
+      return items;
+    }
+    if (preview) return items;
+    const col = columnOf(row.statusId, colOf);
+    if (canEditRow(row)) {
+      if (col === "TODO") items.push({ key: "start", label: "Взять в работу", run: () => (setCtx(null), void move(row, "DOING")) });
+      if (col === "DOING") items.push({ key: "todo", label: "Вернуть в «Сделать»", run: () => (setCtx(null), void move(row, "TODO")) });
+      const acts = me ? availableActions({ id: me.id, role: me.role as never }, { column: col, responsibleId: row.ownerId, createdById: row.createdById, blocked: !!row.blockedBy || row.statusName === STOP_STATUS, archived: false }) : [];
+      for (const a of acts) items.push({ key: a, label: ACTION_LABEL[a], danger: a === "cancel", run: () => void runAction(row, a) });
+    }
+    if (canDeleteRow(row)) items.push({ key: "delete", label: "Удалить", danger: true, run: () => void removeRow(row) });
+    return items;
+  };
+
   // вернуть удалённую задачу: сразу видна и в таблице, и в рабочем трекере (это одна и та же позиция)
   async function restore(row: TRow) {
     const res = await fetch(`/api/items/${row.id}/restore`, { method: "POST" });
@@ -310,7 +352,12 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
     return e ? `удалена ${ruDay(e.at)}${e.who ? ` · ${e.who}` : ""}` : "удалена";
   };
 
-  const counts = useMemo(() => Object.fromEntries(BOARD_COLUMNS.map((c) => [c.key, rows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [rows, colOf]);
+  // колонки доски: «Отменённые» — пятая, когда включены (или в удалённых есть отменённые)
+  const cancelledCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) === "HIDDEN").length;
+  const oldDoneCount = deleted ? 0 : (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) === "DONE" && !isRecentlyDone(byItem.get(r.id) ?? [], r.updatedAt)).length;
+  const showCancelledCol = filters.cancelled || (deleted && cancelledCount > 0);
+  const boardColumns: Array<{ key: TrackerColumnKey; label: string }> = [...BOARD_COLUMNS, ...(showCancelledCol ? [{ key: "HIDDEN" as const, label: "Отменённые" }] : [])];
+  const counts = useMemo(() => Object.fromEntries([...BOARD_COLUMNS, { key: "HIDDEN", label: "" }].map((c) => [c.key, baseRows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [baseRows, colOf]);
   // директор: изменённые после прошлого подтверждения (или ни разу не подтверждённые) — ЗГД их ещё не видит
   const unconfirmed = (r: TRow) => !sent && !deleted && directorial && (!r.publishedAt || new Date(r.updatedAt).getTime() > new Date(r.publishedAt).getTime());
   const unconfirmedCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) !== "HIDDEN" && unconfirmed(r)).length;
@@ -384,21 +431,38 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
         </div>
       )}
 
-      {/* итоги для решения «в масштабе»: сколько где, что горит, где срок уже сдвигали */}
+      {/* итоги для решения «в масштабе»: сколько где (нажатие — фильтр по колонке), что горит, где срок уже сдвигали */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
-        {BOARD_COLUMNS.map((c) => (
-          <span key={c.key} className="rounded-full bg-surface-high px-2.5 py-1 font-semibold text-on-surface-variant">
-            {c.label}: <span className="text-on-surface">{counts[c.key] ?? 0}</span>
-          </span>
+        {boardColumns.map((c) => (
+          <button
+            key={c.key}
+            onClick={() => patch({ col: filters.col === c.key ? null : c.key })}
+            aria-pressed={filters.col === c.key}
+            title={filters.col === c.key ? "Показать все колонки" : `Показать только «${c.label}»`}
+            className={`rounded-full px-2.5 py-1 font-semibold ${filters.col === c.key ? "bg-primary text-white" : "bg-surface-high text-on-surface-variant hover:bg-surface-highest"}`}
+          >
+            {c.label}: <span className={filters.col === c.key ? "text-white" : "text-on-surface"}>{counts[c.key] ?? 0}</span>
+          </button>
         ))}
         {SIGNAL_ORDER.filter((k) => kindCounts.get(k) || kind === k).map((k) => (
-          <button key={k} onClick={() => setKind((v) => (v === k ? null : k))} aria-pressed={kind === k} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${kind === k ? SIGNAL_TONE[k].on : SIGNAL_TONE[k].off}`} title={SIGNAL_HINT[k]}>
+          <button key={k} onClick={() => patch({ kind: kind === k ? null : k })} aria-pressed={kind === k} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${kind === k ? SIGNAL_TONE[k].on : SIGNAL_TONE[k].off}`} title={SIGNAL_HINT[k]}>
             {k === "overdue" && <Flame size={13} />} {SIGNAL_LABEL[k]}: {kindCounts.get(k) ?? 0}
           </button>
         ))}
         {!deleted && (slipped > 0 || slipOnly) && (
-          <button onClick={() => setSlipOnly((v) => !v)} aria-pressed={slipOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${slipOnly ? "bg-[#b45309] text-white" : "bg-status-amber/15 text-[#b45309]"}`} title="Задачи, у которых срок переносили позже — нажмите, чтобы показать только их">
+          <button onClick={() => patch({ slip: !slipOnly })} aria-pressed={slipOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${slipOnly ? "bg-[#b45309] text-white" : "bg-status-amber/15 text-[#b45309]"}`} title="Задачи, у которых срок переносили позже — нажмите, чтобы показать только их">
             <Timer size={13} /> Срок сдвигали: {slipped}
+          </button>
+        )}
+        {/* режимы показа: по умолчанию выполненное — за 14 дней, отменённое скрыто (иначе вид зарастает архивом) */}
+        {!deleted && !sent && (oldDoneCount > 0 || filters.doneAll) && (
+          <button onClick={() => patch({ doneAll: !filters.doneAll })} aria-pressed={filters.doneAll} className="rounded-full border border-dashed border-outline px-2.5 py-1 font-semibold text-on-surface-variant hover:bg-surface-high" title="По умолчанию выполненные задачи видны за последние 14 дней">
+            {filters.doneAll ? "Выполненные: все — скрыть старые" : `Скрыто выполненных старше ${DONE_WINDOW_DAYS} дн.: ${oldDoneCount} — показать`}
+          </button>
+        )}
+        {!deleted && !sent && (cancelledCount > 0 || filters.cancelled) && (
+          <button onClick={() => patch({ cancelled: !filters.cancelled })} aria-pressed={filters.cancelled} className="rounded-full border border-dashed border-outline px-2.5 py-1 font-semibold text-on-surface-variant hover:bg-surface-high" title="Отменённые («Не актуально») скрыты — нажмите, чтобы увидеть и при необходимости переоткрыть">
+            {filters.cancelled ? "Отменённые: показаны — скрыть" : `Отменённые: ${cancelledCount} — показать`}
           </button>
         )}
       </div>
@@ -406,8 +470,8 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {!sent && (
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[13px]">
-          <button onClick={() => setMine(false)} className={`rounded px-3 py-1 font-semibold ${!mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Все задачи</button>
-          <button onClick={() => setMine(true)} className={`rounded px-3 py-1 font-semibold ${mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Мои задачи</button>
+          <button onClick={() => patch({ mine: false })} className={`rounded px-3 py-1 font-semibold ${!mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Все задачи</button>
+          <button onClick={() => patch({ mine: true })} className={`rounded px-3 py-1 font-semibold ${mine ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>Мои задачи</button>
         </div>
         )}
         {!deleted && (
@@ -419,25 +483,39 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
             ...(sent ? ([["mine", "Мои поручения"]] as const) : []),
             ["waiting", sent ? "Ждут ответа" : "Запросы ЗГД"],
           ] as const).map(([k, label]) => (
-            <button key={k} onClick={() => setScope(k)} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
+            <button key={k} onClick={() => patch({ scope: k })} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
           ))}
         </div>
         )}
-        <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={setSegmentIds} />
-        <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={setOwnerIds} />
+        <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={(v) => patch({ seg: v })} />
+        <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={(v) => patch({ owner: v })} />
+        {hasActiveFilters(filters) && (
+          <button onClick={() => setFilters({ ...EMPTY_FILTERS, cancelled: filters.cancelled, doneAll: filters.doneAll })} className="btn-ghost h-8 text-[12px]" title="Снять все фильтры и поиск">
+            <X size={14} /> Сбросить фильтры
+          </button>
+        )}
         <label className="relative ml-auto max-md:ml-0 max-md:w-full">
           <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-outline" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по задачам" className="input w-64 pl-8 max-md:w-full" aria-label="Поиск по задачам" />
+          <input value={q} onChange={(e) => patch({ q: e.target.value })} placeholder="Поиск по задачам" className="input w-64 pl-8 max-md:w-full" aria-label="Поиск по задачам" />
         </label>
       </div>
 
       {error && <div className="mb-3 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{error}</div>}
       {!data && !error && <div className="skeleton h-64 w-full rounded-lg" />}
-      {data && rows.length === 0 && <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">Задач по этим условиям нет.</div>}
+      {data && rows.length === 0 && (
+        <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">
+          <p>{hasActiveFilters(filters) ? "Задач по этим условиям нет." : deleted ? "Удалённых задач нет." : "Задач пока нет."}</p>
+          {hasActiveFilters(filters) && (
+            <button onClick={() => setFilters({ ...EMPTY_FILTERS, cancelled: filters.cancelled, doneAll: filters.doneAll })} className="btn-ghost mt-3 h-8">
+              Сбросить фильтры
+            </button>
+          )}
+        </div>
+      )}
 
-      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
-      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} canDone={directorial || sent} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
-      {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} onMenu={openMenu} />}
+      {data && rows.length > 0 && view === "list" && <TrackerList rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
+      {data && rows.length > 0 && view === "board" && <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} />}
+      {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} />}
 
       {/* тот же чат, что на «Оперативке»: ЗГД, директор, админ; разговор продолжается при переходе */}
       {aiUser && sent && <AiChat versionIds={[]} scopeLabel="трекер и последние справки дирекций" inherit quick={TRACKER_QUICK} />}
@@ -486,27 +564,20 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
       )}
       {ctx && (
         <div
-          className="fixed z-50 w-56 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
-          style={{ left: Math.max(8, Math.min(ctx.x, window.innerWidth - 232)), top: Math.max(8, Math.min(ctx.y, window.innerHeight - 150)) }}
+          role="menu"
+          className="fixed z-50 w-60 overflow-hidden rounded-md border border-outline-variant bg-surface py-1 shadow-lg"
+          style={{ left: Math.max(8, Math.min(ctx.x, window.innerWidth - 248)), top: Math.max(8, Math.min(ctx.y, window.innerHeight - 40 - menuItems(ctx.row).length * 36)) }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
-          <button onClick={() => { const r = ctx.row; setCtx(null); openRow(r); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
-            Открыть
-          </button>
-          {deleted ? (
-            canEditRow(ctx.row) && (
-              <button onClick={() => { const r = ctx.row; setCtx(null); void restore(r); }} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft">
-                <RotateCcw size={14} className="text-outline" /> Вернуть
-              </button>
-            )
-          ) : canDeleteRow(ctx.row) ? (
-            <button onClick={() => void removeRow(ctx.row)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-status-red hover:bg-status-red/10">
-              <Trash2 size={14} /> Удалить
+          {menuItems(ctx.row).map((it) => (
+            <button key={it.key} role="menuitem" onClick={it.run} className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] ${it.danger ? "text-status-red hover:bg-status-red/10" : "text-on-surface hover:bg-primary-soft"}`}>
+              {it.key === "restore" && <RotateCcw size={14} className="text-outline" />}
+              {it.key === "delete" && <Trash2 size={14} />}
+              {it.label}
             </button>
-          ) : (
-            <p className="px-3.5 py-2 text-[11px] text-outline">{ctx.row.origin ? "Поручение удаляет директор." : "Удалять может только тот, кто ведёт задачу."}</p>
-          )}
+          ))}
+          {!deleted && !canDeleteRow(ctx.row) && <p className="px-3.5 py-2 text-[11px] text-outline">{ctx.row.origin ? "Поручение удаляет директор." : "Удалять может только тот, кто ведёт задачу."}</p>}
         </div>
       )}
       {editor && !sent && (
@@ -539,7 +610,28 @@ ${ask.label}`, placeholder: ask.placeholder, multiline: true, required: !ask.opt
   );
 }
 
-type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Правая кнопка по задаче. */ onMenu?: (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void };
+type MenuHandler = (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void;
+type Common = { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Меню действий: правая кнопка и кнопка «⋯» (для телефона и клавиатуры). */ onMenu?: MenuHandler };
+
+/** Кнопка «⋯» — то же меню действий, что по правой кнопке: на телефоне и с клавиатуры других путей к нему нет. */
+export function MenuButton({ row, onMenu, className = "" }: { row: TRow; onMenu?: MenuHandler; className?: string }) {
+  if (!onMenu) return null;
+  return (
+    <button
+      type="button"
+      aria-label={`Действия: ${row.name}`}
+      title="Действия с задачей"
+      onClick={(e) => {
+        e.stopPropagation();
+        const r = e.currentTarget.getBoundingClientRect();
+        onMenu(row, { clientX: r.right - 8, clientY: r.bottom, preventDefault: () => {} });
+      }}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface max-md:opacity-100 md:opacity-0 md:focus-visible:opacity-100 md:group-hover:opacity-100 ${className}`}
+    >
+      <MoreHorizontal size={16} />
+    </button>
+  );
+}
 
 /** Сегмент → трек → задачи, в порядке появления. */
 function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
@@ -555,7 +647,7 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
 }
 
 /** Метки задачи: горит, срок сдвигали, давно без движения. */
-function Marks({ row, hot, summary, done, unconfirmed, deletedInfo }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean; deletedInfo?: string }) {
+function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cancelled }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean; deletedInfo?: string; cancelled?: boolean }) {
   // удалённая задача — только кто и когда удалил: сигналы и «не подтверждено» к архиву не относятся
   if (deletedInfo)
     return (
@@ -566,6 +658,7 @@ function Marks({ row, hot, summary, done, unconfirmed, deletedInfo }: { row: TRo
     );
   return (
     <>
+      {cancelled && <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant">отменена{row.cancelReason ? `: ${row.cancelReason.slice(0, 60)}` : ""}</span>}
       {row.origin && <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>}
       {row.zgdControl && <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>}
       {unconfirmed && <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>}
@@ -580,7 +673,7 @@ function Marks({ row, hot, summary, done, unconfirmed, deletedInfo }: { row: TRo
           срок сдвигали {summary.slips}× (+{summary.slipDays} дн.)
         </span>
       )}
-      {!done && summary?.idleDays !== null && summary && summary.idleDays >= 14 && (
+      {!done && !cancelled && summary?.idleDays !== null && summary && summary.idleDays >= 14 && (
         <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant" title="Последнее изменение задачи">
           без движения {summary.idleDays} дн.
         </span>
@@ -611,12 +704,13 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unco
               <ul>
                 {t.rows.map((r) => {
                   const col = columnOf(r.statusId, colOf);
+                  const dim = !!deletedInfo?.(r) || col === "HIDDEN";
                   return (
-                    <li key={r.id} className={deletedInfo?.(r) ? "flex items-stretch border-t border-outline-variant/50 opacity-80" : undefined}>
-                      <button onClick={() => onOpen(r)} onContextMenu={(e) => onMenu?.(r, e)} className={`row-hover flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left ${deletedInfo?.(r) ? "" : "border-t border-outline-variant/50"}`}>
+                    <li key={r.id} className={`group flex items-center border-t border-outline-variant/50 ${dim ? "opacity-70" : ""}`}>
+                      <button onClick={() => onOpen(r)} onContextMenu={(e) => onMenu?.(r, e)} className="row-hover flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left">
                         <span className="min-w-0 flex-1 basis-72 text-[13px] text-on-surface [overflow-wrap:anywhere]">{r.name}</span>
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
+                          <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={col === "DONE"} cancelled={col === "HIDDEN"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
                         </span>
                         <span className="w-32 shrink-0"><StatusPill name={r.statusName ?? "Без статуса"} color={r.statusColor} /></span>
                         <span className="flex w-40 shrink-0 items-center gap-1.5 truncate text-[12px] text-on-surface-variant">
@@ -629,6 +723,7 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unco
                           <RotateCcw size={14} /> Вернуть
                         </button>
                       )}
+                      <MenuButton row={r} onMenu={onMenu} className="mr-2" />
                     </li>
                   );
                 })}
@@ -641,16 +736,19 @@ function TrackerList({ rows, colOf, hot, summaries, colors, onOpen, onMenu, unco
   );
 }
 
-function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, canMove, canDone, onMove, mainStatus, unconfirmed, deletedInfo }: Common & { canMove: (r: TRow) => boolean; canDone: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
+type BoardColumn = { key: TrackerColumnKey; label: string };
+
+function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, columns, canMove, director, onMove, mainStatus, unconfirmed, deletedInfo }: Common & { columns: BoardColumn[]; canMove: (r: TRow) => boolean; director: boolean; onMove: (r: TRow, col: TrackerColumnKey) => void; mainStatus: Map<TrackerColumnKey, string | null> }) {
   const [drag, setDrag] = useState<TRow | null>(null);
   const [over, setOver] = useState<TrackerColumnKey | null>(null);
-  // руководитель: свои задачи до «На проверке»; сданную и выполненную двигает только директор (принять / вернуть / переоткрыть)
-  const allowed = (r: TRow, col: TrackerColumnKey) => canDone || (col !== "DONE" && !["DONE", "REVIEW", "HIDDEN"].includes(columnOf(r.statusId, colOf)));
+  // куда можно перенести карточку — таблица переходов lib/tracker.ts (dropTargets): руководитель «Сделать ↔ В работе» и на
+  // проверку; принять, вернуть, отменить, переоткрыть — директор; остальное недопустимо, а не «как-нибудь»
+  const targets = (r: TRow) => dropTargets(columnOf(r.statusId, colOf), director);
   return (
     <div className="flex gap-3 overflow-x-auto pb-2">
-      {BOARD_COLUMNS.map((c) => {
+      {columns.map((c) => {
         const items = rows.filter((r) => columnOf(r.statusId, colOf) === c.key);
-        const droppable = !!drag && allowed(drag, c.key);
+        const droppable = !!drag && targets(drag).includes(c.key);
         return (
           <section
             key={c.key}
@@ -667,18 +765,18 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, can
               if (drag && droppable) onMove(drag, c.key);
               setDrag(null);
             }}
-            className={`flex min-w-64 flex-1 basis-0 flex-col rounded-lg border bg-surface-low p-2 transition-colors ${over === c.key ? "border-primary bg-primary-soft" : "border-outline-variant"} ${drag && !droppable ? "opacity-60" : ""}`}
+            className={`flex min-w-64 flex-1 basis-0 flex-col rounded-lg border bg-surface-low p-2 transition-colors ${over === c.key ? "border-primary bg-primary-soft" : "border-outline-variant"} ${drag && !droppable && columnOf(drag.statusId, colOf) !== c.key ? "opacity-50" : ""}`}
           >
             <header className="mb-2 flex items-center justify-between px-1">
               <span className="text-[13px] font-bold text-on-surface">{c.label}</span>
               <span className="rounded-full bg-surface-high px-2 text-[11px] font-semibold text-on-surface-variant">{items.length}</span>
             </header>
-            {c.key === "DONE" && !canDone && <p className="mb-2 px-1 text-[11px] text-outline">Сюда задачу переносит директор — переведите её в «На проверке».</p>}
+            {c.key === "DONE" && !director && <p className="mb-2 px-1 text-[11px] text-outline">Сюда задачу переносит директор — переведите её в «На проверке».</p>}
             <div className="flex min-h-24 flex-col gap-2">
               {items.map((r) => (
                 <article
                   key={r.id}
-                  draggable={canMove(r) && allowed(r, "REVIEW")}
+                  draggable={canMove(r) && targets(r).length > 0}
                   onDragStart={() => setDrag(r)}
                   onDragEnd={() => {
                     setDrag(null);
@@ -690,10 +788,11 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, can
                   tabIndex={0}
                   role="button"
                   aria-label={`Задача: ${r.name}`}
-                  className={`surface cursor-pointer border-l-4 p-3 outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary ${deletedInfo?.(r) ? "opacity-75" : ""}`}
+                  className={`surface group relative cursor-pointer border-l-4 p-3 outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary ${deletedInfo?.(r) || c.key === "HIDDEN" ? "opacity-75" : ""}`}
                   style={{ borderLeftColor: colors.get(r.segmentId ?? "none") ?? "#94a3b8" }}
                 >
-                  <div className="truncate text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || "Без сегмента"}</div>
+                  <MenuButton row={r} onMenu={onMenu} className="absolute right-1.5 top-1.5" />
+                  <div className="truncate pr-7 text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || "Без сегмента"}</div>
                   <div className="mt-0.5 line-clamp-3 text-[13px] font-medium text-on-surface [overflow-wrap:anywhere]">{r.name}</div>
                   {r.statusName && r.statusId !== mainStatus.get(c.key) && (
                     <div className="mt-1.5">
@@ -701,7 +800,7 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, can
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap gap-1">
-                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
+                    <Marks row={r} hot={hot[r.id]} summary={summaries.get(r.id)} done={c.key === "DONE"} cancelled={c.key === "HIDDEN"} unconfirmed={unconfirmed?.(r)} deletedInfo={deletedInfo?.(r)} />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
                     <span className="flex min-w-0 items-center gap-1.5 truncate text-on-surface-variant">
@@ -718,4 +817,3 @@ function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMenu, can
     </div>
   );
 }
-

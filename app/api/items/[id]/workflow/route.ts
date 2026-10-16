@@ -15,7 +15,7 @@ async function GETHandler(_request: NextRequest, { params }: { params: Promise<{
     prisma.taskReview.findMany({ where: { itemId: id }, orderBy: { submittedAt: "desc" }, take: 10 }),
     prisma.deadlineRequest.findMany({ where: { itemId: id }, orderBy: { createdAt: "desc" }, take: 10 }),
     prisma.zgdRequest.findMany({ where: { itemId: id }, orderBy: { createdAt: "desc" }, take: 10 }),
-    prisma.itemNote.findMany({ where: { itemId: id }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, author: { select: { name: true, role: true } } } }),
+    prisma.itemNote.findMany({ where: { itemId: id }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, audience: true, author: { select: { name: true, role: true } } } }),
     prisma.itemPublication.findFirst({ where: { itemId: id }, orderBy: { publishedAt: "desc" }, select: { publishedAt: true, publishedByName: true, reason: true } }),
   ]);
   return NextResponse.json({ reviews, deadlineRequests, zgdRequests, notes, publication });

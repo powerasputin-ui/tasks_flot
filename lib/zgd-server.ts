@@ -4,6 +4,7 @@ import { recordAudit } from "@/lib/audit";
 import { createNotification } from "@/lib/notifications";
 import { isDirectorial, type Actor } from "@/lib/permissions";
 import { statusForColumn } from "@/lib/tracker";
+import { mskToday } from "@/lib/overdue";
 import { directorsOf, publishItem, wasConfirmed, trackerLink } from "@/lib/workflow-server";
 import { canEditItem } from "@/lib/permissions";
 
@@ -80,6 +81,35 @@ export async function zgdComment(actor: Actor, itemId: string, text: unknown): P
   return { ok: true, data: { id: note.id } };
 }
 
+/**
+ * Комментарий к задаче в карточке трекера: пишет ответственный и директор / админ дирекции. Обычный — виден дирекции
+ * (второй стороне уходит уведомление); «ответ ЗГД» (toZgd) — только директор и только по задаче, которую ЗГД видит:
+ * его видит и ЗГД. Замечания при возврате и внутренние комментарии ЗГД не показываются никогда.
+ */
+export async function addNote(actor: Actor, itemId: string, text: unknown, toZgd: boolean): Promise<ZgdResult<{ id: string }>> {
+  if (actor.viewAs) return fail(403, "В режиме просмотра менять задачи нельзя.");
+  const item = await prisma.operationalItem.findFirst({ where: { id: itemId, directorateId: actor.directorateId ?? "-", archivedAt: null } });
+  if (!item) return fail(404, "Задача не найдена.");
+  if (!canEditItem(actor, item)) return fail(403, "Комментировать может ответственный за задачу или директор.");
+  const t = clip(text, 2000);
+  if (t.length < 2) return fail(400, "Напишите комментарий.");
+  if (toZgd) {
+    if (!isDirectorial(actor.role)) return fail(403, "Отвечать ЗГД может директор.");
+    if (!item.publishedAt) return fail(400, "ЗГД эту задачу ещё не видит: сначала подтвердите её для ЗГД.");
+  }
+  const note = await prisma.itemNote.create({ data: { itemId, authorId: actor.id, text: t, audience: toZgd ? "ZGD" : "INTERNAL" } });
+  const who = await nameOf(actor.id);
+  if (toZgd) {
+    const zgd = await prisma.user.findMany({ where: { role: "EXECUTIVE", isActive: true }, select: { id: true } });
+    for (const u of zgd) await createNotification({ userId: u.id, type: "ZGD_UPDATE", message: `${who} ответил(а) ЗГД по «${item.title.slice(0, 90)}»: ${t.slice(0, 140)}`, link: zgdLink(itemId) });
+  } else {
+    // второй стороне: директор пишет — ответственному, ответственный — директору
+    const to = isDirectorial(actor.role) ? (item.responsibleId && item.responsibleId !== actor.id ? [item.responsibleId] : []) : (await directorsOf(item.directorateId)).filter((u) => u !== actor.id);
+    for (const uid of to) await createNotification({ userId: uid, type: "CHANGE_ATTENTION", message: `${who} оставил(а) комментарий по «${item.title.slice(0, 90)}»: ${t.slice(0, 140)}`, link: trackerLink(item) });
+  }
+  return { ok: true, data: { id: note.id } };
+}
+
 /** Поручение ЗГД: новая задача дирекции (без ответственного — его назначает директор), на контроле ЗГД. */
 /** Исполнитель поручения — действующий сотрудник этой дирекции, который ведёт позиции: руководитель, директор, админ «подаёт как руководитель». */
 async function assignee(directorateId: string, responsibleId: unknown) {
@@ -97,6 +127,7 @@ export async function createOrder(actor: Actor, input: { directorateId: unknown;
   if (title.length < 3) return fail(400, "Сформулируйте поручение.");
   if (expectedResult.length < 3) return fail(400, "Опишите ожидаемый результат — по нему директор примет работу.");
   if (!input.deadline) return fail(400, "Укажите срок.");
+  if (input.deadline.getTime() < mskToday()) return fail(400, "Срок поручения не может быть в прошлом.");
   // исполнителя можно выбрать сразу; иначе его назначает директор
   const resp = await assignee(dir.id, input.responsibleId);
   if (input.responsibleId && !resp) return fail(400, "Исполнитель не найден в этой дирекции.");
@@ -126,6 +157,7 @@ export async function directorOrder(actor: Actor, input: { responsibleId: unknow
   if (title.length < 3) return fail(400, "Сформулируйте поручение.");
   if (expectedResult.length < 3) return fail(400, "Опишите ожидаемый результат — по нему вы примете работу.");
   if (!input.deadline) return fail(400, "Укажите срок.");
+  if (input.deadline.getTime() < mskToday()) return fail(400, "Срок поручения не может быть в прошлом.");
   const resp = await assignee(actor.directorateId, input.responsibleId);
   if (!resp) return fail(400, "Выберите исполнителя из своей дирекции.");
   const segmentId = typeof input.segmentId === "string" && input.segmentId ? input.segmentId : null;
@@ -187,7 +219,8 @@ export async function zgdItemInfo(actor: Actor, itemId: string) {
   if (!(await zgdItem(actor, itemId))) return null;
   const [requests, notes] = await Promise.all([
     prisma.zgdRequest.findMany({ where: { itemId }, orderBy: { createdAt: "desc" }, take: 20 }),
-    prisma.itemNote.findMany({ where: { itemId, author: { role: "EXECUTIVE" } }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, author: { select: { name: true } } } }),
+    // свои комментарии и ответы директора (audience ZGD); внутренние комментарии дирекции и замечания при возврате ЗГД не видны
+    prisma.itemNote.findMany({ where: { itemId, OR: [{ author: { role: "EXECUTIVE" } }, { audience: "ZGD" }] }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, audience: true, author: { select: { name: true, role: true } } } }),
   ]);
   return { requests, notes };
 }

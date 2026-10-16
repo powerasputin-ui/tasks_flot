@@ -197,6 +197,8 @@ model ItemNote {
   authorId  String
   author    User            @relation(fields: [authorId], references: [id])
   text      String
+  /// Кто видит: INTERNAL — дирекция (комментарии, замечания при возврате); ZGD — ещё и ЗГД (ответ директора на его комментарий).
+  audience  String          @default("INTERNAL")
   createdAt DateTime        @default(now())
 
   @@index([itemId])

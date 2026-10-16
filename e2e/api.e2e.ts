@@ -2455,9 +2455,9 @@ describe("ЗГД в трекере: только подтверждённое д
   });
 
   it("поручение ЗГД: дирекция получает задачу без ответственного, на контроле; без результата или срока — нельзя; руководитель не даёт поручений", async () => {
-    expect((await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "", deadline: "2026-11-30" })).status).toBe(400);
-    expect((await zgdAct(head, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "Справка по флоту", deadline: "2026-11-30" })).status).toBe(403);
-    const o = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "Справка по флоту", deadline: "2026-11-30" });
+    expect((await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "", deadline: "2027-11-30" })).status).toBe(400);
+    expect((await zgdAct(head, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "Справка по флоту", deadline: "2027-11-30" })).status).toBe(403);
+    const o = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение`, expectedResult: "Справка по флоту", deadline: "2027-11-30" });
     expect(o.status).toBe(200);
     created.items.push(o.data.id);
     const it = await prisma.operationalItem.findUniqueOrThrow({ where: { id: o.data.id } });
@@ -2469,9 +2469,9 @@ describe("ЗГД в трекере: только подтверждённое д
   });
 
   it("поручение ЗГД сразу сотруднику: исполнитель и директор узнают; сотрудник чужой дирекции — нельзя", async () => {
-    const bad = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение чужому`, expectedResult: "Результат", deadline: "2026-11-30", responsibleId: headB.id });
+    const bad = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение чужому`, expectedResult: "Результат", deadline: "2027-11-30", responsibleId: headB.id });
     expect(bad.status).toBe(400);
-    const o = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение сотруднику`, expectedResult: "Результат", deadline: "2026-11-30", responsibleId: head.id });
+    const o = await zgdAct(zgdUser, { action: "order", directorateId: curator.directorateId, title: `${TAG} поручение сотруднику`, expectedResult: "Результат", deadline: "2027-11-30", responsibleId: head.id });
     expect(o.status).toBe(200);
     created.items.push(o.data.id);
     expect((await prisma.operationalItem.findUniqueOrThrow({ where: { id: o.data.id } })).responsibleId).toBe(head.id);
@@ -2480,7 +2480,7 @@ describe("ЗГД в трекере: только подтверждённое д
   });
 
   it("поручение директора сотруднику: только директор, исполнитель обязателен и из своей дирекции, метка «поручение директора»", async () => {
-    const body = { action: "director-order", responsibleId: head.id, title: `${TAG} поручение директора`, expectedResult: "Таблица загрузки", deadline: "2026-11-20" };
+    const body = { action: "director-order", responsibleId: head.id, title: `${TAG} поручение директора`, expectedResult: "Таблица загрузки", deadline: "2027-11-20" };
     expect((await zgdAct(head, body)).status).toBe(403);
     expect((await zgdAct(zgdUser, body)).status).toBe(403);
     expect((await zgdAct(director, { ...body, responsibleId: headB.id })).status).toBe(400);
@@ -2498,7 +2498,7 @@ describe("ЗГД в трекере: только подтверждённое д
   });
 
   it("срок поручения директора руководитель не переносит сам; директор сам сменил срок — просьба закрыта; решения и ответы — один раз", async () => {
-    const o = await zgdAct(director, { action: "director-order", responsibleId: head.id, title: `${TAG} поручение со сроком`, expectedResult: "Расчёт", deadline: "2026-11-20" });
+    const o = await zgdAct(director, { action: "director-order", responsibleId: head.id, title: `${TAG} поручение со сроком`, expectedResult: "Расчёт", deadline: "2027-11-20" });
     expect(o.status).toBe(200);
     const oid = o.data.id as string;
     created.items.push(oid);
@@ -2541,7 +2541,7 @@ describe("ЗГД в трекере: только подтверждённое д
   });
 
   it("исполнитель не переписывает формулировку и ожидаемый результат поручения; ход работы — в комментарии; директор может", async () => {
-    const o = await zgdAct(director, { action: "director-order", responsibleId: head.id, title: `${TAG} поручение с формулировкой`, expectedResult: "Справка по флоту", deadline: "2026-12-10" });
+    const o = await zgdAct(director, { action: "director-order", responsibleId: head.id, title: `${TAG} поручение с формулировкой`, expectedResult: "Справка по флоту", deadline: "2027-12-10" });
     expect(o.status).toBe(200);
     const oid = o.data.id as string;
     created.items.push(oid);
@@ -2998,7 +2998,7 @@ describe("«Удалённые» в трекере: удалить можно и
     zD = await mk("zgd", "ЗГД У", "EXECUTIVE", null);
     invalidateDicts();
     ordinary = (await call(hD, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} обычная на удаление`, deadline: "2026-12-01" } })).data.row.id;
-    const o = await call(zD, zgd.POST, "/api/zgd", { method: "POST", body: { action: "order", directorateId: dirD, title: `${TAG} поручение ЗГД на удаление`, expectedResult: "Справка", deadline: "2026-12-10", responsibleId: hD.id } });
+    const o = await call(zD, zgd.POST, "/api/zgd", { method: "POST", body: { action: "order", directorateId: dirD, title: `${TAG} поручение ЗГД на удаление`, expectedResult: "Справка", deadline: "2027-12-10", responsibleId: hD.id } });
     expect(o.status).toBe(200);
     order = o.data.id;
   });
@@ -3071,5 +3071,110 @@ describe("«Удалённые» в трекере: удалить можно и
     const blocked = await del(hD, id);
     expect(blocked.status).toBe(409);
     expect(await rowsOf(hD, false)).toContain(id);
+  });
+});
+
+describe("комментарии в карточке, срок поручения, отменённые задачи", () => {
+  let dirN = "";
+  let dN: Actor;
+  let hN: Actor;
+  let h2N: Actor;
+  let zN: Actor;
+  let taskA = "";
+  let taskB = "";
+  const mk = async (key: string, name: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE", directorateId: string | null): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} ${name}`, email: `${TAG}.note-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  const note = (who: Actor | null, id: string, text: string, toZgd?: boolean) => call(who, zgd.POST, "/api/zgd", { method: "POST", body: { action: "note", itemId: id, text, ...(toZgd === undefined ? {} : { toZgd }) } });
+  const inbox = (u: Actor, type: string, contains: string) => prisma.notification.count({ where: { userId: u.id, type: type as never, message: { contains } } });
+  const zNotes = async (id: string) => ((await call(zN, zgd.GET, `/api/zgd?itemId=${id}`)).data.notes as Array<{ text: string; audience?: string }>).map((n) => n.text);
+  const dayShift = (n: number) => new Date(Date.now() + 3 * 3600e3 + n * 864e5).toISOString().slice(0, 10);
+
+  beforeAll(async () => {
+    dirN = (await prisma.directorate.create({ data: { name: `${TAG} Дирекция комментариев`, shortName: "Комм" } })).id;
+    dN = await mk("dir", "Директор К", "DIRECTOR", dirN);
+    hN = await mk("head", "Руководитель К", "HEAD", dirN);
+    h2N = await mk("head2", "Другой руководитель К", "HEAD", dirN);
+    zN = await mk("zgd", "ЗГД К", "EXECUTIVE", null);
+    invalidateDicts();
+    taskA = (await call(hN, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача А для комментариев` } })).data.row.id;
+    taskB = (await call(hN, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} задача Б, ЗГД не видит` } })).data.row.id;
+    expect((await call(dN, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [taskA] } })).data.published).toBe(1);
+  });
+
+  afterAll(async () => {
+    if (!dirN) return;
+    const ids = (await prisma.operationalItem.findMany({ where: { directorateId: dirN }, select: { id: true } })).map((i) => i.id);
+    const people = [dN?.id, hN?.id, h2N?.id, zN?.id].filter(Boolean) as string[];
+    await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: { in: ids } }, { actorId: { in: people } }] } });
+    await prisma.itemNote.deleteMany({ where: { itemId: { in: ids } } });
+    await prisma.notification.deleteMany({ where: { OR: [{ userId: { in: people } }, ...ids.map((i) => ({ link: { contains: i } }))] } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: dirN } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: dirN } });
+  });
+
+  it("обычный комментарий: ответственный и директор пишут, второй стороне — уведомление; ЗГД его не видит", async () => {
+    expect((await note(hN, taskA, "Договор у юристов, жду визу")).status).toBe(200);
+    expect(await inbox(dN, "CHANGE_ATTENTION", "Договор у юристов")).toBe(1);
+    expect((await note(dN, taskA, "Поторопите юристов до пятницы")).status).toBe(200);
+    expect(await inbox(hN, "CHANGE_ATTENTION", "Поторопите юристов")).toBe(1);
+    // карточка дирекции видит оба, ЗГД — ни одного
+    const wf = await call(dN, workflow.GET, `/api/items/${taskA}/workflow`, { id: taskA });
+    const texts = (wf.data.notes as Array<{ text: string; audience: string }>).filter((n) => n.audience === "INTERNAL").map((n) => n.text);
+    expect(texts).toEqual(expect.arrayContaining(["Договор у юристов, жду визу", "Поторопите юристов до пятницы"]));
+    expect(await zNotes(taskA)).toEqual([]);
+  });
+
+  it("права и границы: чужой руководитель, ЗГД, чужая дирекция, короткий и длинный текст; «ответ ЗГД» — только директор и только по видимой ЗГД задаче", async () => {
+    expect((await note(h2N, taskA, "Я не отвечаю за эту задачу")).status).toBe(403);
+    expect([403, 404]).toContain((await note(zN, taskA, "ЗГД не пишет внутренних комментариев")).status);
+    expect((await note(headB, taskA, "чужая дирекция")).status).toBe(404);
+    expect((await note(hN, taskA, "я")).status).toBe(400);
+    expect((await note(hN, taskA, "я".repeat(2001))).status).toBe(400);
+    expect((await note(hN, taskA, "Ответ для ЗГД от руководителя", true)).status).toBe(403);
+    // задача Б ЗГД ещё не видит — отвечать ему по ней нельзя
+    expect((await note(dN, taskB, "Ответ по неподтверждённой", true)).status).toBe(400);
+    expect(await zNotes(taskA)).toEqual([]);
+  });
+
+  it("ответ директора ЗГД: ЗГД получает уведомление и видит его (с пометкой), но не внутренние комментарии и не замечания при возврате", async () => {
+    expect((await note(dN, taskA, "Сроки подтверждаю: к 05.12 будет готово", true)).status).toBe(200);
+    expect(await inbox(zN, "ZGD_UPDATE", "Сроки подтверждаю")).toBe(1);
+    const info = (await call(zN, zgd.GET, `/api/zgd?itemId=${taskA}`)).data.notes as Array<{ text: string; audience?: string; author: { name: string } }>;
+    expect(info.map((n) => n.text)).toEqual(["Сроки подтверждаю: к 05.12 будет готово"]);
+    expect(info[0]).toMatchObject({ audience: "ZGD", author: { name: dN.name } });
+    // замечание при возврате — внутреннее: ЗГД его не видит
+    const cur = await prisma.operationalItem.findUniqueOrThrow({ where: { id: taskA } });
+    expect((await call(hN, item.PATCH, `/api/items/${taskA}`, { method: "PATCH", id: taskA, body: { version: cur.version, operFlag: true } })).status).toBe(200);
+    expect((await call(dN, ret.POST, `/api/items/${taskA}/return`, { method: "POST", id: taskA, body: { comment: "СЕКРЕТНОЕ-ЗАМЕЧАНИЕ-директора" } })).status).toBe(200);
+    expect(JSON.stringify(await zNotes(taskA))).not.toContain("СЕКРЕТНОЕ");
+  });
+
+  it("поручение: срок в прошлом — 400 (и у ЗГД, и у директора); сегодняшний срок — можно", async () => {
+    const body = (d: string) => ({ action: "order", directorateId: dirN, title: `${TAG} поручение со сроком`, expectedResult: "Справка", deadline: d });
+    expect((await call(zN, zgd.POST, "/api/zgd", { method: "POST", body: body(dayShift(-1)) })).status).toBe(400);
+    expect((await call(dN, zgd.POST, "/api/zgd", { method: "POST", body: { action: "director-order", responsibleId: hN.id, title: `${TAG} поручение директора`, expectedResult: "Справка", deadline: dayShift(-3) } })).status).toBe(400);
+    const ok = await call(zN, zgd.POST, "/api/zgd", { method: "POST", body: body(dayShift(0)) });
+    expect(ok.status).toBe(200);
+    created.items.push(ok.data.id);
+  });
+
+  it("отменённая задача остаётся в данных трекера (скрыта лишь переключателем) и переоткрывается директором", async () => {
+    const t = await call(hN, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} будет отменена` } });
+    const id = t.data.row.id as string;
+    const ver = async () => (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+    const tr = async (who: Actor, body: Record<string, unknown>) => call(who, transition.POST, `/api/items/${id}/transition`, { method: "POST", id, body: { version: await ver(), ...body } });
+    expect((await tr(hN, { action: "cancel", reason: "не нужна" })).status).toBe(403); // руководитель не отменяет
+    expect((await tr(dN, { action: "cancel", reason: "не нужна: проект закрыт" })).status).toBe(200);
+    const row = ((await call(dN, tracker.GET, "/api/tracker")).data.rows as Array<{ id: string; statusName: string; cancelReason?: string }>).find((r) => r.id === id);
+    expect(row).toMatchObject({ statusName: "Не актуально", cancelReason: "не нужна: проект закрыт" });
+    expect((await tr(hN, { action: "reopen", reason: "снова нужна" })).status).toBe(403);
+    const back = await tr(dN, { action: "reopen", reason: "проект возобновили" });
+    expect(back.status).toBe(200);
+    expect(back.data.row.statusName).toBe("В работе");
   });
 });

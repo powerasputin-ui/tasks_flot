@@ -7,7 +7,7 @@ import { ruDay, type HotInfo, type TrackerEvent } from "@/lib/tracker";
 import type { TRow } from "@/components/tracker/TrackerView";
 
 type Req = { id: string; text: string; createdAt: string; dueAt: string | null; askedByName: string; answer: string | null; answeredByName: string | null; answeredAt: string | null };
-type Note = { id: string; text: string; createdAt: string; author: { name: string } };
+type Note = { id: string; text: string; createdAt: string; audience?: string; author: { name: string; role?: string } };
 
 async function post(body: Record<string, unknown>): Promise<string | null> {
   const r = await fetch("/api/zgd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -132,10 +132,10 @@ export function ZgdPanel({ row, events, hot, onClose, onChanged }: { row: TRow; 
         )}
         {!!info?.notes.length && (
           <div>
-            <div className="label-caps mb-1">Комментарии ЗГД</div>
+            <div className="label-caps mb-1">Комментарии</div>
             <ul className="space-y-1.5">
               {info.notes.map((n) => (
-                <li key={n.id}><span className="text-outline">{ruDay(n.createdAt)}</span> {n.text}</li>
+                <li key={n.id}><span className="text-outline">{ruDay(n.createdAt)}</span> {n.audience === "ZGD" && <span className="font-semibold text-primary">Ответ директора ({n.author.name}): </span>}{n.text}</li>
               ))}
             </ul>
           </div>
@@ -187,7 +187,10 @@ export function OrderPanel({ mode = "zgd", directorates = [], people = [], segme
     if (err) return setError(err);
     onDone();
   }
-  const ready = (zgd ? !!dir : !!resp) && title.trim().length >= 3 && result.trim().length >= 3 && !!deadline;
+  // срок — не раньше сегодня (по Москве); сервер проверяет то же
+  const [today] = useState(() => new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10));
+  const missing = [(zgd ? !dir : !resp) ? (zgd ? "дирекцию" : "исполнителя") : "", title.trim().length < 3 ? "что сделать" : "", result.trim().length < 3 ? "ожидаемый результат" : "", !deadline ? "срок" : deadline < today ? "срок не в прошлом" : ""].filter(Boolean);
+  const ready = missing.length === 0;
   return (
     <Panel
       title={zgd ? "Поручение дирекции" : "Поручение сотруднику"}
@@ -237,9 +240,10 @@ export function OrderPanel({ mode = "zgd", directorates = [], people = [], segme
         </label>
         <label className="block">
           <span className="mb-1 block text-[12px] font-semibold text-on-surface-variant">Срок</span>
-          <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input w-44" />
+          <input type="date" value={deadline} min={today} onChange={(e) => setDeadline(e.target.value)} className="input w-44" />
         </label>
         {error && <p className="text-[12px] text-status-red">{error}</p>}
+        {!ready && <p className="text-[12px] text-on-surface-variant">Нужно: {missing.join(", ")}.</p>}
         <div className="flex gap-2">
           <button onClick={() => void send()} disabled={busy || !ready} className="btn-primary">{busy ? "Отправляю…" : "Дать поручение"}</button>
           <button onClick={onClose} className="btn-ghost">Отмена</button>

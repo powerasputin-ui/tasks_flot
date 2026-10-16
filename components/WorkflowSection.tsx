@@ -11,7 +11,7 @@ const ru = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString
 type Review = { id: string; submittedByName: string; submittedAt: string; result: string; decision: string | null; decidedByName: string | null; decidedAt: string | null; comment: string | null };
 type ZgdReq = { id: string; text: string; createdAt: string; dueAt: string | null; askedByName: string; answer: string | null; answeredByName: string | null; answeredAt: string | null };
 type DlReq = { id: string; newDeadline: string; reason: string; requestedByName: string; createdAt: string; decision: string | null; decidedByName: string | null; comment: string | null };
-type Note = { id: string; text: string; createdAt: string; author: { name: string; role: string } };
+type Note = { id: string; text: string; createdAt: string; audience?: string; author: { name: string; role: string } };
 type Info = { reviews: Review[]; zgdRequests: ZgdReq[]; deadlineRequests: DlReq[]; notes: Note[]; publication: { publishedAt: string; publishedByName: string; reason: string } | null };
 
 async function zgdPost(body: Record<string, unknown>): Promise<string | null> {
@@ -51,7 +51,7 @@ export const ASK: Partial<Record<WorkflowAction, { field: "result" | "comment" |
  * «Ход работы» в карточке позиции: состояние по трекеру и действия — сдать на проверку, принять / вернуть (директор),
  * поставить на стоп / снять со стопа, отменить / переоткрыть (директор). Права и обязательные поля — lib/workflow.ts (сервер проверяет то же).
  */
-export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { row: WorkflowRow; column: TrackerColumnKey; actor: { id: string; role: string } | null; readOnly?: boolean; onChanged: (row: unknown) => void }) {
+export function WorkflowSection({ row, column, actor, readOnly, dirty, onChanged }: { row: WorkflowRow; column: TrackerColumnKey; actor: { id: string; role: string } | null; readOnly?: boolean; /** В форме есть несохранённые правки: действия, ответы и просьбы заблокированы (они перечитают карточку и затёрли бы правки). */ dirty?: boolean; onChanged: (row: unknown) => void }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [open, setOpen] = useState<WorkflowAction | null>(null);
   const [text, setText] = useState("");
@@ -68,7 +68,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
 
   const director = !!actor && (actor.role === "DIRECTOR" || actor.role === "ADMIN");
   // руководитель: срок поручения ЗГД / задачи на контроле переносится только через просьбу директору
-  const canAskDeadline = !!actor && !readOnly && actor.role === "HEAD" && (!!row.zgdControl || !!row.origin) && !!row.deadline && !info?.deadlineRequests.some((r) => !r.decision);
+  const canAskDeadline = !!actor && !readOnly && !dirty && actor.role === "HEAD" && (!!row.zgdControl || !!row.origin) && !!row.deadline && !info?.deadlineRequests.some((r) => !r.decision);
   const [reply, setReply] = useState<{ kind: "answer" | "reject" | "ask"; id: string } | null>(null);
   const [newDate, setNewDate] = useState("");
   async function side(body: Record<string, unknown>) {
@@ -83,8 +83,27 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
     load();
     onChanged(null);
   }
-  const actions = actor && !readOnly ? availableActions({ id: actor.id, role: actor.role as never }, { column, responsibleId: row.ownerId, createdById: row.createdById, blocked: !!row.blockedBy || row.statusName === STOP_STATUS, archived: row.archived }) : [];
+  const possible = actor && !readOnly ? availableActions({ id: actor.id, role: actor.role as never }, { column, responsibleId: row.ownerId, createdById: row.createdById, blocked: !!row.blockedBy || row.statusName === STOP_STATUS, archived: row.archived }) : [];
+  const actions = dirty ? [] : possible;
   const last = info?.reviews[0] ?? null;
+  // комментарий: ответственный и директор; «ответ ЗГД» — только директор и только по задаче, которую ЗГД уже видит
+  const canComment = !!actor && !readOnly && !row.archived && (director || (actor.role === "HEAD" && row.ownerId === actor.id));
+  const canReplyZgd = director && !!info?.publication;
+  const [note, setNote] = useState("");
+  const [toZgd, setToZgd] = useState(false);
+  async function sendNote() {
+    setBusy(true);
+    setError(null);
+    const err = await zgdPost({ action: "note", itemId: row.id, text: note, toZgd: toZgd && canReplyZgd });
+    setBusy(false);
+    if (err) return setError(err);
+    setNote("");
+    setToZgd(false);
+    load();
+  }
+  // что сейчас недоступно из-за несохранённых правок — чтобы кнопки не пропадали молча
+  const pendingSide = director && (!!info?.zgdRequests.some((q) => !q.answer) || !!info?.deadlineRequests.some((r) => !r.decision));
+  const blockedByDirty = !!dirty && !readOnly && !!actor && (possible.length > 0 || pendingSide || canComment);
 
   async function run(action: WorkflowAction) {
     setBusy(true);
@@ -154,7 +173,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
             <p className="mt-1 text-status-emerald">
               Ответ {q.answeredByName}: {q.answer}
             </p>
-          ) : director && !readOnly ? (
+          ) : director && !readOnly && !dirty ? (
             reply?.kind === "answer" && reply.id === q.id ? (
               <div className="mt-2 space-y-2">
                 <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={2000} className="input w-full" autoFocus placeholder="Ответ ЗГД: что сделано, что дальше, когда" />
@@ -190,7 +209,7 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
               {r.decision === "APPROVED" ? "Согласовано" : r.decision === "CLOSED" ? "Закрыта" : "Не согласовано"} — {r.decidedByName}
               {r.comment ? `: ${r.comment}` : ""}
             </p>
-          ) : director && !readOnly ? (
+          ) : director && !readOnly && !dirty ? (
             reply?.kind === "reject" && reply.id === r.id ? (
               <div className="mt-2 space-y-2">
                 <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={500} className="input w-full" autoFocus placeholder="Почему перенос не согласован" />
@@ -248,7 +267,8 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
               <li key={n.id}>
                 <span className="text-outline">
                   {ru(n.createdAt)} · {n.author.name}
-                  {n.author.role === "EXECUTIVE" ? " (ЗГД)" : ""}:
+                  {n.author.role === "EXECUTIVE" ? " (ЗГД)" : ""}
+                  {n.audience === "ZGD" ? " · ответ ЗГД" : ""}:
                 </span>{" "}
                 {n.text}
               </li>
@@ -256,6 +276,22 @@ export function WorkflowSection({ row, column, actor, readOnly, onChanged }: { r
           </ul>
         </div>
       )}
+
+      {canComment && !dirty && (
+        <div className="space-y-2 rounded-md border border-outline-variant bg-surface-low p-3">
+          <label className="block text-[12px] font-semibold text-on-surface-variant">Комментарий</label>
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={2000} className="input w-full" placeholder={director ? "Замечание или уточнение по задаче — увидит ответственный" : "Комментарий по задаче — увидит директор"} />
+          {canReplyZgd && (
+            <label className="flex items-center gap-2 text-[12px] text-on-surface-variant">
+              <input type="checkbox" checked={toZgd} onChange={(e) => setToZgd(e.target.checked)} /> Ответить ЗГД (комментарий увидит и он)
+            </label>
+          )}
+          <button disabled={busy || note.trim().length < 2} onClick={() => void sendNote()} className="btn-primary h-8">
+            {busy ? "Отправляю…" : toZgd ? "Ответить ЗГД" : "Отправить"}
+          </button>
+        </div>
+      )}
+      {blockedByDirty && <p className="rounded-md bg-status-amber/10 px-3 py-2 text-[12px] text-[#b45309]">Есть несохранённые правки: сохраните их или отмените — тогда станут доступны действия (сдать, принять, вернуть…), ответы и комментарии.</p>}
 
       {actions.length > 0 && (
         <div className="flex flex-wrap gap-2">

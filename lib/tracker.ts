@@ -255,3 +255,105 @@ export function motionText(m: Motion): string {
     .filter(Boolean)
     .join("; ");
 }
+
+// ---------- доска: допустимые переходы, окно «Выполнено», фильтры в адресе
+
+import type { WorkflowAction } from "@/lib/workflow";
+
+/**
+ * В какие колонки можно перенести карточку из этой колонки (перетаскивание и меню). Руководитель двигает свои задачи
+ * только «Сделать ↔ В работе» и «на проверку»; приёмка, возврат, отмена, переоткрытие — директор (как в lib/workflow.ts).
+ * Остальное недопустимо, а не «как-нибудь»: например «На проверке» → «Сделать» раньше выполняло «вернуть» и задача
+ * оказывалась в «В работе», а не там, куда бросили.
+ */
+export function dropTargets(from: TrackerColumnKey, director: boolean): TrackerColumnKey[] {
+  switch (from) {
+    case "TODO":
+      return director ? ["DOING", "REVIEW", "HIDDEN"] : ["DOING", "REVIEW"];
+    case "DOING":
+      return director ? ["TODO", "REVIEW", "HIDDEN"] : ["TODO", "REVIEW"];
+    case "REVIEW":
+      return director ? ["DOING", "DONE", "HIDDEN"] : [];
+    case "DONE":
+    case "HIDDEN":
+      return director ? ["DOING"] : [];
+  }
+}
+
+/** Действие трекера, которое выполняет перенос «из → в»; null — обычная смена статуса (Сделать ↔ В работе). */
+export function dropAction(from: TrackerColumnKey, to: TrackerColumnKey): WorkflowAction | null {
+  if (to === "REVIEW") return "submit";
+  if (to === "DONE") return "accept";
+  if (to === "HIDDEN") return "cancel";
+  if (to === "DOING" && from === "REVIEW") return "return";
+  if (to === "DOING" && (from === "DONE" || from === "HIDDEN")) return "reopen";
+  return null;
+}
+
+/** Когда задачу приняли (из журнала: «принята директором…»); нет записи — когда её последний раз правили. */
+export function closedAtOf(events: TrackerEvent[], fallback: string | Date): number {
+  const acc = [...events].reverse().find((e) => e.kind === "workflow" && /^принят/.test(e.text));
+  return new Date(acc?.at ?? fallback).getTime();
+}
+
+/** Выполненное в окне последних дней — на доске и в списке по умолчанию видно только оно (остальное — «показать все»). */
+export const DONE_WINDOW_DAYS = 14;
+export function isRecentlyDone(events: TrackerEvent[], updatedAt: string | Date, now: number = Date.now(), days = DONE_WINDOW_DAYS): boolean {
+  return now - closedAtOf(events, updatedAt) <= days * DAY;
+}
+
+/** Фильтры трекера — то, что попадает в адрес, чтобы вид можно было переслать ссылкой и он переживал перезагрузку. */
+export type TrackerFilters = {
+  kind: string | null;
+  scope: string;
+  mine: boolean;
+  slip: boolean;
+  col: TrackerColumnKey | null;
+  cancelled: boolean;
+  doneAll: boolean;
+  seg: string[];
+  owner: string[];
+  q: string;
+};
+export const EMPTY_FILTERS: TrackerFilters = { kind: null, scope: "all", mine: false, slip: false, col: null, cancelled: false, doneAll: false, seg: [], owner: [], q: "" };
+
+const COLS: TrackerColumnKey[] = ["TODO", "DOING", "REVIEW", "DONE", "HIDDEN"];
+
+/** Только отличия от «ничего не выбрано» — короткий адрес. */
+export function filtersToParams(f: TrackerFilters): Record<string, string> {
+  const o: Record<string, string> = {};
+  if (f.kind) o.kind = f.kind;
+  if (f.scope !== "all") o.scope = f.scope;
+  if (f.mine) o.mine = "1";
+  if (f.slip) o.slip = "1";
+  if (f.col) o.col = f.col;
+  if (f.cancelled) o.cancelled = "1";
+  if (f.doneAll) o.done = "all";
+  if (f.seg.length) o.seg = f.seg.join(",");
+  if (f.owner.length) o.owner = f.owner.join(",");
+  if (f.q.trim()) o.q = f.q.trim().slice(0, 200);
+  return o;
+}
+
+/** Разбор адреса: неизвестные значения игнорируются (ссылку могли испортить). */
+export function filtersFromParams(get: (k: string) => string | null, kinds: readonly string[], scopes: readonly string[]): TrackerFilters {
+  const list = (k: string) => (get(k) ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 50);
+  const kind = get("kind");
+  const scope = get("scope");
+  const col = get("col") as TrackerColumnKey | null;
+  return {
+    kind: kind && kinds.includes(kind) ? kind : null,
+    scope: scope && scopes.includes(scope) ? scope : "all",
+    mine: get("mine") === "1",
+    slip: get("slip") === "1",
+    col: col && COLS.includes(col) ? col : null,
+    cancelled: get("cancelled") === "1",
+    doneAll: get("done") === "all",
+    seg: list("seg"),
+    owner: list("owner"),
+    q: (get("q") ?? "").slice(0, 200),
+  };
+}
+
+/** Есть ли что-то, что можно «сбросить» (кроме «Отменённых» и «Выполнено: все» — это режимы показа, а не отбор). */
+export const hasActiveFilters = (f: TrackerFilters) => !!(f.kind || f.scope !== "all" || f.mine || f.slip || f.col || f.seg.length || f.owner.length || f.q.trim());
