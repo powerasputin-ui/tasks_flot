@@ -107,8 +107,11 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const days = Math.max(1, Math.round((range.to - range.from) / DAY));
-  const pxDay = zoom === "fit" ? Math.max(4, (boxW - nameW) / days) : ZOOM_PX[zoom];
+  const dataDays = Math.max(1, Math.round((range.to - range.from) / DAY));
+  const pxDay = zoom === "fit" ? Math.max(4, (boxW - nameW) / dataDays) : ZOOM_PX[zoom];
+  // шкала всегда на всю ширину: при крупном масштабе и коротком периоде она продлевается вправо до края экрана
+  const days = zoom === "fit" ? dataDays : Math.max(dataDays, Math.ceil(Math.max(0, boxW - nameW) / pxDay));
+  const rangeTo = range.from + days * DAY;
   const width = Math.ceil(days * pxDay);
   const xs = (ms: number) => ((ms - range.from) / DAY) * pxDay; // ms — московское время
   const xEv = (d: string | number | Date) => xs(shift(d));
@@ -132,24 +135,24 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
     const out: Array<{ from: number; to: number; label: string }> = [];
     const f = new Date(range.from);
     let m = Date.UTC(f.getUTCFullYear(), f.getUTCMonth(), 1);
-    while (m < range.to) {
+    while (m < rangeTo) {
       const d = new Date(m);
       const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
-      out.push({ from: Math.max(m, range.from), to: Math.min(next, range.to), label: `${ru(m, { month: "long" })} ${d.getUTCFullYear()}` });
+      out.push({ from: Math.max(m, range.from), to: Math.min(next, rangeTo), label: `${ru(m, { month: "long" })} ${d.getUTCFullYear()}` });
       m = next;
     }
     return out;
-  }, [range]);
+  }, [range, rangeTo]);
   const weeks = useMemo(() => {
     const out: number[] = [];
-    for (let t = range.from; t < range.to; t += 7 * DAY) out.push(t);
+    for (let t = range.from; t < rangeTo; t += 7 * DAY) out.push(t);
     return out;
-  }, [range]);
+  }, [range, rangeTo]);
   const dayList = useMemo(() => {
     const out: number[] = [];
-    for (let t = range.from; t < range.to; t += DAY) out.push(t);
+    for (let t = range.from; t < rangeTo; t += DAY) out.push(t);
     return out;
-  }, [range]);
+  }, [range, rangeTo]);
 
   // курсор над шкалой: вертикаль и дата под ним
   const [hover, setHover] = useState<number | null>(null);
