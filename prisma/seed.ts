@@ -33,12 +33,15 @@ const ATTRACTIVENESS: Array<{ name: string; color: string }> = [
 ];
 
 // Раздел 10. Цвета — оформление (не бизнес-значение), подобраны в стиле раздела 78.
-const STATUSES: Array<{ name: string; color: string }> = [
-  { name: "Не начато", color: "#9CA3AF" },
-  { name: "В работе", color: "#2563EB" },
-  { name: "Завершено", color: "#16A34A" },
-  { name: "На стопе", color: "#DC2626" },
-  { name: "Не актуально", color: "#A1A1AA" },
+// Колонка трекера — как на боевой (миграция 20261015120000_tracker_columns): без неё чистая установка получала статусы,
+// которых нет ни в одной колонке доски, и не получала «На проверке» (миграция добавляет его, только если статусы уже есть).
+const STATUSES: Array<{ name: string; color: string; column: "TODO" | "DOING" | "REVIEW" | "DONE" | "HIDDEN" }> = [
+  { name: "Не начато", color: "#9CA3AF", column: "TODO" },
+  { name: "В работе", color: "#2563EB", column: "DOING" },
+  { name: "На проверке", color: "#D97706", column: "REVIEW" },
+  { name: "Завершено", color: "#16A34A", column: "DONE" },
+  { name: "На стопе", color: "#DC2626", column: "DOING" },
+  { name: "Не актуально", color: "#A1A1AA", column: "HIDDEN" },
 ];
 
 async function main() {
@@ -68,9 +71,11 @@ async function main() {
     await prisma.status.upsert({
       where: { name: s.name },
       update: { color: s.color },
-      create: { name: s.name, color: s.color, sortOrder: i },
+      create: { name: s.name, color: s.color, sortOrder: i, trackerColumn: s.column },
     });
   }
+
+  for (const s of STATUSES) await prisma.status.updateMany({ where: { name: s.name, trackerColumn: null }, data: { trackerColumn: s.column } });
 
   console.log("Seed завершён: справочники Segment/Attractiveness/Status заполнены. Администратора создаёт npm run create-admin.");
 }

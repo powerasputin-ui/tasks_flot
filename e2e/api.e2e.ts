@@ -65,6 +65,9 @@ import * as chatPeople from "@/app/api/chat/people/route";
 import * as chatUnread from "@/app/api/chat/unread/route";
 import * as chatGroups from "@/app/api/chat/groups/route";
 import { pruneChat } from "@/lib/chat-server";
+import * as errorsRoute from "@/app/api/errors/route";
+import { errorDigest } from "@/lib/error-log";
+import { withApiErrors } from "@/lib/api-guard";
 import * as publish from "@/app/api/tracker/publish/route";
 import * as report from "@/app/api/report/route";
 import * as templates from "@/app/api/report-templates/route";
@@ -3550,5 +3553,55 @@ describe("чат: проверка крайних случаев (QA)", () => {
     expect((await say(headQ, g, "в пустоту")).status).toBe(404);
     await prisma.operationalItem.update({ where: { id: itemQ }, data: { archivedAt: new Date() } });
     expect((await call(headQ, chatGroups.POST, "/api/chat/groups", { method: "POST", body: { itemId: itemQ } })).status).toBe(404);
+  });
+});
+
+describe("журнал ошибок сайта", () => {
+  const route = "/api/errors";
+  // в журнале длинные числа вычищаются (телефоны) — метка теста только из букв
+  const ETAG = TAG.replace(/\d/g, (d) => "abcdefghij"[Number(d)]);
+  afterAll(async () => {
+    await prisma.appError.deleteMany({ where: { message: { contains: ETAG } } });
+    await prisma.notification.deleteMany({ where: { message: { startsWith: "За сутки новых ошибок" }, createdAt: { gte: new Date(Date.now() - 3600e3) } } });
+  });
+
+  it("браузер сообщает об ошибке: без входа — 401; маршрут без параметров, e-mail вычищен, повтор склеивается", async () => {
+    expect((await call(null, errorsRoute.POST, route, { method: "POST", body: { message: "x", route: "/" } })).status).toBe(401);
+    const body = { message: `${ETAG} нет доступа для ivanov@gazprom.ru`, stack: "Error\n    at f (a.js:1:2)", route: "/tracker?item=секрет&q=поиск" };
+    expect((await call(head, errorsRoute.POST, route, { method: "POST", body })).status).toBe(200);
+    expect((await call(head, errorsRoute.POST, route, { method: "POST", body })).status).toBe(200);
+    const rows = await prisma.appError.findMany({ where: { message: { contains: ETAG } } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: "CLIENT", route: "/tracker", count: 2, role: "HEAD" });
+    expect(rows[0].message).not.toContain("gazprom");
+    expect(rows[0].message).toContain("<email>");
+  });
+
+  it("читать журнал и отмечать «решено» — только админ и техадмин", async () => {
+    expect((await call(head, errorsRoute.GET, route)).status).toBe(403);
+    expect((await call(director, errorsRoute.GET, route)).status).toBe(403);
+    const list = await call(admin, errorsRoute.GET, route);
+    expect(list.status).toBe(200);
+    const mine = (list.data.errors as Array<{ id: string; message: string }>).find((e) => e.message.includes(ETAG));
+    expect(mine).toBeTruthy();
+    expect((await call(head, errorsRoute.DELETE, `${route}?id=${mine!.id}`, { method: "DELETE" })).status).toBe(403);
+    expect((await call(admin, errorsRoute.DELETE, `${route}?id=${mine!.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await prisma.appError.count({ where: { id: mine!.id } })).toBe(0);
+  });
+
+  it("необработанная ошибка API попадает в журнал как серверная, ответ не меняется; сводка и уборка в cron", async () => {
+    const boom = withApiErrors(async (_req: NextRequest) => {
+      throw new Error(`${ETAG} сервер упал`);
+    });
+    await expect(boom(new NextRequest("http://localhost/api/items/cmvaxfrkg00035qggy1mn7yx5/workflow?x=1"))).rejects.toThrow("сервер упал");
+    const row = await prisma.appError.findFirstOrThrow({ where: { message: { contains: `${ETAG} сервер упал` } } });
+    expect(row).toMatchObject({ source: "SERVER", route: "GET /api/items/:id/workflow" });
+    // старая запись уходит при уборке, новая даёт сводку админам
+    await prisma.appError.create({ data: { fingerprint: `${ETAG}-old`, source: "SERVER", route: "/old", message: `${ETAG} старая`, lastAt: new Date(Date.now() - 100 * 864e5), firstAt: new Date(Date.now() - 100 * 864e5) } });
+    const r = await errorDigest();
+    expect(r.fresh).toBeGreaterThanOrEqual(1);
+    expect(r.pruned).toBeGreaterThanOrEqual(1);
+    expect(await prisma.appError.count({ where: { fingerprint: `${ETAG}-old` } })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: curator.id, message: { startsWith: "За сутки новых ошибок" } } })).toBeGreaterThanOrEqual(1);
   });
 });

@@ -5,7 +5,7 @@ import { askConfirm, askText } from "@/components/ui/Dialog";
 import { attractivenessText } from "@/lib/attractiveness";
 import { systemStatusHint } from "@/lib/statuses";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Lock, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ClipboardCheck, Bot, Bug, Building2, Columns3, FileText, KeyRound, Layers, ListChecks, Lock, Pencil, Plus, Route, Search, Star, Trash2, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
@@ -14,6 +14,7 @@ import { clearBootstrap } from "@/lib/client-bootstrap";
 import { TrackerSettings } from "@/components/TrackerSettings";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
+import { ErrorsSettings } from "@/components/ErrorsSettings";
 
 type Ref = { id: string; name: string; color?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
@@ -37,7 +38,7 @@ type Act = (p: Promise<Result>, okText?: string) => Promise<void>;
 /** Группа «без дирекции» в списке людей у админа. */
 const NO_DIR = "__none";
 
-type SectionKey = "users" | "directorates" | "memo" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness" | "ai";
+type SectionKey = "users" | "directorates" | "memo" | "columns" | "segments" | "tracks" | "statuses" | "attractiveness" | "ai" | "errors";
 type ColumnRow = { id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result> {
@@ -88,6 +89,7 @@ export default function SettingsPage() {
   useEffect(() => {
     reload();
     if (window.location.hash === "#columns") setSection("columns");
+    if (new URLSearchParams(window.location.search).get("section") === "errors") setSection("errors");
   }, [reload]);
 
   useEffect(() => {
@@ -141,6 +143,8 @@ export default function SettingsPage() {
     { key: "attractiveness", label: "Внимание", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
     // ИИ-помощник по справкам: подключает админ (ключ API); ЗГД делает то же у себя на странице «Оперативка»
     ...(me?.role === "ADMIN" ? [{ key: "ai" as const, label: "ИИ-помощник", icon: <Bot size={16} />, count: 0, noCount: true }] : []),
+    // журнал ошибок сайта — админу и техадмину (ссылка из ежедневной сводки: /settings?section=errors)
+    { key: "errors" as const, label: "Ошибки", icon: <Bug size={16} />, count: 0, noCount: true, adminOnly: true },
   ];
   // Директор ведёт колонки таблицы, руководителей и треки; админ — всё.
   const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
@@ -219,6 +223,7 @@ export default function SettingsPage() {
             <TrackerSettings reloadKey={statuses.length} />
           </>
         )}
+        {section === "errors" && isAdmin && <ErrorsSettings />}
         {section === "ai" && (
           <div className="max-w-md">
             <SectionHeader title="ИИ-помощник" hint="Ключ API любого провайдера: помощник отвечает по справкам на странице «Оперативка → Архив». У каждого пользователя своё подключение." />

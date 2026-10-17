@@ -3,6 +3,7 @@ import { DialogHost } from "@/components/ui/Dialog";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { PwaRegister } from "@/components/PwaRegister";
+import { ErrorReporter } from "@/components/ErrorReporter";
 
 export const metadata: Metadata = {
   title: "ГШП Оперативка",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <AppShell>{children}</AppShell>
         <DialogHost />
         <PwaRegister />
+        <ErrorReporter />
       </body>
     </html>
   );

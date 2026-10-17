@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/session";
 import { ScopeError } from "@/lib/scope";
+import { recordError } from "@/lib/error-log";
 
 /**
  * Обёртка обработчиков API: ошибки доступа, которые бросают requireActor/requireDirectorate, превращаются в понятные
@@ -22,6 +23,9 @@ export function withApiErrors<A extends unknown[]>(handler: (...args: A) => Prom
         return NextResponse.json({ error: e.message === "DIRECTORATE_DISABLED" ? "DIRECTORATE_DISABLED" : "UNAUTHENTICATED" }, { status: 401 });
       }
       if (e instanceof ScopeError) return NextResponse.json({ error: "NO_DIRECTORATE" }, { status: 403 });
+      // необработанная ошибка — в журнал ошибок (Настройки → «Ошибки»); ответ остаётся прежним (500 от Next)
+      const err = e instanceof Error ? e : new Error(String(e));
+      await recordError({ source: "SERVER", route: req ? `${req.method} ${new URL(req.url).pathname}` : "api", message: err.message, stack: err.stack });
       throw e;
     } finally {
       // диагностика зависаний: медленный ответ API — в журнал Vercel с номером запроса (x-vercel-id), чтобы сверить с замером

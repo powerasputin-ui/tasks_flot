@@ -9,5 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // e2e/ui — браузерные сценарии Playwright (npm run test:ui), не юнит-тесты
+    exclude: ["**/node_modules/**", "e2e/ui/**"],
   },
 });

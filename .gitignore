@@ -62,3 +62,8 @@ next-env.d.ts
 # экзамен ИИ: реальные данные дирекций (вопросы, эталоны, отчёты) — не в git
 /e2e/ai-exam/data/
 __pycache__/
+
+# браузерные тесты: куки учёток и отчёты
+e2e/ui/.auth/
+playwright-report/
+test-results/

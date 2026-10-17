@@ -595,3 +595,22 @@ model ChatRead {
   @@id([threadId, userId])
   @@map("chat_reads")
 }
+
+/// Журнал ошибок прода (сервер и браузер): одинаковые склеиваются по отпечатку (count, lastAt). Без текстов задач и личных данных.
+model AppError {
+  id          String   @id @default(cuid())
+  fingerprint String   @unique
+  /// SERVER | CLIENT
+  source      String
+  /// Адрес страницы или маршрут API без параметров.
+  route       String
+  message     String
+  stack       String?
+  role        String?
+  count       Int      @default(1)
+  firstAt     DateTime @default(now())
+  lastAt      DateTime @default(now())
+
+  @@index([lastAt])
+  @@map("app_errors")
+}

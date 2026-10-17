@@ -303,13 +303,18 @@ export function TrackerView() {
     if (!ctx) return;
     const close = () => setCtx(null);
     const key = (e: KeyboardEvent) => e.key === "Escape" && close();
+    // прокрутка закрывает меню, но не та, что сам браузер делает при нажатии (на телефоне доска подтягивает колонку к краю)
+    let armed = false;
+    const arm = setTimeout(() => (armed = true), 400);
+    const scrolled = () => armed && close();
     window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", scrolled, true);
     window.addEventListener("resize", close);
     window.addEventListener("keydown", key);
     return () => {
       window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
+      clearTimeout(arm);
+      window.removeEventListener("scroll", scrolled, true);
       window.removeEventListener("resize", close);
       window.removeEventListener("keydown", key);
     };
