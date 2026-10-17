@@ -15,7 +15,7 @@ import { STOP_STATUS } from "@/lib/statuses";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
 import { loadBootstrap, type Bootstrap } from "@/lib/client-bootstrap";
-import { canCreateItem, canDeleteItem, isDirectorial } from "@/lib/permissions";
+import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial } from "@/lib/permissions";
 import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import { usePreviewAs } from "@/lib/preview-as";
 import { useIsMobile } from "@/lib/use-mobile";
@@ -337,6 +337,7 @@ export function TrackerView() {
     const items: Array<{ key: string; label: string; danger?: boolean; run: () => void }> = [{ key: "open", label: "Открыть", run: () => (setCtx(null), openRow(row)) }];
     if (deleted) {
       if (canEditRow(row)) items.push({ key: "restore", label: "Вернуть", run: () => (setCtx(null), void restore(row)) });
+      if (canPurgeRow(row)) items.push({ key: "purge", label: "Удалить навсегда", danger: true, run: () => void purgeRow(row) });
       return items;
     }
     if (preview) return items;
@@ -352,6 +353,19 @@ export function TrackerView() {
   };
 
   // вернуть удалённую задачу: сразу видна и в таблице, и в рабочем трекере (это одна и та же позиция)
+  // «Удалить навсегда» — как в «Удалённых» таблицы: те же права (lib/permissions.ts canPurgeItem) и тот же маршрут; без возврата
+  const canPurgeRow = (r: TRow) => !!me && !preview && canPurgeItem({ id: me.id, role: me.role as never }, { responsibleId: r.ownerId, createdById: r.createdById, origin: r.origin });
+  async function purgeRow(row: TRow) {
+    setCtx(null);
+    const ok = await askConfirm({ title: "Удалить задачу навсегда?", message: `«${row.name.slice(0, 120)}» будет удалена из базы. Восстановить будет нельзя; директор и ответственный получат уведомление.`, okLabel: "Удалить навсегда", danger: true });
+    if (!ok) return;
+    const res = await fetch(`/api/items/${row.id}/purge`, { method: "POST" });
+    if (res.ok) {
+      setError(null);
+      setNotice(`«${row.name.slice(0, 80)}» удалена навсегда.`);
+      setTick((t) => t + 1);
+    } else setError((await res.json().catch(() => null))?.message ?? "Не удалось удалить задачу навсегда.");
+  }
   async function restore(row: TRow) {
     const res = await fetch(`/api/items/${row.id}/restore`, { method: "POST" });
     if (res.ok) {
