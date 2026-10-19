@@ -115,6 +115,14 @@ test.describe("директор", () => {
     await expect(page.locator("aside[data-side-panel]").getByText("Поручение без исполнителя — назначьте ответственного")).toBeVisible();
   });
 
+  test("список: новая задача, которую ЗГД ещё не видел, — «ЗГД не видит» (а не «не подтверждено»)", async ({ page }) => {
+    const d = uiData();
+    await page.goto("/tracker?view=list");
+    const row = page.locator("li", { hasText: d.items.overdue.title });
+    await expect(row).toContainText("ЗГД не видит");
+    await expect(row).not.toContainText("не подтверждено для ЗГД");
+  });
+
   test("чат: создать группу и написать сообщение", async ({ page }) => {
     const d = uiData();
     await page.goto("/today");

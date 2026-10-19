@@ -387,7 +387,8 @@ export function TrackerView() {
   const boardColumns: Array<{ key: TrackerColumnKey; label: string }> = [...BOARD_COLUMNS, ...(showCancelledCol ? [{ key: "HIDDEN" as const, label: "Отменённые" }] : [])];
   const counts = useMemo(() => Object.fromEntries([...BOARD_COLUMNS, { key: "HIDDEN", label: "" }].map((c) => [c.key, baseRows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [baseRows, colOf]);
   // директор: изменённые после прошлого подтверждения (или ни разу не подтверждённые) — ЗГД их ещё не видит
-  const unconfirmed = (r: TRow) => !sent && !deleted && directorial && changedSincePublish(r.updatedAt, r.publishedAt);
+  // «new» — ни разу не подтверждали: ЗГД задачу не видит вовсе; «changed» — правили после подтверждения: ЗГД видит прежнее
+  const unconfirmed = (r: TRow): Unconfirmed => (sent || deleted || !directorial || !changedSincePublish(r.updatedAt, r.publishedAt) ? false : r.publishedAt ? "changed" : "new");
   const unconfirmedCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) !== "HIDDEN" && unconfirmed(r)).length;
   const [publishing, setPublishing] = useState(false);
   const kindCounts = useMemo(() => {
@@ -661,7 +662,9 @@ export function TrackerView() {
 }
 
 export type MenuHandler = (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void;
-export type Common = { today: number; rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => boolean; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Меню действий: правая кнопка и кнопка «⋯» (для телефона и клавиатуры). */ onMenu?: MenuHandler };
+/** Подтверждение для ЗГД (видно директору): задача новая для ЗГД или изменена после подтверждения. */
+export type Unconfirmed = "new" | "changed" | false;
+export type Common = { today: number; rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; summaries: Map<string, TaskSummary>; colors: Map<string, string>; onOpen: (r: TRow) => void; unconfirmed?: (r: TRow) => Unconfirmed; /** Удалённые: подпись «удалена …» (нет — рабочая задача). */ deletedInfo?: (r: TRow) => string | undefined; onRestore?: (r: TRow) => void; canRestore?: (r: TRow) => boolean; /** Меню действий: правая кнопка и кнопка «⋯» (для телефона и клавиатуры). */ onMenu?: MenuHandler };
 
 /** Кнопка «⋯» — то же меню действий, что по правой кнопке: на телефоне и с клавиатуры других путей к нему нет. */
 export function MenuButton({ row, onMenu, className = "" }: { row: TRow; onMenu?: MenuHandler; className?: string }) {
@@ -704,7 +707,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 const SIGNAL_RANK: Record<SignalKind, number> = { overdue: 1, blocker: 2, request: 3, deadlineRequest: 4, slipped: 4, review: 5, soon: 6, data: 9, report: 9 };
 
 /** Метки задачи: горит, срок сдвигали, давно без движения. max — сколько показать (доска: 3 важнейших и «+N»), без max — все (список). */
-export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cancelled, max }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: boolean; deletedInfo?: string; cancelled?: boolean; max?: number }) {
+export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cancelled, max }: { row: TRow; hot?: HotInfo; summary?: TaskSummary; done?: boolean; unconfirmed?: Unconfirmed; deletedInfo?: string; cancelled?: boolean; max?: number }) {
   // удалённая задача — только кто и когда удалил: сигналы и «не подтверждено» к архиву не относятся
   if (deletedInfo)
     return (
@@ -718,7 +721,8 @@ export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cance
   if (cancelled) add(0, `отменена${row.cancelReason ? `: ${row.cancelReason}` : ""}`, <span className="rounded-sm bg-surface-high px-1.5 py-px text-[11px] font-semibold text-on-surface-variant">отменена{row.cancelReason ? `: ${row.cancelReason.slice(0, 60)}` : ""}</span>);
   if (row.origin) add(7, row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора", <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>);
   if (row.zgdControl) add(8, "на контроле у ЗГД", <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>);
-  if (unconfirmed) add(9, "не подтверждено для ЗГД", <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>);
+  if (unconfirmed === "new") add(9, "ЗГД не видит", <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Новая задача: ЗГД её ещё не видел. Увидит после «Обновить для ЗГД», отправки справки или решения по задаче.">ЗГД не видит</span>);
+  if (unconfirmed === "changed") add(9, "не подтверждено для ЗГД", <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>);
   // сигнал = вид + причина и «что сделать» в подсказке; на доске «срок близко» и «просрочка» не дублируем: их показывает чип срока.
   // «На стопе» рядом со статусом «На стопе» повторял бы его — плашка говорит, чего ждём
   for (const k of hot?.kinds ?? []) {

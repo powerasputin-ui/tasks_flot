@@ -5,7 +5,7 @@ import { ChevronsLeft, ChevronsRight, Paperclip, Plus } from "lucide-react";
 import { StatusPill } from "@/components/ui/Badge";
 import { PersonAvatar } from "@/components/ui/Person";
 import { columnOf, dropBlockReason, dropTargets, type HotInfo, type TaskSummary, type TrackerColumnKey } from "@/lib/tracker";
-import { Deadline, Marks, MenuButton, type TRow } from "@/components/tracker/TrackerView";
+import { Deadline, Marks, MenuButton, type TRow, type Unconfirmed } from "@/components/tracker/TrackerView";
 
 export type BoardColumn = { key: TrackerColumnKey; label: string };
 
@@ -17,7 +17,7 @@ type Props = {
   colors: Map<string, string>;
   onOpen: (r: TRow) => void;
   onMenu?: (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void;
-  unconfirmed?: (r: TRow) => boolean;
+  unconfirmed?: (r: TRow) => Unconfirmed;
   deletedInfo?: (r: TRow) => string | undefined;
   columns: BoardColumn[];
   canMove: (r: TRow) => boolean;
@@ -218,7 +218,7 @@ function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, de
   hot?: HotInfo;
   summary?: TaskSummary;
   mainStatus: Map<TrackerColumnKey, string | null>;
-  unconfirmed?: boolean;
+  unconfirmed?: Unconfirmed;
   deletedInfo?: string;
   today: number;
   closed: { at: string; accepted: boolean } | null;
