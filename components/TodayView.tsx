@@ -64,7 +64,7 @@ export function TodayView() {
     void (async () => {
       const res = await fetch("/api/today/zgd").catch(() => null);
       if (stop) return;
-      if (!res?.ok) return setZgdError("Не удалось загрузить аналитику. Обновите страницу.");
+      if (!res?.ok) return setZgdError("Не удалось загрузить аналитику.");
       setZgd(await res.json());
     })();
     return () => {
@@ -84,7 +84,9 @@ export function TodayView() {
         if (!res.ok) throw new Error(String(res.status));
         const d = await res.json();
         if (!stop) {
-          setData({ rows: d.rows, statuses: d.statuses, hot: d.hot });
+          // у ЗГД трекер показывает и отключённые дирекции (архив), а в «Моём дне» — только действующие, как во вкладке «Дирекции»
+          const active = d.mode === "sent" && Array.isArray(d.directorates) ? new Set((d.directorates as Array<{ id: string }>).map((x) => x.id)) : null;
+          setData({ rows: active ? (d.rows as TodayRow[]).filter((r) => !r.directorateId || active.has(r.directorateId)) : d.rows, statuses: d.statuses, hot: d.hot });
           setNow(Date.now());
         }
       } catch {
@@ -123,7 +125,14 @@ export function TodayView() {
         )}
         {zgdRole && tab !== "today" && (
           <div className="mt-4">
-            {zgdError && <p className="rounded-md bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{zgdError}</p>}
+            {zgdError && (
+              <p className="flex items-center gap-3 rounded-md bg-status-red/10 px-3 py-2 text-[13px] text-status-red">
+                {zgdError}
+                <button onClick={() => setZgdError(null)} className="ml-auto font-semibold underline">
+                  Повторить
+                </button>
+              </p>
+            )}
             {!zgd && !zgdError && <div className="space-y-3">{[0, 1].map((i) => <div key={i} className="skeleton h-32 w-full rounded-lg" />)}</div>}
             {zgd && tab === "dirs" && <DirectoratesTab data={zgd} now={now} />}
             {zgd && tab === "trend" && <TrendTab data={zgd} />}

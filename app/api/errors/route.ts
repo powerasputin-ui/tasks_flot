@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireActor } from "@/lib/session";
 import { withApiErrors } from "@/lib/api-guard";
-import { burstLimited } from "@/lib/rate-limit";
+import { burstLimited, hitRateLimit } from "@/lib/rate-limit";
 import { recordError } from "@/lib/error-log";
 
 /** Журнал ошибок: браузер сообщает об ошибке страницы (любой вошедший); список и «решено» — админ и техадмин. */
@@ -15,6 +15,8 @@ async function POSTHandler(request: NextRequest) {
   const actor = await requireActor();
   // одна и та же поломка в цикле не должна заливать журнал: 10 сообщений в минуту на человека, остальное молча отбрасываем
   if (burstLimited(`client-error:${actor.id}`, 10, 60_000)) return NextResponse.json({ ok: true, dropped: true });
+  // и общий предел на человека в час (по базе — серверных копий у Vercel несколько, у каждой свой счётчик в памяти)
+  if (!(await hitRateLimit(`client-error:${actor.id}`, 60, 3_600_000)).ok) return NextResponse.json({ ok: true, dropped: true });
   const p = reportSchema.safeParse(await request.json().catch(() => null));
   if (!p.success) return NextResponse.json({ error: "INVALID_INPUT" }, { status: 400 });
   await recordError({ source: "CLIENT", route: p.data.route, message: p.data.message, stack: p.data.stack, role: actor.role });

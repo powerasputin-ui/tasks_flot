@@ -66,21 +66,23 @@ export function DirectoratesTab({ data, now }: { data: ZgdAnalytics; now: number
                 </div>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
-                <dt className="text-on-surface-variant" title="Активные задачи, у которых прошёл исходный срок (первый поставленный), даже если срок потом переносили">Сорван исходный срок</dt>
-                <dd className="text-right tabular-nums text-on-surface">{d.overdueOriginal}</dd>
+                <dt className="text-on-surface-variant" title="Активные задачи, у которых прошёл первый срок: исходный срок поручения, а если его нет — первый срок, подтверждённый для ЗГД. Считается, даже если срок потом переносили.">Сорван первый срок</dt>
+                <dd className="text-right tabular-nums text-on-surface">{d.overdueFirst}</dd>
                 <dt className="text-on-surface-variant" title="Подтверждённые переносы срока на более поздний за последние 30 дней (просьбы о переносе не считаются)">Переносов за 30 дн.</dt>
                 <dd className="text-right tabular-nums text-on-surface">{d.slips30}</dd>
                 <dt className="text-on-surface-variant" title="Активные задачи, у которых 14+ дней не менялись подтверждённые статус, срок, ответственный или текст">Без движения 14+ дн.</dt>
                 <dd className="text-right tabular-nums text-on-surface">{d.idle14}</dd>
-                <dt className="text-on-surface-variant" title="Выполненные за 30 дней со сроком: сколько закрыты не позже срока. Задачи без срока сюда не входят.">Выполнено вовремя</dt>
-                <dd className="text-right tabular-nums text-on-surface">
+                <dt className="text-on-surface-variant" title="Выполненные за 30 дней, у которых был срок. Дата выполнения — когда «Выполнено» подтверждено для ЗГД. Вовремя — подтверждено не позже срока; с опозданием — при прошлом подтверждении (уже после срока) ещё не было выполнено; иначе вовремя ли — не определить (выполнено между двумя подтверждениями). Задачи без срока сюда не входят.">Выполнено вовремя</dt>
+                <dd className="text-right tabular-nums text-on-surface" title={d.done30.total ? `вовремя ${d.done30.onTime}, с опозданием ${d.done30.late}, не определить ${d.done30.unknown}${d.done30.noDeadline ? `, без срока ${d.done30.noDeadline}` : ""}` : undefined}>
                   {d.done30.total ? `${d.done30.onTime} из ${d.done30.total}` : "—"}
+                  {d.done30.unknown ? <span className="text-outline"> · не опр. {d.done30.unknown}</span> : null}
                   {d.done30.noDeadline ? <span className="text-outline"> · без срока {d.done30.noDeadline}</span> : null}
                 </dd>
               </dl>
               <p className="mt-3 text-[11px] text-outline" title={`Последняя отправленная справка или «Обновить для ЗГД». Старше ${STALE_DAYS} дней — «Нет актуальных данных»: это прозрачность отчётности, а не оценка исполнения.`}>
                 {d.lastConfirmedAt ? `Данные на ${ru(d.lastConfirmedAt)} · ${daysAgo(d.lastConfirmedAt, now)} дн. назад` : "Подтверждённых данных ещё нет"}
               </p>
+              {d.lastReturnedAt && <p className="mt-1 text-[11px] font-semibold text-[#b45309]" title="Вы вернули последнюю справку; пока дирекция не отправит её заново, здесь и в трекере — данные из возвращённой">Справка от {ru(d.lastReturnedAt)} возвращена — ждём исправленную</p>}
             </Link>
           );
         })}
@@ -129,7 +131,7 @@ export function TrendTab({ data }: { data: ZgdAnalytics }) {
           </button>
         ))}
       </div>
-      <p className="text-[11px] text-on-surface-variant">12 недель · по еженедельным справкам (подтверждено директорами). Неделя без справки — разрыв линии, а не ноль. Точка с белой серединой — справку возвращали и отправили заново.</p>
+      <p className="text-[11px] text-on-surface-variant">12 недель · по еженедельным справкам (подтверждено директорами). Неделя без справки — разрыв линии, а не ноль. «Выполнено» и «новых» — изменения с предыдущей справки. Точка с белой серединой — справку возвращали и отправили заново.</p>
       <section className="surface p-4">
         <LineChart weeks={weeks} series={series} valueName={name} />
       </section>
@@ -157,7 +159,7 @@ export function TrendTab({ data }: { data: ZgdAnalytics }) {
                     const p = d.trend[i];
                     return (
                       <td key={d.id} className="px-3 py-1.5 text-right tabular-nums" title={p.corrected ? `исправлено: ревизия ${p.corrected.revision}` : undefined}>
-                        {p[metric] === null ? <span className="text-outline">справки не было</span> : p[metric]}
+                        {p[metric] === null ? <span className="text-outline">{p.missing === "pending" ? "неделя идёт" : p.missing === "returned" ? "справку вернули" : p.missing === null ? "история с этой справки" : "справки не было"}</span> : p[metric]}
                         {p.corrected ? <span className="text-outline">*</span> : null}
                       </td>
                     );
@@ -188,7 +190,7 @@ export function OrdersTab({ data }: { data: ZgdAnalytics }) {
   return (
     <div className="space-y-4">
       <div className="surface flex flex-wrap items-baseline gap-x-4 gap-y-1 p-4">
-        <span className="text-[13px] text-on-surface-variant" title="От даты поручения до подтверждённого «Выполнено»; только ваши поручения, завершённые за 90 дней. Незавершённые не входят.">
+        <span className="text-[13px] text-on-surface-variant" title="От даты поручения до дня, когда «Выполнено» подтверждено для ЗГД; только ваши поручения, завершённые за 90 дней. Незавершённые не входят.">
           Среднее время исполнения:
         </span>
         <span className="text-[20px] font-bold text-on-surface tabular-nums">{o.avgDays === null ? "—" : `${o.avgDays} дн.`}</span>
@@ -218,9 +220,9 @@ export function OrdersTab({ data }: { data: ZgdAnalytics }) {
             <Link href={`/tracker?item=${i.id}`} className="row-hover block px-4 py-2.5">
               <div className="flex items-start justify-between gap-3">
                 <span className="min-w-0 text-[13px] font-medium text-on-surface [overflow-wrap:anywhere]">{i.title}</span>
-                <span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${SEG[i.segment].chip}`}>
+                <span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${SEG[i.segment].chip}`} title={i.timing === "unknown" ? "Вовремя ли — не определить: выполнено между двумя подтверждениями, срок — посередине" : undefined}>
                   {SEG[i.segment].name}
-                  {i.late ? " с опозданием" : ""}
+                  {i.timing === "late" ? " с опозданием" : i.timing === "ontime" ? " вовремя" : ""}
                 </span>
               </div>
               <div className="mt-0.5 flex flex-wrap gap-x-3 text-[12px] text-on-surface-variant">

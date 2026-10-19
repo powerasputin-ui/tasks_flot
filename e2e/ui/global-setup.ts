@@ -10,6 +10,11 @@ import { AUTH_DIR, DATA_FILE, stateFile, type Role, type UiData } from "./fixtur
  * вход каждой ролью через страницу входа и сохранение куки. Всё помечено TAG и удаляется в global-teardown.
  */
 export default async function globalSetup(config: FullConfig) {
+  // браузерные тесты создают учётки с паролями и удаляют данные — только на локальной или временной базе
+  const url = process.env.DATABASE_URL ?? (fs.existsSync(".env") ? fs.readFileSync(".env", "utf8") : "").match(/^DATABASE_URL="?([^"\n]+)/m)?.[1] ?? "";
+  if (!/@(localhost|127\.0\.0\.1|postgres)(:\d+)?\//.test(url) && process.env.UI_ALLOW_REMOTE_DB !== "1") {
+    throw new Error("Браузерные тесты создают учётки и удаляют данные: запускайте их только на локальной или временной базе (DATABASE_URL). Осознанно на другой — UI_ALLOW_REMOTE_DB=1.");
+  }
   const prisma = new PrismaClient();
   const tag = `UI${Date.now()}`;
   const password = crypto.randomBytes(12).toString("base64url");

@@ -20,6 +20,8 @@ export type TodayRow = {
   assignedById?: string | null;
   openRequest?: boolean;
   blockedBy?: string | null;
+  /** ЗГД: дирекция строки (отключённые дирекции в «Моём дне» не показываем). */
+  directorateId?: string;
 };
 export type TodayHot = Record<string, { kinds: string[] }>;
 export type TodayItem = { id: string; name: string; ownerName: string | null; deadline: string | null; note: string };
@@ -47,16 +49,22 @@ export function buildToday(input: { role: string; meId: string; rows: TodayRow[]
   const diff = (r: TodayRow) => (r.deadline ? Math.round((dayOf(r.deadline) - today) / DAY) : null);
   const pick = (f: (r: TodayRow) => string | null) => scope.flatMap((r) => { const note = f(r); return note === null ? [] : [item(r, note)]; }).sort(byDeadline);
 
+  const isStopped = (r: TodayRow) => kinds(r).includes("blocker") || !!r.blockedBy;
+  const stopNote = (r: TodayRow) => (r.blockedBy ? `на стопе: ${r.blockedBy}` : "на стопе");
   const overdue = pick((r) => {
     const d = diff(r);
-    return d !== null && d < 0 && !kinds(r).includes("blocker") ? `просрочено на ${-d} дн. (срок ${ruDay(r.deadline!)})` : null;
+    return d !== null && d < 0 ? `просрочено на ${-d} дн. (срок ${ruDay(r.deadline!)})${isStopped(r) ? ` · ${stopNote(r)}` : ""}` : null;
   });
   const soon = pick((r) => {
     const d = diff(r);
     return d !== null && d >= 0 && d <= SOON_DAYS ? (d === 0 ? "срок сегодня" : `срок через ${d} дн. (${ruDay(r.deadline!)})`) : null;
   });
   const review = pick((r) => (column(r) === "REVIEW" ? "сдана на проверку" : null));
-  const stopped = pick((r) => (kinds(r).includes("blocker") || !!r.blockedBy ? (r.blockedBy ? `на стопе: ${r.blockedBy}` : "на стопе") : null));
+  // просроченные «на стопе» уже в «Просрочено» (с пометкой) — здесь не повторяем
+  const stopped = pick((r) => {
+    const d = diff(r);
+    return isStopped(r) && !(d !== null && d < 0) ? stopNote(r) : null;
+  });
   const asked = pick((r) => (kinds(r).includes("request") || r.openRequest ? "ЗГД запросил статус — ответа нет" : null));
   const moves = pick((r) => (kinds(r).includes("deadlineRequest") ? "просят перенести срок — нужно решение" : null));
   const orders = input.rows.filter((r) => open(r) && r.origin === "ZGD" && r.assignedById === meId).map((r) => item(r, r.statusName ?? "в работе")).sort(byDeadline);

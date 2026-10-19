@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildZgdAnalytics, orderSegment, toneOf, weekStart, type Live, type VersionMeta } from "@/lib/zgd-analytics";
+import { buildZgdAnalytics, doneTiming, orderSegment, toneOf, weekStart, type Live, type VersionMeta } from "@/lib/zgd-analytics";
 import type { ArchiveRow } from "@/lib/archive-table";
 import type { Publication } from "@/lib/tracker-sent";
 import type { TrackerColumnKey } from "@/lib/tracker";
@@ -15,6 +15,7 @@ const date = (daysFromNow: number) => {
 const cols = new Map<string, TrackerColumnKey | null>([
   ["Не начато", "TODO"],
   ["В работе", "DOING"],
+  ["На стопе", "DOING"],
   ["На проверке", "REVIEW"],
   ["Завершено", "DONE"],
   ["Не актуально", "HIDDEN"],
@@ -36,34 +37,45 @@ describe("аналитика ЗГД: светофор и определения"
     expect(toneOf(100, 16, false)).toBe("red");
   });
 
-  it("карточка: «x из y», малая выборка, исходный срок из подтверждения, удалённые дирекцией не считаются", () => {
-    const v = memo("a", 2, [row("1", { deadline: date(-3) }), row("2", { deadline: date(5) }), row("3", { statusName: "Завершено", deadline: date(-10) }), row("gone", { deadline: date(-1) })]);
+  it("карточка: «x из y», малая выборка, «на стопе» — тоже просрочка (общее правило), первый срок — исходный или первый подтверждённый; удалённые не считаются", () => {
+    const v = memo("a", 2, [row("1", { deadline: date(-3) }), row("2", { deadline: date(5) }), row("3", { statusName: "Завершено", deadline: date(-10) }), row("4", { statusName: "На стопе", deadline: date(-1) }), row("gone", { deadline: date(-1) })]);
     const p = pub("a", "2", 1, { originalDeadline: date(-1) }, ["originalDeadline"]);
-    const r = run([v], [p], live(["1", "2", "3"]));
-    const c = r.directorates[0];
-    expect(c).toMatchObject({ active: 2, overdue: 1, overdueOriginal: 1, smallSample: true, stale: false, tone: "red" });
+    const c = run([v], [p], live(["1", "2", "3", "4"])).directorates[0];
+    expect(c).toMatchObject({ active: 3, overdue: 2, smallSample: true, stale: false, tone: "red" });
+    // 1 и 4 — первый подтверждённый срок прошёл; 2 — исходный срок поручения прошёл, хотя текущий ещё нет
+    expect(c.overdueFirst).toBe(3);
   });
 
-  it("нет справки 10+ дней — «нет актуальных данных»; возвращённая справка подтверждением не считается", () => {
+  it("возвращённая справка учитывается, как в трекере ЗГД (одинаковые числа), но карточка помечает её; данных 10+ дней нет — «нет актуальных данных»", () => {
     const old = memo("a", 12, [row("1")]);
-    const returned = memo("a", 1, [row("1")], { returnedAt: at(0.5) });
-    const c = run([old, returned], [], live(["1"])).directorates[0];
-    expect(c.stale).toBe(true);
-    expect(c.tone).toBe("stale");
+    const returned = memo("a", 1, [row("1"), row("9", { deadline: date(-5) })], { returnedAt: at(0.5) });
+    const c = run([old, returned], [], live(["1", "9"])).directorates[0];
+    expect(c).toMatchObject({ stale: false, active: 2, overdue: 1, lastReturnedAt: at(1) });
+    expect(run([old], [], live(["1"])).directorates[0]).toMatchObject({ stale: true, tone: "stale", lastReturnedAt: null });
     expect(run([], [], []).directorates[0]).toMatchObject({ stale: true, lastConfirmedAt: null, active: 0 });
   });
 
-  it("переносы за 30 дней — только подтверждённые сдвиги позже; выполнено вовремя — n из m, без срока отдельно", () => {
-    const v = memo("a", 40, [row("1", { deadline: date(-20) }), row("2", { deadline: date(-15) }), row("3"), row("4", { deadline: date(10) })]);
+  it("переносы за 30 дней — только подтверждённые сдвиги позже; выполнено: вовремя / точно с опозданием / не определить / без срока", () => {
+    const v40 = memo("a", 40, [row("1", { deadline: date(-20) }), row("2", { deadline: date(-15) }), row("3"), row("4", { deadline: date(10) }), row("6", { deadline: date(-5) })]);
+    const v10 = memo("a", 10, [row("1", { deadline: date(-20), statusName: "Завершено" }), row("2", { deadline: date(-15) }), row("3"), row("4", { deadline: date(10) }), row("6", { deadline: date(-5) })]);
     const pubs = [
+      pub("a", "1", 25, { statusName: "Завершено" }, ["statusName"]), // подтверждено за 5 дней до срока — вовремя
       pub("a", "4", 5, { deadline: date(20) }, ["deadline"]), // перенос +10 дней
-      pub("a", "1", 25, { statusName: "Завершено" }, ["statusName"]), // выполнено 25 дней назад, срок был 20 дней назад — вовремя
-      pub("a", "2", 3, { statusName: "Завершено" }, ["statusName"]), // выполнено после срока
+      pub("a", "2", 3, { statusName: "Завершено" }, ["statusName"]), // при справке 10 дней назад (срок уже прошёл) ещё не было — с опозданием
+      pub("a", "6", 3, { statusName: "Завершено" }, ["statusName"]), // между справкой (до срока) и подтверждением (после) — не определить
       pub("a", "3", 2, { statusName: "Завершено" }, ["statusName"]), // без срока
     ];
-    const c = run([v], pubs, live(["1", "2", "3", "4"])).directorates[0];
+    const c = run([v40, v10], pubs, live(["1", "2", "3", "4", "6"])).directorates[0];
     expect(c.slips30).toBe(1);
-    expect(c.done30).toEqual({ onTime: 1, total: 2, noDeadline: 1 });
+    expect(c.done30).toEqual({ onTime: 1, late: 1, unknown: 1, total: 3, noDeadline: 1 });
+  });
+
+  it("doneTiming: вовремя / с опозданием / не определить", () => {
+    const dl = "2026-10-10T00:00:00.000Z";
+    expect(doneTiming(dl, Date.UTC(2026, 9, 10, 15), null)).toBe("ontime");
+    expect(doneTiming(dl, Date.UTC(2026, 9, 14), Date.UTC(2026, 9, 12))).toBe("late");
+    expect(doneTiming(dl, Date.UTC(2026, 9, 14), Date.UTC(2026, 9, 8))).toBe("unknown");
+    expect(doneTiming(dl, Date.UTC(2026, 9, 14), null)).toBe("unknown");
   });
 
   it("без движения 14+ дней: нет подтверждённых изменений за 14 дней", () => {
@@ -74,22 +86,31 @@ describe("аналитика ЗГД: светофор и определения"
 });
 
 describe("аналитика ЗГД: динамика по неделям", () => {
-  it("неделя без справки — пусто (не ноль); точка — последняя невозвращённая ревизия; повторная отправка помечена", () => {
+  it("неделя без справки — пусто (не ноль): «справки не было», «вернули», «неделя идёт»; первая справка истории — без сравнения; повторная отправка помечена", () => {
+    const vReturnedOnly = memo("a", 21, [row("1")], { cycleId: "c0", returnedAt: at(20) });
     const w1 = memo("a", 14, [row("1", { deadline: date(-30) })], { cycleId: "c1" });
     const first = memo("a", 7, [row("1", { deadline: date(-30) }), row("2")], { cycleId: "c2", revision: 1, returnedAt: at(6.9) });
     const resent = memo("a", 6.8, [row("1", { statusName: "Завершено", deadline: date(-30) }), row("2")], { cycleId: "c2", revision: 2, sentByName: "Сухов" });
-    const r = run([w1, first, resent], [], live(["1", "2"]));
-    const pts = r.directorates[0].trend;
+    const pts = run([vReturnedOnly, w1, first, resent], [], live(["1", "2"])).directorates[0].trend;
     expect(pts).toHaveLength(12);
     const byWeek = new Map(pts.map((p) => [p.week, p]));
-    const p1 = byWeek.get(weekStart(now - 14 * DAY))!;
-    expect(p1).toMatchObject({ overdue: 1, corrected: null });
+    expect(byWeek.get(weekStart(now - 21 * DAY))).toMatchObject({ overdue: null, missing: "returned" });
+    expect(byWeek.get(weekStart(now - 14 * DAY))).toMatchObject({ overdue: 1, created: null, done: null, corrected: null, missing: null });
     const p2 = byWeek.get(weekStart(now - 6.8 * DAY))!;
-    expect(p2.overdue).toBe(0);
-    expect(p2.done).toBe(1);
-    expect(p2.created).toBe(1);
+    expect(p2).toMatchObject({ overdue: 0, done: 1, created: 1 });
     expect(p2.corrected).toMatchObject({ revision: 2, by: "Сухов" });
-    expect(byWeek.get(weekStart(now))!.overdue).toBeNull();
+    expect(byWeek.get(weekStart(now))).toMatchObject({ overdue: null, missing: "pending" });
+    expect(byWeek.get(weekStart(now - 35 * DAY))).toMatchObject({ overdue: null, missing: "none" });
+  });
+
+  it("«новых за неделю» — с предыдущей справки, а не за 7 дней: при неровном графике справок изменения не теряются и не задваиваются", () => {
+    // справка A — пн 05.10, справка B — пт 16.10; задачу X подтвердили отдельно в ср 07.10 (за 9 дней до B)
+    const a = memo("a", 14, [row("1")]);
+    const pX = pub("a", "x", 12, { statusName: "В работе", deadline: date(10) });
+    const b = memo("a", 3, [row("1"), row("x", { deadline: date(10) })]);
+    const pts = run([a, b], [pX], live(["1", "x"])).directorates[0].trend;
+    const pb = pts.find((p) => p.week === weekStart(now - 3 * DAY))!;
+    expect(pb.created).toBe(1);
   });
 });
 
@@ -102,14 +123,17 @@ describe("аналитика ЗГД: поручения", () => {
     expect(orderSegment("DOING", "2026-10-22T00:00:00.000Z", today)).toBe("soon");
     expect(orderSegment("DOING", "2026-10-23T00:00:00.000Z", today)).toBe("ontime");
     expect(orderSegment("TODO", null, today)).toBe("ontime");
+    // системный статус «Завершено» закрывает задачу и без колонки трекера
+    expect(orderSegment("TODO", "2026-10-01T00:00:00.000Z", today, "Завершено")).toBe("done");
   });
 
-  it("мои поручения и «на контроле»; среднее время — только завершённые мои за 90 дней; сорванные сверху", () => {
-    const v = memo("a", 20, [row("o1", { deadline: date(-2) }), row("o2", { deadline: date(30) }), row("c1", { deadline: date(2) }), row("x")]);
-    const pubs = [pub("a", "o2", 4, { statusName: "Завершено" }, ["statusName"])];
+  it("мои поручения и «на контроле»; закрытые давно не показываются; среднее время — только завершённые мои за 90 дней; сорванные сверху", () => {
+    const v = memo("a", 60, [row("o1", { deadline: date(-2) }), row("o2", { deadline: date(30) }), row("c1", { deadline: date(2) }), row("x"), row("old", { deadline: date(-40) })]);
+    const pubs = [pub("a", "o2", 4, { statusName: "Завершено" }, ["statusName"]), pub("a", "old", 45, { statusName: "Завершено" }, ["statusName"])];
     const liveRows = [
       ...live(["o1"], { origin: "ZGD", assignedById: "zgd", assignedAt: at(10) }),
       ...live(["o2"], { origin: "ZGD", assignedById: "zgd", assignedAt: at(14) }),
+      ...live(["old"], { origin: "ZGD", assignedById: "zgd", assignedAt: at(55) }),
       ...live(["c1"], { zgdControl: true }),
       ...live(["x"], { origin: "ZGD", assignedById: "someone-else" }),
     ];
@@ -119,6 +143,8 @@ describe("аналитика ЗГД: поручения", () => {
       ["c1", "soon"],
       ["o2", "done"],
     ]);
+    expect(o.items.find((i) => i.id === "o2")).toMatchObject({ timing: "ontime", daysInWork: 10 });
+    expect(o.items.find((i) => i.id === "c1")!.daysInWork).toBeNull();
     expect(o.avgDays).toBe(10);
     expect(o.avgN).toBe(1);
     expect(o.byDir[0]).toMatchObject({ id: "a", overdue: 1, soon: 1, done: 1, ontime: 0, cancelled: 0 });

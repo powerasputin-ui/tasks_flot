@@ -54,9 +54,15 @@ describe("«Мой день»", () => {
     expect(items(s, "orders")).toEqual(["c"]);
   });
 
-  it("задача «на стопе» не считается просроченной, а пустые разделы не показываются; без дел — пусто", () => {
+  it("просроченная «на стопе» — в «Просрочено» с пометкой у всех ролей (раньше у директора и ЗГД пропадала); без дел — пусто", () => {
     const stopped = row("s", { deadline: "2026-10-01", blockedBy: "документ" });
-    expect(keys(buildToday({ role: "HEAD", meId: "head", rows: [stopped], hot: { s: { kinds: ["blocker"] } }, colOf, now }))).toEqual(["stopped"]);
+    const hot = { s: { kinds: ["blocker"] } };
+    const asHead = buildToday({ role: "HEAD", meId: "head", rows: [stopped], hot, colOf, now });
+    expect(keys(asHead)).toEqual(["overdue"]);
+    expect(asHead[0].items[0].note).toMatch(/на стопе: документ/);
+    for (const role of ["DIRECTOR", "EXECUTIVE"]) expect(items(buildToday({ role, meId: "x", rows: [stopped], hot, colOf, now }), "overdue")).toEqual(["s"]);
+    // не просроченная «на стопе» — в разделе «На стопе» у руководителя
+    expect(keys(buildToday({ role: "HEAD", meId: "head", rows: [row("t", { deadline: "2026-12-01", blockedBy: "виза" })], hot: {}, colOf, now }))).toEqual(["stopped"]);
     expect(buildToday({ role: "HEAD", meId: "head", rows: [row("ok", { deadline: "2026-12-30" })], hot: {}, colOf, now })).toEqual([]);
   });
 

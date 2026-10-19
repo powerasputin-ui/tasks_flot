@@ -3563,7 +3563,7 @@ describe("журнал ошибок сайта", () => {
   const ETAG = TAG.replace(/\d/g, (d) => "abcdefghij"[Number(d)]);
   afterAll(async () => {
     await prisma.appError.deleteMany({ where: { message: { contains: ETAG } } });
-    await prisma.notification.deleteMany({ where: { message: { startsWith: "За сутки новых ошибок" }, createdAt: { gte: new Date(Date.now() - 3600e3) } } });
+    await prisma.notification.deleteMany({ where: { message: { startsWith: "Ошибки на сайте за сутки" }, createdAt: { gte: new Date(Date.now() - 3600e3) } } });
   });
 
   it("браузер сообщает об ошибке: без входа — 401; маршрут без параметров, e-mail вычищен, повтор склеивается", async () => {
@@ -3603,7 +3603,8 @@ describe("журнал ошибок сайта", () => {
     expect(r.fresh).toBeGreaterThanOrEqual(1);
     expect(r.pruned).toBeGreaterThanOrEqual(1);
     expect(await prisma.appError.count({ where: { fingerprint: `${ETAG}-old` } })).toBe(0);
-    expect(await prisma.notification.count({ where: { userId: curator.id, message: { startsWith: "За сутки новых ошибок" } } })).toBeGreaterThanOrEqual(1);
+    // сводка — техадмину, а если его нет — админам
+    expect(await prisma.notification.count({ where: { message: { startsWith: "Ошибки на сайте за сутки" }, createdAt: { gte: new Date(Date.now() - 60_000) } } })).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -7,12 +7,14 @@ const sent = new Set<string>();
 export function reportClientError(error: unknown) {
   if (typeof window === "undefined" || sent.size >= 10) return;
   const e = error instanceof Error ? error : new Error(typeof error === "string" ? error : "Ошибка без текста");
-  // шум браузера и расширений, а не наши поломки
-  if (/ResizeObserver loop|Script error\.?$|chrome-extension:|moz-extension:/i.test(`${e.message} ${e.stack ?? ""}`)) return;
+  // шум браузера и расширений, а не наши поломки; «не загрузился кусок сайта» — старая вкладка после выкладки новой версии
+  if (/ResizeObserver loop|Script error\.?$|chrome-extension:|moz-extension:|ChunkLoadError|Loading chunk|dynamically imported module|Failed to fetch$|NetworkError|Load failed/i.test(`${e.name} ${e.message} ${e.stack ?? ""}`)) return;
+  // ошибка серверного рендеринга приходит без текста, но с кодом digest — по нему её находят в журнале Vercel
+  const digest = (e as { digest?: string }).digest;
   const key = `${e.message}|${location.pathname}`;
   if (sent.has(key)) return;
   sent.add(key);
-  void fetch("/api/errors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: e.message, stack: e.stack ?? null, route: location.pathname }), keepalive: true }).catch(() => {});
+  void fetch("/api/errors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: digest ? `${e.message.split("\n")[0]} (digest ${digest})` : e.message, stack: e.stack ?? null, route: location.pathname }), keepalive: true }).catch(() => {});
 }
 
 /** Ловит необработанные ошибки и отклонённые обещания на любой странице. Ничего не рисует. */
