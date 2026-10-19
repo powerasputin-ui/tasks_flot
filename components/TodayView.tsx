@@ -115,7 +115,7 @@ export function TodayView() {
         <p className="mt-0.5 text-[13px] text-on-surface-variant first-letter:uppercase">{date}</p>
 
         {zgdRole && (
-          <div role="tablist" aria-label="Разделы «Моего дня»" className="mt-4 flex gap-1 overflow-x-auto border-b border-outline-variant">
+          <div role="tablist" aria-label="Разделы «Моего дня»" className="mt-4 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-outline-variant [scrollbar-width:none]">
             {ZGD_TABS.map((t) => (
               <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => pickTab(t.key)} className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-[13px] font-semibold ${tab === t.key ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"}`}>
                 {t.label}
