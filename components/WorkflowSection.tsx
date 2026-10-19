@@ -40,7 +40,7 @@ const ICON: Record<WorkflowAction, typeof Send> = { submit: Send, accept: CheckC
 // что спросить в диалоге действия
 export const ASK: Partial<Record<WorkflowAction, { field: "result" | "comment" | "blockedBy" | "reason"; label: string; placeholder: string; optional?: boolean }>> = {
   submit: { field: "result", label: "Результат", placeholder: "Что сделано и где посмотреть (документ, письмо, решение)" },
-  accept: { field: "comment", label: "Комментарий (необязательно)", placeholder: "Например: принято, доложить на ОС", optional: true },
+  accept: { field: "comment", label: "Комментарий к приёмке (необязательно)", placeholder: "Например: принято, доложить на ОС", optional: true },
   return: { field: "comment", label: "Что доработать", placeholder: "Чего не хватает в результате" },
   block: { field: "blockedBy", label: "Что ждём", placeholder: "Чьё решение / документ / поставка" },
   cancel: { field: "reason", label: "Причина отмены", placeholder: "Почему задача больше не нужна" },
@@ -259,39 +259,7 @@ export function WorkflowSection({ row, column, actor, readOnly, dirty, onChanged
           </button>
         ))}
 
-      {!!info?.notes.length && (
-        <div className="text-[13px]">
-          <div className="label-caps mb-1">Комментарии</div>
-          <ul className="space-y-1">
-            {info.notes.slice(0, 5).map((n) => (
-              <li key={n.id}>
-                <span className="text-outline">
-                  {ru(n.createdAt)} · {n.author.name}
-                  {n.author.role === "EXECUTIVE" ? " (ЗГД)" : ""}
-                  {n.audience === "ZGD" ? " · ответ ЗГД" : ""}:
-                </span>{" "}
-                {n.text}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {canComment && !dirty && (
-        <div className="space-y-2 rounded-md border border-outline-variant bg-surface-low p-3">
-          <label className="block text-[12px] font-semibold text-on-surface-variant">Комментарий</label>
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={2000} className="input w-full" placeholder={director ? "Замечание или уточнение по задаче — увидит ответственный" : "Комментарий по задаче — увидит директор"} />
-          {canReplyZgd && (
-            <label className="flex items-center gap-2 text-[12px] text-on-surface-variant">
-              <input type="checkbox" checked={toZgd} onChange={(e) => setToZgd(e.target.checked)} /> Ответить ЗГД (комментарий увидит и он)
-            </label>
-          )}
-          <button disabled={busy || note.trim().length < 2} onClick={() => void sendNote()} className="btn-primary h-8">
-            {busy ? "Отправляю…" : toZgd ? "Ответить ЗГД" : "Отправить"}
-          </button>
-        </div>
-      )}
-      {blockedByDirty && <p className="rounded-md bg-status-amber/10 px-3 py-2 text-[12px] text-[#b45309]">Есть несохранённые правки: сохраните их или отмените — тогда станут доступны действия (сдать, принять, вернуть…), ответы и комментарии.</p>}
+      {blockedByDirty && <p className="rounded-md bg-status-amber/10 px-3 py-2 text-[12px] text-[#b45309]">Есть несохранённые правки: сохраните их или отмените — тогда станут доступны действия (сдать, принять, вернуть…), ответы и сообщения.</p>}
 
       {actions.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -330,6 +298,39 @@ export function WorkflowSection({ row, column, actor, readOnly, dirty, onChanged
         </div>
       )}
       {!open && error && <p className="text-[12px] text-status-red">{error}</p>}
+      {!!info?.notes.length && (
+        <div className="text-[13px]">
+          <div className="label-caps mb-1">Переписка по задаче</div>
+          <ul className="space-y-1">
+            {info.notes.slice(0, 5).map((n) => (
+              <li key={n.id}>
+                <span className="text-outline">
+                  {ru(n.createdAt)} · {n.author.name}
+                  {n.author.role === "EXECUTIVE" ? " (ЗГД)" : ""}
+                  {n.audience === "ZGD" ? " · ответ ЗГД" : ""}:
+                </span>{" "}
+                {n.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* сообщение по задаче — не то же, что поле «Комментарий» строки таблицы (оно уходит в справку); пока открыто действие — одно поле ввода */}
+      {canComment && !dirty && !open && (
+        <div className="space-y-2 rounded-md border border-outline-variant bg-surface-low p-3">
+          <label className="block text-[12px] font-semibold text-on-surface-variant">{director ? "Написать ответственному" : "Написать директору"}</label>
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={2000} className="input w-full" placeholder={director ? "Замечание или уточнение — увидит ответственный" : "Вопрос или уточнение — увидит директор"} />
+          {canReplyZgd && (
+            <label className="flex items-center gap-2 text-[12px] text-on-surface-variant">
+              <input type="checkbox" checked={toZgd} onChange={(e) => setToZgd(e.target.checked)} /> Ответить ЗГД (сообщение увидит и он)
+            </label>
+          )}
+          <button disabled={busy || note.trim().length < 2} onClick={() => void sendNote()} className="btn-primary h-8">
+            {busy ? "Отправляю…" : toZgd ? "Ответить ЗГД" : "Отправить"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

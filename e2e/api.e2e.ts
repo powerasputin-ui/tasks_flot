@@ -2476,6 +2476,14 @@ describe("ЗГД в трекере: только подтверждённое д
     expect(await prisma.notification.count({ where: { userId: director.id, type: "ZGD_ORDER", link: { contains: o.data.id } } })).toBe(1);
     // ЗГД не получает уведомление о собственном поручении
     expect(await prisma.notification.count({ where: { userId: zgdUser.id, link: { contains: o.data.id } } })).toBe(0);
+    // поручение ЗГД видит с момента создания: у директора оно не «не подтверждено» (часы базы и сервера расходятся на мс)
+    const preview = (await call(director, publish.GET, "/api/tracker/publish")).data.items as Array<{ id: string }>;
+    expect(preview.some((x) => x.id === o.data.id)).toBe(false);
+    // директор назначил ответственного — тот узнаёт, что поручение теперь его (раньше уведомление получал только прежний ответственный)
+    const set = await call(director, item.PATCH, `/api/items/${o.data.id}`, { method: "PATCH", id: o.data.id, body: { version: it.version, responsibleId: head.id } });
+    expect(set.status).toBe(200);
+    const note = await prisma.notification.findFirst({ where: { userId: head.id, link: { contains: o.data.id }, message: { contains: "назначил(а) вас ответственным" } } });
+    expect(note?.message).toMatch(/назначил\(а\) вас ответственным — поручение ЗГД .*поручение».*срок 30\.11\.2027/);
   });
 
   it("поручение ЗГД сразу сотруднику: исполнитель и директор узнают; сотрудник чужой дирекции — нельзя", async () => {

@@ -49,9 +49,12 @@ export function ZgdPanel({ row, events, hot, onClose, onChanged }: { row: TRow; 
   }
 
   const rv = row.review;
+  // на доске ЗГД сегмент подписан дирекцией («Флот · Буксиры»); здесь дирекция — своей строкой, без повтора
+  const prefix = row.directorateName ? `${row.directorateName} · ` : null;
+  const segment = prefix && row.segmentName?.startsWith(prefix) ? row.segmentName.slice(prefix.length) : row.segmentName;
   const fields: Array<[string, string]> = [
     ["Дирекция", row.directorateName ?? "—"],
-    ["Сегмент · трек", [row.segmentName, row.trackName].filter(Boolean).join(" · ") || "—"],
+    ["Сегмент · трек", [segment, row.trackName].filter(Boolean).join(" · ") || "—"],
     ["Ответственный", row.ownerName ?? "не назначен"],
     ["Статус", row.statusName ?? "без статуса"],
     ["Срок", row.deadline ? `${ruDay(row.deadline)}${row.originalDeadline && row.originalDeadline.slice(0, 10) !== row.deadline.slice(0, 10) ? ` (исходный ${ruDay(row.originalDeadline)})` : ""}` : "срока нет"],

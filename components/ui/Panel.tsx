@@ -30,6 +30,7 @@ export function Panel({
 
   return (
     <aside
+      data-side-panel=""
       className="animate-slide-in fixed bottom-0 right-0 top-16 z-40 flex w-full flex-col border-l border-outline-variant bg-surface shadow-2xl"
       style={{ maxWidth: width }}
     >

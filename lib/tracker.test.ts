@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEvents, closedAtOf, columnOf, deadlineChip, dropAction, dropBlockReason, pickTop, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
+import { buildEvents, closedAtOf, closedOf, columnOf, deadlineChip, dropAction, dropBlockReason, pickTop, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, motionOf, phasesOf, statusForColumn, summarize, timelineRange, type RawAudit, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 import { buildSentTracker, buildZgdTracker, MEMO_PUBLICATION } from "@/lib/tracker-sent";
 import type { ArchiveRow } from "@/lib/archive-table";
 import { canSetStatus } from "@/lib/permissions";
@@ -227,6 +227,15 @@ describe("окно «Выполнено»", () => {
     expect(closedAtOf([ev("сдана на проверку", "2026-10-01T10:00:00Z"), ev("принята директором", "2026-10-20T10:00:00Z")], "2026-09-01")).toBe(new Date("2026-10-20T10:00:00Z").getTime());
     expect(closedAtOf([], "2026-09-01T00:00:00Z")).toBe(new Date("2026-09-01T00:00:00Z").getTime());
   });
+  it("принята директором или закрыта статусом без приёмки («выполнено»); у ЗГД приёмка — «принял(а) задачу»", () => {
+    const status = (at: string): TrackerEvent => ({ itemId: "i", at, kind: "status", who: null, text: "статус: В работе → Завершено" });
+    expect(closedOf([ev("принята директором", "2026-10-20T10:00:00Z")], "2026-09-01")).toEqual({ at: new Date("2026-10-20T10:00:00Z").getTime(), accepted: true });
+    expect(closedOf([ev("принял(а) задачу — ок", "2026-10-21T10:00:00Z")], "2026-09-01").accepted).toBe(true);
+    expect(closedOf([status("2026-10-22T10:00:00Z")], "2026-09-01")).toEqual({ at: new Date("2026-10-22T10:00:00Z").getTime(), accepted: false });
+    // переоткрыли после приёмки и закрыли статусом — последнее слово за статусом
+    expect(closedOf([ev("принята директором", "2026-10-20T10:00:00Z"), ev("переоткрыта: ещё акт", "2026-10-21T10:00:00Z"), status("2026-10-23T10:00:00Z")], "2026-09-01").accepted).toBe(false);
+    expect(closedOf([], "2026-09-01T00:00:00Z").accepted).toBe(false);
+  });
   it("за последние 14 дней — видно, раньше — только по «показать все»", () => {
     expect(isRecentlyDone([ev("принята директором", "2026-10-20T10:00:00Z")], "2026-09-01", now)).toBe(true);
     expect(isRecentlyDone([ev("принята директором", "2026-10-10T10:00:00Z")], "2026-09-01", now)).toBe(false);
@@ -265,6 +274,7 @@ describe("доска: срок-чип, причины запрета, отбор
   it("прошедший срок без признака просрочки (например, закрыта) не красный; выполненная — «принято»", () => {
     expect(chip("2026-10-13", { overdue: false }).tone).toBe("grey");
     expect(chip("2026-10-13", { column: "DONE", closedAt: "2026-10-14T09:00:00Z" })).toMatchObject({ text: "принято 14.10.26", tone: "green" });
+    expect(chip("2026-10-13", { column: "DONE", closedAt: "2026-10-14T09:00:00Z", accepted: false })).toMatchObject({ text: "выполнено 14.10.26", tone: "green" });
     expect(chip("2026-10-13", { column: "HIDDEN" }).tone).toBe("grey");
   });
   it("dropBlockReason: причина есть ровно у недопустимых переходов", () => {

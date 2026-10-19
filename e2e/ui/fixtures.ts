@@ -7,7 +7,7 @@ export type UiData = {
   tag: string;
   directorateId: string;
   users: Record<Role, { id: string; email: string; name: string }>;
-  items: { overdue: { id: string; title: string }; review: { id: string; title: string }; soon: { id: string; title: string } };
+  items: Record<"overdue" | "review" | "soon" | "returned" | "order", { id: string; title: string }>;
 };
 export type Role = "director" | "head" | "head2" | "zgd" | "admin";
 

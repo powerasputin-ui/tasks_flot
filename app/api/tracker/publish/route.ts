@@ -5,6 +5,7 @@ import { requireDirectorate } from "@/lib/scope";
 import { isDirectorial } from "@/lib/permissions";
 import { getDicts } from "@/lib/dictionaries";
 import { publishAll, snapshotsOf } from "@/lib/workflow-server";
+import { changedSincePublish } from "@/lib/workflow";
 import { trackerActionLimited } from "@/lib/rate-limit";
 import { zgdStateFor } from "@/lib/tracker-load";
 import { withApiErrors } from "@/lib/api-guard";
@@ -22,7 +23,7 @@ async function GETHandler() {
   if (!isDirectorial(actor.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const directorateId = requireDirectorate(actor);
   const [items, seen] = await Promise.all([prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null }, orderBy: { updatedAt: "desc" } }), zgdStateFor(directorateId)]);
-  const changed = items.filter((i) => !i.publishedAt || i.updatedAt > i.publishedAt);
+  const changed = items.filter((i) => changedSincePublish(i.updatedAt, i.publishedAt));
   const snaps = await snapshotsOf(changed); // одна выборка на все задачи, а не по запросу на каждую
   const list = [];
   for (const i of changed) {
@@ -57,7 +58,7 @@ async function POSTHandler(request: NextRequest) {
   const ids = Array.isArray(body?.itemIds) ? (body!.itemIds as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 500) : [];
   if (!ids.length) return NextResponse.json({ error: "INVALID_INPUT", message: "Выберите задачи, которые ЗГД должен увидеть." }, { status: 400 });
   const items = await prisma.operationalItem.findMany({ where: { directorateId, archivedAt: null, id: { in: ids } } });
-  const changed = items.filter((i) => !i.publishedAt || i.updatedAt > i.publishedAt);
+  const changed = items.filter((i) => changedSincePublish(i.updatedAt, i.publishedAt));
   const me = { id: actor.id, name: (await getDicts()).users.get(actor.id)?.name ?? "Директор" };
   await publishAll(changed, me, "подтвердил(а) актуальность для ЗГД", { notify: true });
   return NextResponse.json({ published: changed.length, total: items.length });

@@ -27,7 +27,7 @@ type Props = {
   /** Полночь UTC сегодняшнего дня по Москве — для чипа срока. */
   today: number;
   /** Дата приёмки выполненной задачи (из журнала). */
-  doneAt: (r: TRow) => string;
+  doneAt: (r: TRow) => { at: string; accepted: boolean };
   /** Быстрое создание в «Сделать»: вернуть текст ошибки или null; нет — кнопки «+ Задача» нет. */
   onQuickAdd?: (title: string) => Promise<string | null>;
 };
@@ -121,7 +121,8 @@ export function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMe
                 </button>
               </header>
               {blocked && <p className="mb-2 rounded-md border border-dashed border-outline px-2 py-1.5 text-center text-[11px] text-on-surface-variant">{blocked}</p>}
-              {c.key === "DONE" && !director && !drag && <p className="mb-2 px-1 text-[11px] text-outline">Сюда задачу переносит директор — переведите её в «На проверке».</p>}
+              {/* подсказка — тому, кто сам двигает карточки (руководитель); ЗГД и просмотру удалённых она ни к чему */}
+              {c.key === "DONE" && !director && !drag && rows.some(canMove) && <p className="mb-2 px-1 text-[11px] text-outline">Сюда задачу переносит директор — переведите её в «На проверке».</p>}
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
                 {items.map((r) => (
                   <Card
@@ -136,7 +137,7 @@ export function TrackerBoard({ rows, colOf, hot, summaries, colors, onOpen, onMe
                     unconfirmed={unconfirmed?.(r)}
                     deletedInfo={deletedInfo?.(r)}
                     today={today}
-                    closedAt={c.key === "DONE" ? doneAt(r) : null}
+                    closed={c.key === "DONE" ? doneAt(r) : null}
                     draggable={canMove(r) && targets(r).length > 0}
                     onDragStart={() => setDrag(r)}
                     onDragEnd={() => {
@@ -209,7 +210,7 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => Promise<string | null> 
   );
 }
 
-function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, deletedInfo, today, closedAt, draggable, onDragStart, onDragEnd, onOpen, onMenu }: {
+function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, deletedInfo, today, closed, draggable, onDragStart, onDragEnd, onOpen, onMenu }: {
   r: TRow;
   col: TrackerColumnKey;
   ghost: boolean;
@@ -220,7 +221,7 @@ function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, de
   unconfirmed?: boolean;
   deletedInfo?: string;
   today: number;
-  closedAt: string | null;
+  closed: { at: string; accepted: boolean } | null;
   draggable: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -265,7 +266,7 @@ function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, de
             <span className="max-w-24 truncate text-on-surface-variant">{r.ownerName?.split(" ")[0] ?? "не назначен"}</span>
           </span>
         </span>
-        <Deadline row={r} col={col} today={today} closedAt={closedAt} chip />
+        <Deadline row={r} col={col} today={today} closed={closed} chip />
       </div>
     </article>
   );

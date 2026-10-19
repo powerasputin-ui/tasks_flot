@@ -5,7 +5,7 @@ import Link from "next/link";
 import { CheckCircle2, Download, MessageSquare, Smartphone } from "lucide-react";
 import { loadBootstrap } from "@/lib/client-bootstrap";
 import { useInstall } from "@/components/PwaRegister";
-import { buildToday, type TodayHot, type TodayRow, type TodaySection } from "@/lib/today";
+import { buildToday, type TodayEvent, type TodayHot, type TodayRow, type TodaySection } from "@/lib/today";
 import type { TrackerColumnKey } from "@/lib/tracker";
 import { DirectoratesTab, OrdersTab, TrendTab, type ZgdAnalytics } from "@/components/today/ZgdTabs";
 
@@ -19,7 +19,7 @@ const ZGD_TABS = [
 type ZgdTab = (typeof ZGD_TABS)[number]["key"];
 
 type Status = { id: string; name: string; trackerColumn: TrackerColumnKey | null };
-type Data = { rows: TodayRow[]; statuses: Status[]; hot: TodayHot };
+type Data = { rows: TodayRow[]; statuses: Status[]; hot: TodayHot; events: TodayEvent[] };
 
 const TONE: Record<TodaySection["tone"], { bar: string; count: string }> = {
   red: { bar: "border-l-status-red", count: "bg-status-red/10 text-status-red" },
@@ -85,8 +85,10 @@ export function TodayView() {
         const d = await res.json();
         if (!stop) {
           // у ЗГД трекер показывает и отключённые дирекции (архив), а в «Моём дне» — только действующие, как во вкладке «Дирекции»
-          const active = d.mode === "sent" && Array.isArray(d.directorates) ? new Set((d.directorates as Array<{ id: string }>).map((x) => x.id)) : null;
-          setData({ rows: active ? (d.rows as TodayRow[]).filter((r) => !r.directorateId || active.has(r.directorateId)) : d.rows, statuses: d.statuses, hot: d.hot });
+          // и название дирекции — короткое, как во вкладке «Дирекции» (в снимке справки — полное)
+          const dirs = d.mode === "sent" && Array.isArray(d.directorates) ? new Map((d.directorates as Array<{ id: string; name: string }>).map((x) => [x.id, x.name])) : null;
+          const rows = dirs ? (d.rows as TodayRow[]).filter((r) => !r.directorateId || dirs.has(r.directorateId)).map((r) => ({ ...r, directorateName: (r.directorateId && dirs.get(r.directorateId)) || r.directorateName })) : d.rows;
+          setData({ rows, statuses: d.statuses, hot: d.hot, events: d.events ?? [] });
           setNow(Date.now());
         }
       } catch {
@@ -102,7 +104,7 @@ export function TodayView() {
 
   const sections = useMemo(() => {
     if (!data || !role || !meId) return null;
-    return buildToday({ role, meId, rows: data.rows, hot: data.hot, colOf: new Map(data.statuses.map((s) => [s.id, s.trackerColumn])), now });
+    return buildToday({ role, meId, rows: data.rows, hot: data.hot, events: data.events, colOf: new Map(data.statuses.map((s) => [s.id, s.trackerColumn])), now });
   }, [data, role, meId, now]);
 
   const date = new Date(now).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Moscow" });
@@ -183,6 +185,7 @@ export function TodayView() {
                           <span className="mt-0.5 block text-[12px] text-on-surface-variant">
                             {i.note}
                             {role !== "HEAD" && i.ownerName ? ` · ${i.ownerName}` : ""}
+                            {i.directorate ? ` · ${i.directorate}` : ""}
                           </span>
                         </Link>
                       </li>

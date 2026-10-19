@@ -36,6 +36,13 @@ export const DECISION_TEXT: Record<WorkflowAction, string> = {
 /** Колонки, в которые задача попадает только действием (не прямой сменой статуса). */
 export const WORKFLOW_COLUMNS: TrackerColumnKey[] = ["REVIEW", "DONE", "HIDDEN"];
 
+/**
+ * Задачу меняли после последнего подтверждения для ЗГД (или ещё ни разу не подтверждали) — ЗГД видит прежнее состояние.
+ * Сравнение точное: любая правка позже подтверждения — неподтверждённая. Чтобы только что подтверждённая запись не выглядела
+ * «изменённой» из-за расхождения часов, время подтверждения ставится не раньше её времени правки (lib/workflow-server.ts, confirmedAt).
+ */
+export const changedSincePublish = (updatedAt: Date | string, publishedAt: Date | string | null | undefined): boolean => !publishedAt || new Date(updatedAt).getTime() > new Date(publishedAt).getTime();
+
 export type WorkflowItem = { column: TrackerColumnKey; responsibleId: string | null; createdById: string; blocked: boolean; archived: boolean };
 export type WorkflowInput = { result?: string; comment?: string; blockedBy?: string; reason?: string };
 

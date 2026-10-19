@@ -238,10 +238,11 @@ export const wantsSignals = (question: string) => HOT_Q.test(n(question));
 
 /**
  * Сигналы — раздельно (разбор GPT: одно «горит» смешивало просрочку, качество данных и отчётность). У каждого — причина
- * и следующее действие. Вид: просрочка, скоро срок, блокер, ждёт приёмки, запрос ЗГД без ответа, нет данных, отчётность.
+ * и следующее действие. Вид: просрочка, скоро срок, блокер, ждёт приёмки, запрос ЗГД без ответа, неполные данные, не в справке.
  */
 export type SignalKind = "overdue" | "slipped" | "deadlineRequest" | "soon" | "blocker" | "review" | "request" | "data" | "report";
-export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", slipped: "Исходный срок нарушен", deadlineRequest: "Перенос ждёт решения", soon: "Скоро срок", blocker: "На стопе", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Нет данных", report: "Отчётность" };
+// названия — те же на плашках трекера, в фильтре «Сигнал» и в причинах для ИИ («нет данных» читалось как сбой — теперь «неполные данные»)
+export const SIGNAL_LABEL: Record<SignalKind, string> = { overdue: "Просрочка", slipped: "Исходный срок нарушен", deadlineRequest: "Перенос ждёт решения", soon: "Скоро срок", blocker: "На стопе", review: "Ждёт приёмки", request: "Запрос ЗГД", data: "Неполные данные", report: "Не в справке" };
 export type Signal = { item: FactItem; reasons: string[]; weight: number; kinds: SignalKind[] };
 
 export function signals(items: FactItem[], today: number): Signal[] {
@@ -291,7 +292,7 @@ export function signals(items: FactItem[], today: number): Signal[] {
 export function signalsBlock(sig: Signal[], labels: Map<string, string>): string {
   if (!sig.length) return "СИГНАЛЫ «ГОРИТ» (по правилу программы): нет — просрочек, сроков на носу, зависших ожиданий и позиций без срока и статуса нет.";
   return [
-    "СИГНАЛЫ «ГОРИТ» (посчитано программой; у каждого — вид, причина и «→ что сделать»; виды: Просрочка, Исходный срок нарушен, Перенос ждёт решения, Скоро срок, Блокер, Ждёт приёмки, Запрос ЗГД, Нет данных, Отчётность), сначала самое серьёзное:",
+    `СИГНАЛЫ «ГОРИТ» (посчитано программой; у каждого — вид, причина и «→ что сделать»; виды: ${Object.values(SIGNAL_LABEL).join(", ")}), сначала самое серьёзное:`,
     ...sig.map((s) => `[${labels.get(s.item.id)}] ${s.reasons.join("; ")} — ответственный: ${s.item.owner ?? "не указан"}`),
   ].join("\n");
 }

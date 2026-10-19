@@ -6,7 +6,8 @@ import { PrismaClient } from "@prisma/client";
 import { AUTH_DIR, DATA_FILE, stateFile, type Role, type UiData } from "./fixtures";
 
 /**
- * Временная дирекция, директор, два руководителя, ЗГД и три задачи (просроченная, на проверке, срок завтра);
+ * Временная дирекция, директор, два руководителя, ЗГД и задачи: просроченная, на проверке, срок завтра, возвращённая директором
+ * на доработку (с замечанием в журнале) и поручение ЗГД без исполнителя;
  * вход каждой ролью через страницу входа и сохранение куки. Всё помечено TAG и удаляется в global-teardown.
  */
 export default async function globalSetup(config: FullConfig) {
@@ -35,8 +36,13 @@ export default async function globalSetup(config: FullConfig) {
       const it = await prisma.operationalItem.create({ data: { title: `${title} ${tag}`, directorateId: dir.id, responsibleId: users.head.id, createdById: users.head.id, updatedById: users.head.id, statusId: await status(statusName), deadline, originalDeadline: deadline } });
       return { id: it.id, title: it.title };
     };
-    const items = { overdue: await item("Просроченная задача", "В работе", day(-5)), review: await item("Сданная задача", "На проверке", day(7)), soon: await item("Срочная задача", "В работе", day(1)) };
-    const data: UiData = { tag, directorateId: dir.id, users, items };
+    const items = { overdue: await item("Просроченная задача", "В работе", day(-5)), review: await item("Сданная задача", "На проверке", day(7)), soon: await item("Срочная задача", "В работе", day(1)), returned: await item("Возвращённая задача", "В работе", day(10)) };
+    // директор вернул на доработку — так это пишет действие трекера (lib/workflow-server.ts)
+    await prisma.auditEvent.create({ data: { entityType: "OperationalItem", entityId: items.returned.id, actorId: users.director.id, action: "UPDATE", fieldName: "workflow:return", after: "нет акта сверки" } });
+    // поручение ЗГД без исполнителя: директору — «Назначьте ответственного»
+    const order = await prisma.operationalItem.create({ data: { title: `Поручение без исполнителя ${tag}`, expectedResult: "Справка", directorateId: dir.id, createdById: users.zgd.id, updatedById: users.zgd.id, statusId: await status("Не начато"), deadline: day(12), originalDeadline: day(12), origin: "ZGD", assignedById: users.zgd.id, assignedByName: users.zgd.name, assignedAt: new Date(), zgdControl: true } });
+    const all = { ...items, order: { id: order.id, title: order.title } };
+    const data: UiData = { tag, directorateId: dir.id, users, items: all };
     fs.mkdirSync(AUTH_DIR, { recursive: true });
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 

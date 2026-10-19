@@ -49,6 +49,21 @@ export async function notifyOwnerOfEdit(
 }
 
 /**
+ * Ответственным назначили человека (при создании или сменой ответственного) — он узнаёт, что задача теперь его: иначе поручение ЗГД,
+ * пришедшее без исполнителя, директор назначал бы молча (прежнему ответственному уходит обычное «изменил (ответственный)»).
+ */
+export async function notifyNewOwner(
+  actor: { id: string; name?: string },
+  item: { id: string; title: string; responsibleId: string | null; directorateId?: string | null; origin?: string | null; assignedByName?: string | null; deadline?: Date | null },
+): Promise<void> {
+  if (!item.responsibleId || item.responsibleId === actor.id) return;
+  const order = item.origin ? ` — поручение ${item.origin === "ZGD" ? "ЗГД" : "директора"}${item.assignedByName ? ` (${item.assignedByName})` : ""}` : "";
+  const due = item.deadline ? `, срок ${item.deadline.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" })}` : "";
+  const link = withDirectorate(`/tracker?item=${item.id}`, item.directorateId) ?? `/tracker?item=${item.id}`;
+  await createNotification({ userId: item.responsibleId, type: "CHANGE_ATTENTION", message: `${actor.name ?? "Кто-то"} назначил(а) вас ответственным${order}: «${item.title.slice(0, 120)}»${due}`, link });
+}
+
+/**
  * Позицию удалили навсегда — об этом должны узнать: директор дирекции (если директора нет — админы) и ответственный,
  * если удалял не он. Иначе позиция исчезла бы бесследно.
  */

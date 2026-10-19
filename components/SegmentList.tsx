@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronsDownUp, ChevronsUpDown, Layers } from "lucide-react";
+import { ChevronDown, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Layers } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { NO_SEGMENT, type SegmentCount, type TrackCount } from "@/lib/segment-counts";
 
@@ -30,6 +30,29 @@ function useOpenSegments(): [Set<string>, (id: string) => void] {
       return next;
     });
   return [open, toggle];
+}
+
+/** Панель сегментов свёрнута в узкую полосу — на ноутбуке таблице нужно место; помним в этом браузере. */
+const COLLAPSED_KEY = "operativka.segmentsPanel.collapsed.v1";
+function usePanelCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(COLLAPSED_KEY) === "1") setCollapsed(true);
+    } catch {
+      // приватный режим — панель раскрыта
+    }
+  }, []);
+  const toggle = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(COLLAPSED_KEY, c ? "0" : "1");
+      } catch {
+        // не сохранилось — до перезагрузки
+      }
+      return !c;
+    });
+  return [collapsed, toggle];
 }
 
 export type SegmentRef = { id: string; name: string; color?: string | null };
@@ -71,6 +94,7 @@ export function SegmentList({
 }) {
   const colors = segmentColors(segments);
   const [open, toggleOpen] = useOpenSegments();
+  const [collapsed, toggleCollapsed] = usePanelCollapsed();
   // правая кнопка по карточке сегмента — меню «Раскрыть сегмент» / «Свернуть сегмент»
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   useEffect(() => {
@@ -95,6 +119,21 @@ export function SegmentList({
     ...(noSegment ? [{ id: NO_SEGMENT, name: "Без сегмента", count: noSegment }] : []),
   ];
   const allActive = selected.length === 0 && trackPicks.length === 0;
+  const picked = selected.length + trackPicks.length;
+
+  // свёрнута — узкая полоса: развернуть, название и сколько выбрано (отбор продолжает действовать)
+  if (collapsed)
+    return (
+      <aside aria-label="Сегменты (свёрнуто)" className="hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-outline-variant bg-surface-low py-3 lg:flex">
+        <button onClick={toggleCollapsed} aria-label="Развернуть панель сегментов" title="Развернуть панель сегментов" className="flex h-7 w-7 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface">
+          <ChevronsRight size={16} />
+        </button>
+        {picked > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-white" title={`Выбрано: ${picked}`}>{picked}</span>}
+        <button onClick={toggleCollapsed} className="text-[12px] font-bold text-on-surface-variant [writing-mode:vertical-rl] hover:text-on-surface">
+          Сегменты
+        </button>
+      </aside>
+    );
 
   return (
     <aside className="hidden w-72 shrink-0 flex-col border-r border-outline-variant bg-surface-low lg:flex xl:w-80">
@@ -103,11 +142,16 @@ export function SegmentList({
           <Layers size={15} className="text-outline" />
           <span className="label-caps">Сегменты</span>
         </div>
-        {selected.length + trackPicks.length > 0 && (
-          <button onClick={onClear} className="text-[12px] font-semibold text-primary hover:underline">
-            Сбросить ({selected.length + trackPicks.length})
+        <div className="flex items-center gap-2">
+          {picked > 0 && (
+            <button onClick={onClear} className="text-[12px] font-semibold text-primary hover:underline">
+              Сбросить ({picked})
+            </button>
+          )}
+          <button onClick={toggleCollapsed} aria-label="Свернуть панель сегментов" title="Свернуть панель — больше места таблице" className="flex h-6 w-6 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface">
+            <ChevronsLeft size={15} />
           </button>
-        )}
+        </div>
       </div>
       <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">Выберите несколько сегментов, чтобы сравнить их в одной таблице. Правая кнопка по сегменту — «Раскрыть сегмент»: его треки.</p>
 

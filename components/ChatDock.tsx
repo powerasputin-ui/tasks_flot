@@ -33,6 +33,8 @@ export function ChatDock({ meId }: { meId: string }) {
   const [saved, setSaved] = useState<{ x: number; y: number } | null>(null);
   const [base, setBase] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  // левый край открытой справа панели (карточка задачи, поручение…): кнопка не должна закрывать её поля и кнопки
+  const [panelLeft, setPanelLeft] = useState<number | null>(null);
   const drag = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null);
   const clamp = (x: number, y: number) => ({ x: Math.min(Math.max(8, x), window.innerWidth - BALL - 8), y: Math.min(Math.max(8, y), window.innerHeight - BALL - 8) });
 
@@ -53,6 +55,9 @@ export function ChatDock({ meId }: { meId: string }) {
       const ai = document.querySelector("[data-ai-ball]")?.getBoundingClientRect();
       const next = ai && ai.width > 0 ? clamp(ai.left, ai.top - BALL - GAP) : clamp(window.innerWidth - BALL - 20, window.innerHeight - BALL - (window.innerWidth < 768 ? 80 : 20));
       setBase((b) => (b.x === next.x && b.y === next.y ? b : next));
+      const panel = document.querySelector("[data-side-panel]")?.getBoundingClientRect();
+      const left = panel && panel.width > 0 ? Math.round(panel.left) : null;
+      setPanelLeft((l) => (l === left ? l : left));
       const url = new URL(window.location.href);
       const id = url.searchParams.get("chat");
       if (id) {
@@ -99,7 +104,12 @@ export function ChatDock({ meId }: { meId: string }) {
   }, []);
 
   if (!mounted || typeof document === "undefined") return null;
-  const pos = dragPos ?? (saved ? clamp(saved.x, saved.y) : base);
+  const placed = dragPos ?? (saved ? clamp(saved.x, saved.y) : base);
+  // открыта панель справа и кнопка на неё заходит — отступает левее панели; места слева нет (телефон, панель на весь экран) — прячется,
+  // пока панель открыта (в карточке задачи есть «Обсудить»). Пока человек тащит кнопку — она под его пальцем.
+  const overPanel = !dragPos && panelLeft !== null && placed.x + BALL > panelLeft;
+  const hidden = overPanel && !open && panelLeft! < BALL + 2 * GAP;
+  const pos = overPanel && !hidden ? { x: Math.max(8, panelLeft! - BALL - GAP), y: placed.y } : placed;
   // окно — рядом с кнопкой: справа или слева от неё и выше или ниже, где хватает места
   const winLeft = Math.min(Math.max(8, pos.x + BALL - W), window.innerWidth - W - 8);
   const above = pos.y > H + GAP + 8 || pos.y > window.innerHeight / 2;
@@ -112,7 +122,7 @@ export function ChatDock({ meId }: { meId: string }) {
           <Window meId={meId} screen={screen} setScreen={setScreen} onClose={() => setOpen(false)} onUnread={setUnread} />
         </div>
       )}
-      {!(open && mobile) && (
+      {!(open && mobile) && !hidden && (
         <button
           aria-label="Чат"
           aria-expanded={open}

@@ -33,6 +33,41 @@ test.describe("руководитель", () => {
     await expect(page.getByRole("menu").getByRole("menuitem", { name: "Открыть" })).toBeVisible();
     await noSideScroll(page);
   });
+
+  test("«Мой день»: возвращённая директором — в «Вернули на доработку» с замечанием, задача — в одном разделе", async ({ page }) => {
+    const d = uiData();
+    await page.goto("/today");
+    const sec = page.locator("section", { has: page.getByRole("heading", { name: "Вернули на доработку" }) });
+    await expect(sec).toContainText(d.items.returned.title);
+    await expect(sec).toContainText("нет акта сверки");
+    await expect(page.getByText(d.items.returned.title)).toHaveCount(1);
+  });
+
+  test("карточка: «Ход работы» первым разделом, кнопку «Удалить» не закрывает кнопка чата", async ({ page }) => {
+    const d = uiData();
+    await page.goto("/tracker?view=board");
+    await page.locator("article", { hasText: d.items.overdue.title }).click();
+    const panel = page.locator("aside[data-side-panel]");
+    await expect(panel.locator("h3").first()).toHaveText("Ход работы");
+    // кнопка чата отходит левее панели (на телефоне — прячется, пока карточка открыта): щелчок доходит до «Удалить»
+    await panel.getByRole("button", { name: "Удалить" }).click({ trial: true });
+  });
+
+  test("трекер: на телефоне выпадающие фильтры свёрнуты в «Фильтры», на компьютере видны сразу", async ({ page }) => {
+    await page.goto("/tracker?view=board");
+    const phone = (page.viewportSize()?.width ?? 1300) < 768;
+    const more = page.getByRole("button", { name: /^Фильтры/ });
+    const column = page.getByRole("button", { name: /^Колонка/ });
+    if (phone) {
+      await expect(column).toBeHidden();
+      await more.click();
+      await expect(column).toBeVisible();
+    } else {
+      await expect(more).toBeHidden();
+      await expect(column).toBeVisible();
+    }
+    await noSideScroll(page);
+  });
 });
 
 test.describe("директор", () => {
@@ -44,6 +79,8 @@ test.describe("директор", () => {
     await page.goto("/tracker?view=timeline");
     await expect(page.getByRole("button", { name: "Сегодня", exact: true })).toHaveCount(0);
     await page.goto("/tracker?view=board");
+    // на телефоне выпадающие фильтры — за кнопкой «Фильтры»
+    if ((page.viewportSize()?.width ?? 1300) < 768) await page.getByRole("button", { name: /^Фильтры/ }).click();
     await page.getByRole("button", { name: /^Колонка/ }).click();
     await page.getByRole("checkbox", { name: /^На проверке/ }).click();
     await expect(page).toHaveURL(/col=REVIEW/);
@@ -60,6 +97,16 @@ test.describe("директор", () => {
     await expect(chat).toBeVisible();
     await expect(chat.getByText("Обсуждение задачи", { exact: false }).first()).toBeVisible();
     await expect(chat.getByText(d.items.review.title).first()).toBeVisible();
+  });
+
+  test("«Мой день»: поручение ЗГД без исполнителя — «Назначьте ответственного», в карточке выбор исполнителя сверху", async ({ page }) => {
+    const d = uiData();
+    await page.goto("/today");
+    const sec = page.locator("section", { has: page.getByRole("heading", { name: "Назначьте ответственного" }) });
+    await expect(sec).toContainText(d.items.order.title);
+    await sec.getByText(d.items.order.title).click();
+    await expect(page).toHaveURL(new RegExp(`item=${d.items.order.id}`));
+    await expect(page.locator("aside[data-side-panel]").getByText("Поручение без исполнителя — назначьте ответственного")).toBeVisible();
   });
 
   test("чат: создать группу и написать сообщение", async ({ page }) => {

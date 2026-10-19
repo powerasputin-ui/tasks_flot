@@ -6,7 +6,7 @@ import { createNotification, withDirectorate } from "@/lib/notifications";
 import { canViewItems, isDirectorial, type Actor } from "@/lib/permissions";
 import { normalizeFiles, readFiles } from "@/lib/item-files";
 import { statusForColumn, type TrackerColumnKey } from "@/lib/tracker";
-import { checkAction, DECISION_TEXT, TARGET_COLUMN, type WorkflowAction, type WorkflowInput } from "@/lib/workflow";
+import { changedSincePublish, checkAction, DECISION_TEXT, TARGET_COLUMN, type WorkflowAction, type WorkflowInput } from "@/lib/workflow";
 import type { ItemRecord } from "@/lib/table-view";
 import { STOP_STATUS } from "@/lib/statuses";
 import { randomUUID } from "node:crypto";
@@ -42,8 +42,15 @@ export type PublishedSnapshot = {
 /** Поля, которые меняет решение по задаче (принять, вернуть, отменить, переоткрыть, стоп). */
 export const DECISION_FIELDS = ["statusName", "statusColor", "review", "cancelReason", "blockedBy", "blockedUntil"];
 
+/**
+ * Время подтверждения записи: «сейчас», но не раньше её времени правки. Время правки ставит Prisma, «сейчас» — сервер, и часы
+ * расходятся на миллисекунды (так поручение ЗГД сразу после создания выглядело «не подтверждённым»). Подтверждаем ровно то
+ * состояние, с которого снят снимок: правка после него будет позже и останется неподтверждённой.
+ */
+export const confirmedAt = (now: Date, item: { updatedAt: Date }) => (item.updatedAt.getTime() > now.getTime() ? item.updatedAt : now);
+
 /** До этого изменения у задачи не было неподтверждённых для ЗГД правок. */
-export const wasConfirmed = (item: { publishedAt: Date | null; updatedAt: Date }) => !!item.publishedAt && item.updatedAt.getTime() <= item.publishedAt.getTime();
+export const wasConfirmed = (item: { publishedAt: Date | null; updatedAt: Date }) => !changedSincePublish(item.updatedAt, item.publishedAt);
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -117,11 +124,13 @@ export async function publishAll(items: ItemRecord[], actor: { id: string; name:
   const now = new Date();
   if (fresh.length) {
     await prisma.itemPublication.createMany({
-      data: fresh.map((i) => ({ itemId: i.id, directorateId: i.directorateId!, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snaps.get(i.id) as unknown as Prisma.InputJsonValue, publishedAt: now })),
+      data: fresh.map((i) => ({ itemId: i.id, directorateId: i.directorateId!, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snaps.get(i.id) as unknown as Prisma.InputJsonValue, publishedAt: confirmedAt(now, i) })),
     });
   }
-  // «подтверждено» — у всех выбранных, даже если новой строки не понадобилось
+  // «подтверждено» — у всех выбранных, даже если новой строки не понадобилось; запись, чьё время правки «впереди» часов сервера, —
+  // своим временем правки (редкость: расхождение часов на миллисекунды)
   await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${now} WHERE "id" IN (${Prisma.join(ids)})`;
+  for (const i of list) if (confirmedAt(now, i) !== now) await prisma.$executeRaw`UPDATE "operational_items" SET "publishedAt" = ${i.updatedAt} WHERE "id" = ${i.id}`;
   if (opts.notify) {
     const controlled = list.filter((i) => i.zgdControl);
     if (controlled.length) {
@@ -142,7 +151,7 @@ export async function publishItem(item: ItemRecord, actor: { id: string; name: s
   const skipUserIds = opts.skip ?? [];
   // решение директора уходит ЗГД без черновых правок карточки: снимок полный (для истории), применяются только поля решения
   const snapshot: PublishedSnapshot = { ...(await snapshotOf(item, db)), ...(opts.only ? { only: opts.only } : {}) };
-  const now = new Date();
+  const now = confirmedAt(new Date(), item);
   await db.itemPublication.create({ data: { itemId: item.id, directorateId: item.directorateId, publishedById: actor.id, publishedByName: actor.name, reason, snapshot: snapshot as unknown as Prisma.InputJsonValue, publishedAt: now } });
   // напрямую: обычный update сдвинул бы updatedAt («давно не трогали» и «не подтверждено» сравнивают с ним).
   // Только решение, а в карточке остались неподтверждённые правки — у директора она по-прежнему «не подтверждена»

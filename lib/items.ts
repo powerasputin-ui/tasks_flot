@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { canAssignResponsible, canCreateItem, canDeleteItem, canEditItem, canPurgeItem, canRestoreItem, canViewItems, isDirectorial, isSubmitter, type Actor } from "@/lib/permissions";
 import { recordAudit, recordFieldChanges, TRACKED_ITEM_FIELDS } from "@/lib/audit";
-import { changedFields, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
+import { changedFields, notifyNewOwner, notifyOwnerOfEdit, notifyPurge } from "@/lib/item-notify";
 import { flattenCustom, mergeCustomValues, type ColumnDef } from "@/lib/custom-columns";
 import { getDicts, invalidateDicts, type Dicts } from "@/lib/dictionaries";
 import { createNotification } from "@/lib/notifications";
@@ -131,6 +131,8 @@ export async function createItem(actor: Actor, input: ItemFields & { title: stri
       data: { ...rest, originalDeadline: rest.deadline ?? null, customValues: custom, files: nextFiles, responsibleId, directorateId, createdById: actor.id, updatedById: actor.id },
     });
     await recordAudit({ entityType: "OperationalItem", entityId: item.id, actorId: actor.id, action: "CREATE" });
+    // директор завёл задачу сразу на руководителя — тот узнаёт о ней сам, а не случайно в таблице
+    await notifyNewOwner(actor as Actor & { name?: string }, item);
     return { ok: true, id: item.id, record: item };
   } catch (e) {
     if (isForeignKeyError(e)) return { ok: false, error: "INVALID_REFERENCE" };
@@ -233,6 +235,7 @@ export async function updateItem(actor: Actor, id: string, input: ItemFields & {
     });
     const touched = changedFields(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>);
     if (touched.length) await notifyOwnerOfEdit(actor as Actor & { name?: string }, existing, `изменил (${touched.join(", ")})`);
+    if (updated.responsibleId !== existing.responsibleId) await notifyNewOwner(actor as Actor & { name?: string }, updated);
     return { ok: true, id, record: updated };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {

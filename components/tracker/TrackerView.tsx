@@ -3,14 +3,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isOverdueRow } from "@/lib/overdue";
-import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, Star, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Star, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
 import { StatusPill } from "@/components/ui/Badge";
 import { askConfirm, askText } from "@/components/ui/Dialog";
 import { ASK } from "@/components/WorkflowSection";
-import { ACTION_LABEL, availableActions, type WorkflowAction } from "@/lib/workflow";
+import { ACTION_LABEL, availableActions, changedSincePublish, type WorkflowAction } from "@/lib/workflow";
 import { STOP_STATUS } from "@/lib/statuses";
 import { PersonAvatar } from "@/components/ui/Person";
 import { segmentColors } from "@/components/SegmentList";
@@ -20,7 +20,7 @@ import { matchesTokens, normalizeText, tokenize } from "@/lib/search";
 import { usePreviewAs } from "@/lib/preview-as";
 import { useIsMobile } from "@/lib/use-mobile";
 import { SIGNAL_LABEL, type SignalKind } from "@/lib/ai-table";
-import { BOARD_COLUMNS, closedAtOf, columnOf, deadlineChip, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, mskDay, pickTop, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
+import { BOARD_COLUMNS, closedOf, columnOf, deadlineChip, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, mskDay, pickTop, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
 import { TrackerBoard } from "@/components/tracker/TrackerBoard";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
@@ -97,6 +97,9 @@ export function TrackerView() {
   const kind = filters.kind as SignalKind | null;
   const scopeRaw = filters.scope as "all" | "control" | "orders" | "mine" | "waiting";
   const [ordering, setOrdering] = useState(false);
+  // телефон: выпадающие фильтры свёрнуты в одну кнопку «Фильтры» — иначе они занимают пол-экрана до первой карточки
+  const [moreFilters, setMoreFilters] = useState(false);
+  const extraFilters = [filters.dir, filters.col, kind || slipOnly, segmentIds.length, ownerIds.length].filter(Boolean).length;
   const [notice, setNotice] = useState<string | null>(null);
   const [editor, setEditor] = useState<TRow | null>(null);
   // с таймлайна задача открывается сразу на «Истории» — видно событие, на которое нажали
@@ -384,7 +387,7 @@ export function TrackerView() {
   const boardColumns: Array<{ key: TrackerColumnKey; label: string }> = [...BOARD_COLUMNS, ...(showCancelledCol ? [{ key: "HIDDEN" as const, label: "Отменённые" }] : [])];
   const counts = useMemo(() => Object.fromEntries([...BOARD_COLUMNS, { key: "HIDDEN", label: "" }].map((c) => [c.key, baseRows.filter((r) => columnOf(r.statusId, colOf) === c.key).length])), [baseRows, colOf]);
   // директор: изменённые после прошлого подтверждения (или ни разу не подтверждённые) — ЗГД их ещё не видит
-  const unconfirmed = (r: TRow) => !sent && !deleted && directorial && (!r.publishedAt || new Date(r.updatedAt).getTime() > new Date(r.publishedAt).getTime());
+  const unconfirmed = (r: TRow) => !sent && !deleted && directorial && changedSincePublish(r.updatedAt, r.publishedAt);
   const unconfirmedCount = (data?.rows ?? []).filter((r) => columnOf(r.statusId, colOf) !== "HIDDEN" && unconfirmed(r)).length;
   const [publishing, setPublishing] = useState(false);
   const kindCounts = useMemo(() => {
@@ -399,7 +402,7 @@ export function TrackerView() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-on-surface">{deleted ? "Трекер · Удалённые" : "Трекер"}</h1>
-          <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant">
+          <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant max-md:hidden">
             {deleted ? (
               <>Удалённые задачи — те же, что в «Удалённых» таблицы. Верните задачу — и она снова появится и в таблице, и в трекере.</>
             ) : sent ? (
@@ -480,7 +483,7 @@ export function TrackerView() {
         </div>
         )}
         {!deleted && (
-        <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[13px]" aria-label="Охват">
+        <div className="flex rounded-md border border-outline-variant bg-surface p-0.5 text-[13px] max-md:max-w-full max-md:overflow-x-auto max-md:[scrollbar-width:none]" aria-label="Охват">
           {([
             ["all", "Все"],
             ["control", "На контроле"],
@@ -488,10 +491,17 @@ export function TrackerView() {
             ...(sent ? ([["mine", "Мои поручения"]] as const) : []),
             ["waiting", sent ? "Ждут ответа" : "Запросы ЗГД"],
           ] as const).map(([k, label]) => (
-            <button key={k} onClick={() => patch({ scope: k })} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
+            <button key={k} onClick={() => patch({ scope: k })} aria-pressed={scope === k} className={`shrink-0 whitespace-nowrap rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
           ))}
         </div>
         )}
+        {/* обёртка: у .btn-ghost свой display, md:hidden на самой кнопке он перебивает */}
+        <span className="contents md:hidden">
+          <button onClick={() => setMoreFilters((o) => !o)} aria-expanded={moreFilters} className={`btn-ghost h-8 text-[12px] ${extraFilters ? "text-primary" : ""}`}>
+            <SlidersHorizontal size={14} /> Фильтры{extraFilters ? ` · ${extraFilters}` : ""}
+          </button>
+        </span>
+        <div className={`contents ${moreFilters ? "" : "max-md:hidden"}`}>
         {sent && (data?.directorates?.length ?? 0) > 1 && (
           <FilterChip label="Дирекция" value={filters.dir ? [filters.dir] : []} options={data!.directorates!} onChange={(v) => patch({ dir: v.at(-1) ?? null })} />
         )}
@@ -522,6 +532,7 @@ export function TrackerView() {
             <X size={14} /> Сбросить фильтры
           </button>
         )}
+        </div>
         <label className="relative ml-auto max-md:ml-0 max-md:w-full">
           <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-outline" />
           <input value={q} onChange={(e) => patch({ q: e.target.value })} placeholder="Поиск по задачам" className="input w-64 pl-8 max-md:w-full" aria-label="Поиск по задачам" />
@@ -552,7 +563,7 @@ export function TrackerView() {
 
       {data && rows.length > 0 && view === "list" && <TrackerList today={today} rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} onRestore={restore} canRestore={canEditRow} />}
       {data && rows.length > 0 && view === "board" && (
-        <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={filters.col ? boardColumns.filter((c) => c.key === filters.col) : boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} today={today} doneAt={(r) => new Date(closedAtOf(byItem.get(r.id) ?? [], r.updatedAt)).toISOString()} onQuickAdd={!sent && !deleted && !preview && me && canCreateItem(me.role as never) ? quickAdd : undefined} />
+        <TrackerBoard rows={rows} colOf={colOf} hot={data.hot} summaries={summaries} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} unconfirmed={unconfirmed} deletedInfo={deletedInfo} columns={filters.col ? boardColumns.filter((c) => c.key === filters.col) : boardColumns} canMove={(r) => !sent && !deleted && canEditRow(r) && !preview} director={directorial} onMove={move} mainStatus={new Map(BOARD_COLUMNS.map((c) => [c.key, statusForColumn(c.key, data.statuses)]))} today={today} doneAt={(r) => { const c = closedOf(byItem.get(r.id) ?? [], r.updatedAt); return { at: new Date(c.at).toISOString(), accepted: c.accepted }; }} onQuickAdd={!sent && !deleted && !preview && me && canCreateItem(me.role as never) ? quickAdd : undefined} />
       )}
       {data && rows.length > 0 && view === "timeline" && <TrackerTimeline rows={rows} colOf={colOf} statusColumns={new Map(data.statuses.map((s) => [s.name, s.trackerColumn]))} hot={data.hot} events={byItem} colors={colors} onOpen={openRow} onMenu={sent ? undefined : openMenu} />}
 
@@ -685,6 +696,10 @@ function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null;
   return [...segs.values()].map((s) => ({ ...s, tracks: [...s.tracks].map(([track, rows]) => ({ track, rows })) }));
 }
 
+/** «Запрос ЗГД» → «запрос ЗГД»: строчная только первая буква, аббревиатуры остаются. */
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
 /** Важность плашки на доске: меньше — важнее (просрочка → стоп → запрос ЗГД → срок сдвигали → поручение → контроль → подтверждение). */
 const SIGNAL_RANK: Record<SignalKind, number> = { overdue: 1, blocker: 2, request: 3, deadlineRequest: 4, slipped: 4, review: 5, soon: 6, data: 9, report: 9 };
 
@@ -704,12 +719,14 @@ export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cance
   if (row.origin) add(7, row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора", <span className="rounded-sm bg-[#7c3aed]/10 px-1.5 py-px text-[11px] font-semibold text-[#7c3aed]" title={row.assignedByName ? `Поручение: ${row.assignedByName}` : undefined}>{row.origin === "ZGD" ? "поручение ЗГД" : "поручение директора"}</span>);
   if (row.zgdControl) add(8, "на контроле у ЗГД", <span className="inline-flex items-center gap-1 rounded-sm bg-status-amber/15 px-1.5 py-px text-[11px] font-semibold text-[#b45309]" title="ЗГД взял на контроль: перенос срока — только с согласия директора"><Star size={10} /> на контроле</span>);
   if (unconfirmed) add(9, "не подтверждено для ЗГД", <span className="rounded-sm border border-dashed border-outline px-1.5 py-px text-[11px] text-on-surface-variant" title="Изменена после прошлого подтверждения — ЗГД видит прежнее состояние. «Обновить для ЗГД» или решение по задаче подтвердит.">не подтверждено для ЗГД</span>);
-  // сигнал = вид + причина и «что сделать» в подсказке; на доске «срок близко» и «просрочка» не дублируем: их показывает чип срока
+  // сигнал = вид + причина и «что сделать» в подсказке; на доске «срок близко» и «просрочка» не дублируем: их показывает чип срока.
+  // «На стопе» рядом со статусом «На стопе» повторял бы его — плашка говорит, чего ждём
   for (const k of hot?.kinds ?? []) {
     if (max !== undefined && (k === "soon" || k === "overdue")) continue;
-    add(SIGNAL_RANK[k], SIGNAL_LABEL[k].toLowerCase(), (
+    const label = k === "blocker" && row.blockedBy ? `ждём: ${clip(row.blockedBy, 28)}` : lowerFirst(SIGNAL_LABEL[k]);
+    add(SIGNAL_RANK[k], label, (
       <span className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-px text-[11px] font-semibold ${SIGNAL_TONE[k].off}`} title={hot?.reasons.filter((x) => x.startsWith(SIGNAL_LABEL[k])).join("\n")}>
-        {k === "overdue" && <Flame size={11} />} {SIGNAL_LABEL[k].toLowerCase()}
+        {k === "overdue" && <Flame size={11} />} {label}
       </span>
     ));
   }
@@ -731,8 +748,8 @@ export function Marks({ row, hot, summary, done, unconfirmed, deletedInfo, cance
 }
 
 /** Срок: чип по близости (красный — просрочено, янтарный — ≤ 3 дн.) или «принято дд.мм» у выполненных. */
-export function Deadline({ row, col, today, closedAt, chip = false }: { row: TRow; col: TrackerColumnKey; today: number; closedAt?: string | null; chip?: boolean }) {
-  const c = deadlineChip(row.deadline, today, { overdue: overdue(row, col), column: col, closedAt });
+export function Deadline({ row, col, today, closed, chip = false }: { row: TRow; col: TrackerColumnKey; today: number; closed?: { at: string; accepted: boolean } | null; chip?: boolean }) {
+  const c = deadlineChip(row.deadline, today, { overdue: overdue(row, col), column: col, closedAt: closed?.at, accepted: closed?.accepted });
   if (!chip) return <span className={c.tone === "red" ? "font-semibold text-status-red" : c.tone === "none" ? "text-outline" : "text-on-surface-variant"} title={c.tone === "red" ? c.text : c.title}>{row.deadline ? `до ${ruDay(row.deadline)}` : c.text}</span>;
   const tone = { red: "bg-status-red/10 text-status-red", amber: "bg-status-amber/15 text-[#b45309]", green: "bg-status-emerald/10 text-status-emerald", grey: "bg-surface-high text-on-surface-variant", none: "text-outline" }[c.tone];
   return <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${tone}`} title={c.title}>{c.tone === "red" && <Flame size={11} />}{c.tone === "green" && <Check size={11} />}{c.text}</span>;

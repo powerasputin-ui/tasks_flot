@@ -290,11 +290,18 @@ export function dropAction(from: TrackerColumnKey, to: TrackerColumnKey): Workfl
   return null;
 }
 
-/** Когда задачу приняли (из журнала: «принята директором…»); нет записи — когда её последний раз правили. */
-export function closedAtOf(events: TrackerEvent[], fallback: string | Date): number {
-  const acc = [...events].reverse().find((e) => e.kind === "workflow" && /^принят/.test(e.text));
-  return new Date(acc?.at ?? fallback).getTime();
+/** Приёмка директором: «принята директором…» в журнале дирекции, «принял(а) задачу» в подтверждениях у ЗГД. */
+const ACCEPTED = /^(принят|принял)/;
+
+/**
+ * Как и когда задачу закрыли: последняя приёмка директором — «принята»; последняя смена статуса (закрыли статусом в таблице,
+ * без приёмки) — «выполнена»; ни того ни другого в журнале (закрыли раньше, чем он ведётся) — по последней правке, «выполнена».
+ */
+export function closedOf(events: TrackerEvent[], fallback: string | Date): { at: number; accepted: boolean } {
+  const last = [...events].reverse().find((e) => (e.kind === "workflow" && ACCEPTED.test(e.text)) || e.kind === "status");
+  return { at: new Date(last?.at ?? fallback).getTime(), accepted: last?.kind === "workflow" };
 }
+export const closedAtOf = (events: TrackerEvent[], fallback: string | Date): number => closedOf(events, fallback).at;
 
 /** Выполненное в окне последних дней — на доске и в списке по умолчанию видно только оно (остальное — «показать все»). */
 export const DONE_WINDOW_DAYS = 14;
@@ -373,11 +380,14 @@ const dayStart = (d: string | Date) => {
 
 /**
  * Срок как чип: «просрочено на N дн.» (красный), «сегодня» / «через N дн.» (≤ 3 дн, янтарный), далее серый «до дд.мм.гг»;
- * у выполненных — зелёный «принято дд.мм.гг». today — полночь UTC сегодняшнего дня по Москве (mskToday); overdue — общее правило
- * lib/overdue.ts (в сам день срока ещё не просрочка, закрытые — нет).
+ * у выполненных — зелёный «принято дд.мм.гг» (директор принял) или «выполнено дд.мм.гг» (закрыли статусом, без приёмки).
+ * today — полночь UTC сегодняшнего дня по Москве (mskToday); overdue — общее правило lib/overdue.ts (в сам день срока ещё не просрочка, закрытые — нет).
  */
-export function deadlineChip(deadline: string | Date | null | undefined, today: number, o: { overdue: boolean; column: TrackerColumnKey; closedAt?: string | Date | null }): DeadlineChip {
-  if (o.column === "DONE" && o.closedAt) return { text: `принято ${ruDay(o.closedAt)}`, tone: "green", title: deadline ? `Срок был до ${ruDay(deadline)}` : "Срока не было" };
+export function deadlineChip(deadline: string | Date | null | undefined, today: number, o: { overdue: boolean; column: TrackerColumnKey; closedAt?: string | Date | null; accepted?: boolean }): DeadlineChip {
+  if (o.column === "DONE" && o.closedAt) {
+    const was = deadline ? `срок был до ${ruDay(deadline)}` : "срока не было";
+    return o.accepted === false ? { text: `выполнено ${ruDay(o.closedAt)}`, tone: "green", title: `Закрыта без приёмки директором (статусом в таблице); ${was}` } : { text: `принято ${ruDay(o.closedAt)}`, tone: "green", title: `Принята директором; ${was}` };
+  }
   if (!deadline) return { text: "срока нет", tone: "none", title: "Срок не назначен" };
   const diff = Math.round((dayStart(deadline) - today) / DAY);
   const plain: DeadlineChip = { text: `до ${ruDay(deadline)}`, tone: o.column === "DONE" ? "green" : "grey", title: `Срок: ${ruDay(deadline)}` };

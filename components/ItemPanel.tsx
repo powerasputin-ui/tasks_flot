@@ -432,6 +432,34 @@ export function ItemPanel({
             </Banner>
           )}
 
+          {base && !isNew && (
+            <Section title="Ход работы">
+              {/* поручение ЗГД пришло без исполнителя — назначить можно прямо здесь, а не искать поле внизу карточки */}
+              {!base.ownerId && !disabled && !lockResponsible && (
+                <div className="space-y-2 rounded-md border border-status-amber/50 bg-status-amber/5 px-3 py-2 text-[13px]">
+                  <p className="font-semibold text-[#b45309]">{base.origin ? "Поручение без исполнителя — назначьте ответственного" : "Ответственный не назначен"}</p>
+                  <Sel value={form.responsibleId} onChange={(v) => set("responsibleId", v)} options={refs.users} disabled={disabled} allowEmpty />
+                  {form.responsibleId && <p className="text-[11px] text-on-surface-variant">Нажмите «Сохранить» — исполнитель получит уведомление.</p>}
+                </div>
+              )}
+              <WorkflowSection
+                row={base}
+                column={colOfStatus(base.statusId ?? "")}
+                actor={actor}
+                readOnly={previewMode}
+                dirty={dirty}
+                onChanged={async (r) => {
+                  // ответ на запрос / перенос срока — строку перечитываем (действие вернуло только «готово»)
+                  const next = (r as ItemRow | null) ?? ((await fetch(`/api/items/${base.id}`).then((x) => (x.ok ? x.json() : null)))?.row as ItemRow | undefined);
+                  if (!next) return;
+                  setBase(next);
+                  setForm(fromRow(next, defaultResponsibleId, prefill));
+                  onRowUpdated?.(next);
+                }}
+              />
+            </Section>
+          )}
+
           <Section title="Классификация">
             <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <Field label="Сегмент">
@@ -472,15 +500,6 @@ export function ItemPanel({
                 </>
               )}
             </Field>
-            <Field label={L("cost")}>
-              <input value={form.cost} onChange={(e) => set("cost", e.target.value)} disabled={disabled} className="input w-full" placeholder="например, 2 млн.$" />
-            </Field>
-            <Field label={L("attractiveness")}>
-              <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} disabled={disabled} emptyLabel="Отсутствует (не указана)" />
-            </Field>
-          </Section>
-
-          <Section title="Поручение и ход работы">
             <Field label="Ожидаемый результат">
               {disabled || orderLocked ? (
                 <div className="rounded-md border border-outline-variant bg-surface-low px-3 py-2 text-[13px] text-on-surface">
@@ -491,24 +510,12 @@ export function ItemPanel({
                 <AutoTextarea value={form.expectedResult} onChange={(e) => set("expectedResult", e.target.value)} maxLength={2000} placeholder="Что должно получиться: документ, решение, договор…" />
               )}
             </Field>
-            {base && !isNew && (
-              <WorkflowSection
-                row={base}
-                column={colOfStatus(base.statusId ?? "")}
-                actor={actor}
-                readOnly={previewMode}
-                dirty={dirty}
-                onChanged={async (r) => {
-                  // ответ на запрос / перенос срока — строку перечитываем (действие вернуло только «готово»)
-                  const next = (r as ItemRow | null) ?? ((await fetch(`/api/items/${base.id}`).then((x) => (x.ok ? x.json() : null)))?.row as ItemRow | undefined);
-                  if (!next) return;
-                  setBase(next);
-                  setForm(fromRow(next, defaultResponsibleId, prefill));
-                  onRowUpdated?.(next);
-                }}
-              />
-            )}
-            {base && !isNew && dirty && <p className="text-[11px] text-on-surface-variant">Сначала сохраните изменения — потом действия по задаче.</p>}
+            <Field label={L("cost")}>
+              <input value={form.cost} onChange={(e) => set("cost", e.target.value)} disabled={disabled} className="input w-full" placeholder="например, 2 млн.$" />
+            </Field>
+            <Field label={L("attractiveness")}>
+              <Sel value={form.attractivenessId} onChange={(v) => set("attractivenessId", v)} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} disabled={disabled} emptyLabel="Отсутствует (не указана)" />
+            </Field>
           </Section>
 
           <Section title="Ответственность и срок">
