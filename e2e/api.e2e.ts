@@ -66,6 +66,7 @@ import * as chatUnread from "@/app/api/chat/unread/route";
 import * as chatGroups from "@/app/api/chat/groups/route";
 import { pruneChat } from "@/lib/chat-server";
 import * as errorsRoute from "@/app/api/errors/route";
+import * as zgdAnalytics from "@/app/api/today/zgd/route";
 import { errorDigest } from "@/lib/error-log";
 import { withApiErrors } from "@/lib/api-guard";
 import * as publish from "@/app/api/tracker/publish/route";
@@ -3603,5 +3604,61 @@ describe("журнал ошибок сайта", () => {
     expect(r.pruned).toBeGreaterThanOrEqual(1);
     expect(await prisma.appError.count({ where: { fingerprint: `${ETAG}-old` } })).toBe(0);
     expect(await prisma.notification.count({ where: { userId: curator.id, message: { startsWith: "За сутки новых ошибок" } } })).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("«Мой день» ЗГД: аналитика только из подтверждённого", () => {
+  let dirZ = "";
+  let dZ: Actor;
+  let hZ: Actor;
+  let zZ: Actor;
+  const mk = async (key: string, role: "HEAD" | "DIRECTOR" | "EXECUTIVE", directorateId: string | null): Promise<Actor> => {
+    const u = await prisma.user.create({ data: { name: `${TAG} za-${key}`, email: `${TAG}.za-${key}@e2e.local`, passwordHash: "x", role, directorateId } });
+    testUserIds.push(u.id);
+    return { id: u.id, name: u.name, role, directorateId };
+  };
+  const card = async () => ((await call(zZ, zgdAnalytics.GET, "/api/today/zgd")).data.directorates as Array<{ id: string; active: number; overdue: number; stale: boolean; tone: string }>).find((d) => d.id === dirZ)!;
+  const past = new Date(Date.now() - 5 * 864e5).toISOString().slice(0, 10);
+  const future = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
+
+  beforeAll(async () => {
+    dirZ = (await prisma.directorate.create({ data: { name: `${TAG} Дирекция аналитики`, shortName: "Анлт" } })).id;
+    dZ = await mk("dir", "DIRECTOR", dirZ);
+    hZ = await mk("head", "HEAD", dirZ);
+    zZ = await mk("zgd", "EXECUTIVE", null);
+    invalidateDicts();
+  });
+
+  afterAll(async () => {
+    if (!dirZ) return;
+    const ids = (await prisma.operationalItem.findMany({ where: { directorateId: dirZ }, select: { id: true } })).map((i) => i.id);
+    const people = [dZ, hZ, zZ].filter(Boolean).map((p) => p.id);
+    await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
+    await prisma.itemPublication.deleteMany({ where: { itemId: { in: ids } } });
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: { in: ids } }, { actorId: { in: people } }] } });
+    await prisma.notification.deleteMany({ where: { userId: { in: people } } });
+    await prisma.operationalItem.deleteMany({ where: { directorateId: dirZ } });
+    await prisma.user.deleteMany({ where: { id: { in: people } } });
+    await prisma.directorate.deleteMany({ where: { id: dirZ } });
+  });
+
+  it("доступ только ЗГД", async () => {
+    expect((await call(dZ, zgdAnalytics.GET, "/api/today/zgd")).status).toBe(403);
+    expect((await call(hZ, zgdAnalytics.GET, "/api/today/zgd")).status).toBe(403);
+    expect((await call(zZ, zgdAnalytics.GET, "/api/today/zgd")).status).toBe(200);
+  });
+
+  it("без подтверждений — «нет актуальных данных»; после «Обновить для ЗГД» — числа; правка без подтверждения чисел не меняет", async () => {
+    expect(await card()).toMatchObject({ stale: true, tone: "stale", active: 0 });
+    const id = (await call(hZ, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} просроченная для ЗГД`, deadline: past } })).data.row.id as string;
+    expect(await card()).toMatchObject({ active: 0 }); // директор ещё не подтвердил — ЗГД не видит
+    expect((await call(dZ, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).status).toBe(200);
+    expect(await card()).toMatchObject({ stale: false, active: 1, overdue: 1, tone: "red" });
+    // руководитель перенёс срок, но директор не подтвердил — у ЗГД по-прежнему просрочка
+    const v = (await prisma.operationalItem.findUniqueOrThrow({ where: { id } })).version;
+    expect((await call(dZ, item.PATCH, `/api/items/${id}`, { method: "PATCH", id, body: { version: v, deadline: future, deadlineReason: "согласовано" } })).status).toBe(200);
+    expect(await card()).toMatchObject({ overdue: 1 });
+    expect((await call(dZ, publish.POST, "/api/tracker/publish", { method: "POST", body: { itemIds: [id] } })).status).toBe(200);
+    expect(await card()).toMatchObject({ overdue: 0, tone: "green" });
   });
 });

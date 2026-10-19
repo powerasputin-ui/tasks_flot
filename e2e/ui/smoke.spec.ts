@@ -102,3 +102,26 @@ test.describe("админ", () => {
     await noSideScroll(page);
   });
 });
+
+test.describe("ЗГД: вкладки «Моего дня»", () => {
+  test.use(as("zgd"));
+
+  test("Дирекции → карточка ведёт в трекер с фильтром; Динамика — таблицей; Поручения", async ({ page }) => {
+    const d = uiData();
+    await page.goto("/today?tab=dirs");
+    await expect(page.getByRole("tab", { name: "Дирекции", selected: true })).toBeVisible();
+    const card = page.locator(`a[href="/tracker?org=${d.directorateId}"]`).first();
+    await expect(card).toContainText("Нет актуальных данных");
+    await page.getByRole("tab", { name: "Динамика" }).click();
+    await expect(page).toHaveURL(/tab=trend/);
+    await page.getByRole("button", { name: "Показать таблицей" }).click();
+    await expect(page.locator("table").first()).toContainText("справки не было");
+    await page.getByRole("tab", { name: "Поручения" }).click();
+    await expect(page).toHaveURL(/tab=orders/);
+    await noSideScroll(page);
+    await page.getByRole("tab", { name: "Дирекции" }).click();
+    await page.locator(`a[href="/tracker?org=${d.directorateId}"]`).first().click();
+    await expect(page).toHaveURL(new RegExp(`org=${d.directorateId}`));
+    await expect(page.getByRole("heading", { name: "Трекер" })).toBeVisible();
+  });
+});

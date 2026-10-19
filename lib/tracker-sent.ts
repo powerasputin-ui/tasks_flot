@@ -10,7 +10,18 @@
 import type { ArchiveRow } from "@/lib/archive-table";
 import { ruDay, type TrackerColumnKey, type TrackerEvent } from "@/lib/tracker";
 
-export type SentVersion = { directorateId: string; directorateName: string; sentAt: Date | string; title: string; rows: ArchiveRow[] };
+export type SentVersion = {
+  directorateId: string;
+  directorateName: string;
+  sentAt: Date | string;
+  title: string;
+  rows: ArchiveRow[];
+  /** Для аналитики ЗГД: неделя (цикл), ревизия, возвращена ли и кто отправил. */
+  cycleId?: string;
+  revision?: number;
+  returnedAt?: Date | string | null;
+  sentByName?: string | null;
+};
 
 /** Подтверждение каждой задачи полным снимком при отправке справки: в истории ЗГД — не отдельным событием, а только изменения. */
 export const MEMO_PUBLICATION = "отправлена справка";

@@ -7,6 +7,16 @@ import { loadBootstrap } from "@/lib/client-bootstrap";
 import { useInstall } from "@/components/PwaRegister";
 import { buildToday, type TodayHot, type TodayRow, type TodaySection } from "@/lib/today";
 import type { TrackerColumnKey } from "@/lib/tracker";
+import { DirectoratesTab, OrdersTab, TrendTab, type ZgdAnalytics } from "@/components/today/ZgdTabs";
+
+// вкладки «Моего дня» ЗГД: что требует внимания сейчас · где хуже нормы · лучше или хуже · что не исполнено
+const ZGD_TABS = [
+  { key: "today", label: "Сегодня" },
+  { key: "dirs", label: "Дирекции" },
+  { key: "trend", label: "Динамика" },
+  { key: "orders", label: "Поручения" },
+] as const;
+type ZgdTab = (typeof ZGD_TABS)[number]["key"];
 
 type Status = { id: string; name: string; trackerColumn: TrackerColumnKey | null };
 type Data = { rows: TodayRow[]; statuses: Status[]; hot: TodayHot };
@@ -29,6 +39,38 @@ export function TodayView() {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const install = useInstall();
+  const [tab, setTab] = useState<ZgdTab>("today");
+  const [zgd, setZgd] = useState<ZgdAnalytics | null>(null);
+  const [zgdError, setZgdError] = useState<string | null>(null);
+  const zgdRole = role === "EXECUTIVE";
+  const showToday = !zgdRole || tab === "today";
+
+  // вкладка — в адресе (?tab=), чтобы ссылку можно было переслать и она переживала перезагрузку
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (ZGD_TABS.some((x) => x.key === t)) setTab(t as ZgdTab);
+  }, []);
+  const pickTab = (t: ZgdTab) => {
+    setTab(t);
+    const url = new URL(window.location.href);
+    if (t === "today") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", t);
+    window.history.replaceState(window.history.state, "", url.pathname + url.search);
+  };
+  // аналитика ЗГД — по первому заходу на вкладку (считается на сервере только из подтверждённого)
+  useEffect(() => {
+    if (!zgdRole || tab === "today" || zgd || zgdError) return;
+    let stop = false;
+    void (async () => {
+      const res = await fetch("/api/today/zgd").catch(() => null);
+      if (stop) return;
+      if (!res?.ok) return setZgdError("Не удалось загрузить аналитику. Обновите страницу.");
+      setZgd(await res.json());
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [zgdRole, tab, zgd, zgdError]);
 
   useEffect(() => {
     let stop = false;
@@ -70,7 +112,26 @@ export function TodayView() {
         <h1 className="text-[20px] font-bold text-on-surface">Мой день</h1>
         <p className="mt-0.5 text-[13px] text-on-surface-variant first-letter:uppercase">{date}</p>
 
-        {unread > 0 && (
+        {zgdRole && (
+          <div role="tablist" aria-label="Разделы «Моего дня»" className="mt-4 flex gap-1 overflow-x-auto border-b border-outline-variant">
+            {ZGD_TABS.map((t) => (
+              <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => pickTab(t.key)} className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-[13px] font-semibold ${tab === t.key ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {zgdRole && tab !== "today" && (
+          <div className="mt-4">
+            {zgdError && <p className="rounded-md bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{zgdError}</p>}
+            {!zgd && !zgdError && <div className="space-y-3">{[0, 1].map((i) => <div key={i} className="skeleton h-32 w-full rounded-lg" />)}</div>}
+            {zgd && tab === "dirs" && <DirectoratesTab data={zgd} now={now} />}
+            {zgd && tab === "trend" && <TrendTab data={zgd} />}
+            {zgd && tab === "orders" && <OrdersTab data={zgd} />}
+          </div>
+        )}
+
+        {showToday && unread > 0 && (
           <button onClick={() => window.dispatchEvent(new CustomEvent("chat:open"))} className="mt-4 flex w-full items-center gap-3 rounded-lg border border-outline-variant bg-surface px-4 py-3 text-left hover:bg-surface-low">
             <MessageSquare size={18} className="shrink-0 text-primary" />
             <span className="text-[13px] font-semibold text-on-surface">Непрочитанных сообщений в чате: {unread}</span>
@@ -78,10 +139,10 @@ export function TodayView() {
           </button>
         )}
 
-        {error && <p className="mt-4 rounded-md bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{error}</p>}
-        {!sections && !error && <div className="mt-4 space-y-3">{[0, 1].map((i) => <div key={i} className="skeleton h-28 w-full rounded-lg" />)}</div>}
+        {showToday && error && <p className="mt-4 rounded-md bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{error}</p>}
+        {showToday && !sections && !error && <div className="mt-4 space-y-3">{[0, 1].map((i) => <div key={i} className="skeleton h-28 w-full rounded-lg" />)}</div>}
 
-        {sections && total === 0 && (
+        {showToday && sections && total === 0 && (
           <div className="mt-4 flex items-center gap-3 rounded-lg border border-outline-variant bg-surface px-4 py-6">
             <CheckCircle2 size={28} className="shrink-0 text-status-emerald" />
             <div>
@@ -91,7 +152,7 @@ export function TodayView() {
           </div>
         )}
 
-        {sections && total > 0 && (
+        {showToday && sections && total > 0 && (
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             {sections.map((s) => {
               const all = !!open[s.key];
@@ -129,7 +190,7 @@ export function TodayView() {
           </div>
         )}
 
-        {sections && !install.standalone && (install.canInstall || install.ios) && (
+        {showToday && sections && !install.standalone && (install.canInstall || install.ios) && (
           <div className="mt-6 flex items-start gap-3 rounded-lg border border-dashed border-outline px-4 py-3">
             <Smartphone size={18} className="mt-0.5 shrink-0 text-on-surface-variant" />
             <div className="min-w-0 flex-1 text-[12px] text-on-surface-variant">

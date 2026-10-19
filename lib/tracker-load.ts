@@ -92,7 +92,7 @@ export async function loadTracker(directorateId: string, opts: { archived?: bool
 // ---------- ЗГД: трекер по отправленным справкам ----------
 
 /** Снимки таблиц всех отправленных справок (ЗГД видит отправленное всех дирекций). */
-async function loadZgdSources(): Promise<{ versions: SentVersion[]; publications: Publication[] }> {
+export async function loadZgdSources(): Promise<{ versions: SentVersion[]; publications: Publication[] }> {
   const { versions, cutoffs } = await loadSentVersions();
   // у дирекции, чью историю ограничили, подтверждения старше окна тоже не нужны — иначе они растут быстрее справок
   const pubs = await prisma.itemPublication.findMany({
@@ -149,7 +149,7 @@ async function loadSentVersions(): Promise<{ versions: SentVersion[]; cutoffs: M
     prisma.memoVersion.findMany({
       where: { id: { in: keep } },
       orderBy: { sentAt: "asc" },
-      select: { id: true, cycleId: true, directorateId: true, sentAt: true, title: true, rows: true, columns: true, sources: true, cycle: { select: { snapshot: true } } },
+      select: { id: true, cycleId: true, revision: true, returnedAt: true, sentByName: true, directorateId: true, sentAt: true, title: true, rows: true, columns: true, sources: true, cycle: { select: { snapshot: true } } },
     }),
     prisma.directorate.findMany({ select: { id: true, name: true, shortName: true } }),
   ]);
@@ -157,7 +157,7 @@ async function loadSentVersions(): Promise<{ versions: SentVersion[]; cutoffs: M
   const out: SentVersion[] = [];
   for (const v of versions) {
     const t = await loadVersionTable(v, v.cycle.snapshot);
-    out.push({ directorateId: v.directorateId, directorateName: dirName.get(v.directorateId) ?? "Дирекция", sentAt: v.sentAt, title: v.title, rows: t.rows });
+    out.push({ directorateId: v.directorateId, directorateName: dirName.get(v.directorateId) ?? "Дирекция", sentAt: v.sentAt, title: v.title, rows: t.rows, cycleId: v.cycleId, revision: v.revision, returnedAt: v.returnedAt, sentByName: v.sentByName });
   }
   return { versions: out, cutoffs };
 }

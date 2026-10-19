@@ -38,6 +38,7 @@ export type TRow = ItemRow & {
   updatedAt: string;
   /** Только у ЗГД (трекер по отправленным справкам): дирекция и дата справки, на которую показано состояние. */
   directorateName?: string;
+  directorateId?: string;
   asOf?: string;
   inMemo?: boolean;
   /** ЗГД: чем подтверждено состояние; решение по последней сдаче; открытый запрос статуса. */
@@ -61,7 +62,7 @@ const VIEWS: Array<{ key: View; label: string; icon: typeof List }> = [
 const VIEW_KEY = "operativka.tracker.view";
 const SCOPES = ["all", "control", "orders", "mine", "waiting"] as const;
 /** Параметры адреса, которыми управляют фильтры (остальные — view, deleted, item — не трогаем). */
-const FILTER_KEYS = ["kind", "scope", "mine", "slip", "col", "cancelled", "done", "seg", "owner", "q"];
+const FILTER_KEYS = ["kind", "scope", "mine", "slip", "col", "cancelled", "done", "seg", "owner", "org", "q"];
 
 // сигналы: порядок, цвет (красный — исполнение под угрозой, жёлтый — внимание, серый — данные и отчётность), подсказка-определение
 const SIGNAL_ORDER: SignalKind[] = ["overdue", "slipped", "deadlineRequest", "blocker", "request", "review", "soon", "data", "report"];
@@ -227,12 +228,13 @@ export function TrackerView() {
       if (scope === "orders" && !r.origin) return false;
       if (scope === "mine" && !(r.origin === "ZGD" && r.assignedById === me?.id)) return false;
       if (scope === "waiting" && !(r.openRequest || data?.hot[r.id]?.kinds.includes("request"))) return false;
+      if (filters.dir && r.directorateId !== filters.dir) return false;
       if (segmentIds.length && !segmentIds.includes(r.segmentId ?? "none")) return false;
       if (ownerIds.length && !ownerIds.includes(r.ownerId ?? "none")) return false;
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.expectedResult, r.blockedBy, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted, filters.cancelled, filters.doneAll, byItem]);
+  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted, filters.cancelled, filters.doneAll, filters.dir, byItem]);
   const rows = useMemo(() => (filters.col ? baseRows.filter((r) => columnOf(r.statusId, colOf) === filters.col) : baseRows), [baseRows, colOf, filters.col]);
 
   const refs: Refs = useMemo(
@@ -520,6 +522,9 @@ export function TrackerView() {
             <button key={k} onClick={() => patch({ scope: k })} aria-pressed={scope === k} className={`rounded px-3 py-1 font-semibold ${scope === k ? "bg-primary-soft text-primary" : "text-on-surface-variant"}`}>{label}</button>
           ))}
         </div>
+        )}
+        {sent && (data?.directorates?.length ?? 0) > 1 && (
+          <FilterChip label="Дирекция" value={filters.dir ? [filters.dir] : []} options={data!.directorates!} onChange={(v) => patch({ dir: v.at(-1) ?? null })} />
         )}
         <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={(v) => patch({ seg: v })} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={(v) => patch({ owner: v })} />

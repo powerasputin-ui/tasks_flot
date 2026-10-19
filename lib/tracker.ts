@@ -313,9 +313,11 @@ export type TrackerFilters = {
   doneAll: boolean;
   seg: string[];
   owner: string[];
+  /** ЗГД: одна дирекция (переход из «Моего дня» по карточке дирекции). */
+  dir: string | null;
   q: string;
 };
-export const EMPTY_FILTERS: TrackerFilters = { kind: null, scope: "all", mine: false, slip: false, col: null, cancelled: false, doneAll: false, seg: [], owner: [], q: "" };
+export const EMPTY_FILTERS: TrackerFilters = { kind: null, scope: "all", mine: false, slip: false, col: null, cancelled: false, doneAll: false, seg: [], owner: [], dir: null, q: "" };
 
 const COLS: TrackerColumnKey[] = ["TODO", "DOING", "REVIEW", "DONE", "HIDDEN"];
 
@@ -330,6 +332,8 @@ export function filtersToParams(f: TrackerFilters): Record<string, string> {
   if (f.cancelled) o.cancelled = "1";
   if (f.doneAll) o.done = "all";
   if (f.seg.length) o.seg = f.seg.join(",");
+  // «org», а не «dir»: ?dir= в адресе — переключатель рабочей дирекции админа (AppShell)
+  if (f.dir) o.org = f.dir;
   if (f.owner.length) o.owner = f.owner.join(",");
   if (f.q.trim()) o.q = f.q.trim().slice(0, 200);
   return o;
@@ -351,12 +355,13 @@ export function filtersFromParams(get: (k: string) => string | null, kinds: read
     doneAll: get("done") === "all",
     seg: list("seg"),
     owner: list("owner"),
+    dir: (get("org") ?? "").slice(0, 60) || null,
     q: (get("q") ?? "").slice(0, 200),
   };
 }
 
 /** Есть ли что-то, что можно «сбросить» (кроме «Отменённых» и «Выполнено: все» — это режимы показа, а не отбор). */
-export const hasActiveFilters = (f: TrackerFilters) => !!(f.kind || f.scope !== "all" || f.mine || f.slip || f.col || f.seg.length || f.owner.length || f.q.trim());
+export const hasActiveFilters = (f: TrackerFilters) => !!(f.kind || f.scope !== "all" || f.mine || f.slip || f.col || f.seg.length || f.owner.length || f.dir || f.q.trim());
 
 // ---------- доска: срок-чип, причина запрета переноса, отбор плашек
 
