@@ -13,6 +13,12 @@ test.describe("руководитель", () => {
     await noSideScroll(page);
   });
 
+  test("стартовая страница — «Мой день»", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/today$/);
+    await expect(page.getByRole("heading", { name: "Мой день" })).toBeVisible();
+  });
+
   test("«Мой день»: просроченная и срочная задачи на месте", async ({ page }) => {
     const d = uiData();
     await page.goto("/today");
