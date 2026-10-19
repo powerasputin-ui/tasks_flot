@@ -52,7 +52,10 @@ jobs:
           npm run db:seed
           npx tsx scripts/ci-fixtures.ts
       - name: Типы
-        run: npx tsc --noEmit
+        # LayoutProps/PageProps генерирует Next в .next/types — без сборки их делает next typegen
+        run: |
+          npx next typegen
+          npx tsc --noEmit
       - name: Линтер
         run: npx eslint --quiet
       - name: Юнит-тесты
