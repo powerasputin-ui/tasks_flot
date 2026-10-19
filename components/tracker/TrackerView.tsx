@@ -426,9 +426,10 @@ export function TrackerView() {
               <ShieldCheck size={15} /> Обновить для ЗГД{unconfirmedCount ? ` (${unconfirmedCount})` : ""}
             </button>
           )}
-          {!sent && (
-            <Link href={deleted ? "/tracker" : "/tracker?deleted=1"} className="btn-ghost">
-              {deleted ? "← К трекеру" : <><Trash2 size={15} /> Удалённые</>}
+          {/* к удалённым трекера ведёт меню «Трекер → Удалённые»; здесь — только путь назад */}
+          {!sent && deleted && (
+            <Link href="/tracker" className="btn-ghost">
+              ← К трекеру
             </Link>
           )}
         <div className="flex rounded-md border border-outline-variant bg-surface p-0.5" role="tablist" aria-label="Вид трекера">
