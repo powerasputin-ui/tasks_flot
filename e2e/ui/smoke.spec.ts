@@ -38,13 +38,14 @@ test.describe("руководитель", () => {
 test.describe("директор", () => {
   test.use(as("director"));
 
-  test("трекер: три вида, нет кнопки «Сегодня», плашка колонки фильтрует доску", async ({ page }) => {
+  test("трекер: три вида, нет кнопки «Сегодня», список «Колонка» фильтрует доску", async ({ page }) => {
     await page.goto("/tracker?view=list");
     await expect(page.getByRole("heading", { name: "Трекер" })).toBeVisible();
     await page.goto("/tracker?view=timeline");
     await expect(page.getByRole("button", { name: "Сегодня", exact: true })).toHaveCount(0);
     await page.goto("/tracker?view=board");
-    await page.getByRole("button", { name: /^На проверке:/ }).click();
+    await page.getByRole("button", { name: /^Колонка/ }).click();
+    await page.getByRole("checkbox", { name: /^На проверке/ }).click();
     await expect(page).toHaveURL(/col=REVIEW/);
     await expect(page.locator("section[aria-label]")).toHaveCount(1);
     await noSideScroll(page);

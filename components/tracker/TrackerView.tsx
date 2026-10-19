@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isOverdueRow } from "@/lib/overdue";
-import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, Star, Timer, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, Star, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
@@ -70,17 +70,6 @@ const RED = { on: "bg-status-red text-white", off: "bg-status-red/10 text-status
 const AMBER = { on: "bg-[#b45309] text-white", off: "bg-status-amber/15 text-[#b45309]" };
 const GRAY = { on: "bg-on-surface-variant text-white", off: "bg-surface-high text-on-surface-variant" };
 const SIGNAL_TONE: Record<SignalKind, { on: string; off: string }> = { overdue: RED, slipped: AMBER, deadlineRequest: AMBER, blocker: RED, request: RED, review: AMBER, soon: AMBER, data: GRAY, report: GRAY };
-const SIGNAL_HINT: Record<SignalKind, string> = {
-  overdue: "Срок прошёл, задача не выполнена (и исходный срок, если его переносили)",
-  slipped: "Исходный срок прошёл, задачу перенесли — текущий срок ещё не наступил",
-  deadlineRequest: "Ответственный попросил перенести срок — директор ещё не решил",
-  blocker: "Задача «На стопе»: ждём чужого решения / документа (дата ожидания прошла — серьёзнее)",
-  request: "ЗГД запросил статус — директор ещё не ответил",
-  review: "Сдана на проверку 3+ дня назад — директор не принял и не вернул",
-  soon: "До срока 3 дня или меньше",
-  data: "Нет срока / ответственного / ожидаемого результата у поручения; или в тексте «ждём», а задача не на стопе",
-  report: "Не подана в справку, а срок в ближайшие 7 дней",
-};
 
 /** Просрочено: срок прошёл, а задача не «Выполнено»/«Не показывать». */
 /** Просрочено — общее правило (lib/overdue.ts): в сам день срока ещё нет, закрытая по колонке — нет. */
@@ -467,29 +456,8 @@ export function TrackerView() {
         </div>
       )}
 
-      {/* итоги для решения «в масштабе»: сколько где (нажатие — фильтр по колонке), что горит, где срок уже сдвигали */}
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
-        {boardColumns.map((c) => (
-          <button
-            key={c.key}
-            onClick={() => patch({ col: filters.col === c.key ? null : c.key })}
-            aria-pressed={filters.col === c.key}
-            title={filters.col === c.key ? "Показать все колонки" : `Показать только «${c.label}»`}
-            className={`rounded-full px-2.5 py-1 font-semibold ${filters.col === c.key ? "bg-primary text-white" : "bg-surface-high text-on-surface-variant hover:bg-surface-highest"}`}
-          >
-            {c.label}: <span className={filters.col === c.key ? "text-white" : "text-on-surface"}>{counts[c.key] ?? 0}</span>
-          </button>
-        ))}
-        {SIGNAL_ORDER.filter((k) => kindCounts.get(k) || kind === k).map((k) => (
-          <button key={k} onClick={() => patch({ kind: kind === k ? null : k })} aria-pressed={kind === k} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${kind === k ? SIGNAL_TONE[k].on : SIGNAL_TONE[k].off}`} title={SIGNAL_HINT[k]}>
-            {k === "overdue" && <Flame size={13} />} {SIGNAL_LABEL[k]}: {kindCounts.get(k) ?? 0}
-          </button>
-        ))}
-        {!deleted && (slipped > 0 || slipOnly) && (
-          <button onClick={() => patch({ slip: !slipOnly })} aria-pressed={slipOnly} className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${slipOnly ? "bg-[#b45309] text-white" : "bg-status-amber/15 text-[#b45309]"}`} title="Задачи, у которых срок переносили позже — нажмите, чтобы показать только их">
-            <Timer size={13} /> Срок сдвигали: {slipped}
-          </button>
-        )}
+      {/* колонки и сигналы — выпадающими списками рядом с остальными фильтрами; здесь — только режимы показа */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] empty:hidden">
         {/* режимы показа: по умолчанию выполненное — за 14 дней, отменённое скрыто (иначе вид зарастает архивом) */}
         {!deleted && !sent && (oldDoneCount > 0 || filters.doneAll) && (
           <button onClick={() => patch({ doneAll: !filters.doneAll })} aria-pressed={filters.doneAll} className="rounded-full border border-dashed border-outline px-2.5 py-1 font-semibold text-on-surface-variant hover:bg-surface-high" title="По умолчанию выполненные задачи видны за последние 14 дней">
@@ -526,6 +494,26 @@ export function TrackerView() {
         {sent && (data?.directorates?.length ?? 0) > 1 && (
           <FilterChip label="Дирекция" value={filters.dir ? [filters.dir] : []} options={data!.directorates!} onChange={(v) => patch({ dir: v.at(-1) ?? null })} />
         )}
+        <FilterChip
+          label="Колонка"
+          value={filters.col ? [filters.col] : []}
+          options={boardColumns.map((c) => ({ id: c.key, name: c.label, hint: String(counts[c.key] ?? 0) }))}
+          onChange={(v) => patch({ col: (v.at(-1) as TrackerColumnKey | undefined) ?? null })}
+          width={240}
+        />
+        <FilterChip
+          label="Сигнал"
+          value={kind ? [kind] : slipOnly ? ["slip"] : []}
+          options={[
+            ...SIGNAL_ORDER.filter((k) => kindCounts.get(k) || kind === k).map((k) => ({ id: k, name: SIGNAL_LABEL[k], hint: String(kindCounts.get(k) ?? 0) })),
+            ...(!deleted && (slipped > 0 || slipOnly) ? [{ id: "slip", name: "Срок сдвигали", hint: String(slipped) }] : []),
+          ]}
+          onChange={(v) => {
+            const last = v.at(-1);
+            patch(last === "slip" ? { slip: true, kind: null } : { kind: (last as SignalKind | undefined) ?? null, slip: false });
+          }}
+          width={280}
+        />
         <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={(v) => patch({ seg: v })} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={(v) => patch({ owner: v })} />
         {hasActiveFilters(filters) && (
