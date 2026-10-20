@@ -416,56 +416,23 @@ export function TrackerView() {
 
   return (
     <div className={`min-h-0 flex-1 overflow-auto p-6 max-md:p-3 ${sent ? "pb-28" : ""}`}>
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-on-surface">{deleted ? "Трекер · Удалённые" : "Трекер"}</h1>
-          <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant max-md:hidden">
-            {deleted ? (
-              <>Удалённые задачи — те же, что в «Удалённых» таблицы. Верните задачу — и она снова появится и в таблице, и в трекере.</>
-            ) : sent ? (
-              <>
-                Только подтверждённое директором: отправленные справки и решения директора (принял, вернул, ответил на запрос, согласовал перенос). У каждой задачи — когда и кем подтверждено.
-                {data?.since && <> История известна с {ruDay(data.since)}.</>}
-              </>
-            ) : (
-              <>
-                Те же позиции, что в общей таблице, — в виде доски и истории. Заполнять отдельно ничего не нужно.
-                {data?.since && <> История ведётся с {ruDay(data.since)}.</>}
-              </>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {!deleted && (sent || (directorial && !preview)) && (
-            <button onClick={() => setOrdering(true)} className="btn-primary">
-              <Plus size={15} /> Дать поручение
-            </button>
+      <div className="mb-4 min-w-0">
+        <h1 className="text-xl font-bold text-on-surface">{deleted ? "Трекер · Удалённые" : "Трекер"}</h1>
+        <p className="mt-0.5 max-w-2xl text-[13px] text-on-surface-variant max-md:hidden">
+          {deleted ? (
+            <>Удалённые задачи — те же, что в «Удалённых» таблицы. Верните задачу — и она снова появится и в таблице, и в трекере.</>
+          ) : sent ? (
+            <>
+              Только подтверждённое директором: отправленные справки и решения директора (принял, вернул, ответил на запрос, согласовал перенос). У каждой задачи — когда и кем подтверждено.
+              {data?.since && <> История известна с {ruDay(data.since)}.</>}
+            </>
+          ) : (
+            <>
+              Те же позиции, что в общей таблице, — в виде доски и истории. Заполнять отдельно ничего не нужно.
+              {data?.since && <> История ведётся с {ruDay(data.since)}.</>}
+            </>
           )}
-          {!sent && !deleted && directorial && !preview && (
-            <button onClick={() => (setNotice(null), setPublishing(true))} className="btn-ghost" title="ЗГД видит только подтверждённое вами: посмотрите, что изменилось, и выберите, что показать">
-              <ShieldCheck size={15} /> Обновить для ЗГД{unconfirmedCount ? ` (${unconfirmedCount})` : ""}
-            </button>
-          )}
-          {/* к удалённым трекера ведёт меню «Трекер → Удалённые»; здесь — только путь назад */}
-          {!sent && deleted && (
-            <Link href="/tracker" className="btn-ghost">
-              ← К трекеру
-            </Link>
-          )}
-        <div className="flex rounded-md border border-outline-variant bg-surface p-0.5" role="tablist" aria-label="Вид трекера">
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              role="tab"
-              aria-selected={view === v.key}
-              onClick={() => pickView(v.key)}
-              className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-semibold ${view === v.key ? "bg-primary text-white" : "text-on-surface-variant hover:bg-surface-high"}`}
-            >
-              <v.icon size={15} /> {v.label}
-            </button>
-          ))}
-        </div>
-        </div>
+        </p>
       </div>
       {notice && <div className="mb-3 rounded-md border border-status-emerald/30 bg-status-emerald/10 px-3 py-2 text-[13px] text-on-surface">{notice}</div>}
       {missing && (
@@ -549,6 +516,38 @@ export function TrackerView() {
             <X size={14} /> Сбросить фильтры
           </button>
         )}
+        </div>
+        {/* действия и вид — в одной линии с фильтрами, справа (как «Добавить» в таблице); на телефоне — первой строкой */}
+        <div className="ml-auto flex flex-wrap items-center gap-2 max-md:order-first max-md:ml-0">
+          {!deleted && (sent || (directorial && !preview)) && (
+            <button onClick={() => setOrdering(true)} className="btn-primary">
+              <Plus size={15} /> Дать поручение
+            </button>
+          )}
+          {!sent && !deleted && directorial && !preview && (
+            <button onClick={() => (setNotice(null), setPublishing(true))} className="btn-ghost" title="ЗГД видит только подтверждённое вами: посмотрите, что изменилось, и выберите, что показать">
+              <ShieldCheck size={15} /> Обновить для ЗГД{unconfirmedCount ? ` (${unconfirmedCount})` : ""}
+            </button>
+          )}
+          {/* к удалённым трекера ведёт меню «Трекер → Удалённые»; здесь — только путь назад */}
+          {!sent && deleted && (
+            <Link href="/tracker" className="btn-ghost">
+              ← К трекеру
+            </Link>
+          )}
+          <div className="flex rounded-md border border-outline-variant bg-surface p-0.5" role="tablist" aria-label="Вид трекера">
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                role="tab"
+                aria-selected={view === v.key}
+                onClick={() => pickView(v.key)}
+                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-semibold ${view === v.key ? "bg-primary text-white" : "text-on-surface-variant hover:bg-surface-high"}`}
+              >
+                <v.icon size={15} /> {v.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
