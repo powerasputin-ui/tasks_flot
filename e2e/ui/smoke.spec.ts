@@ -163,6 +163,19 @@ test.describe("директор", () => {
     await expect(row).not.toContainText("не подтверждено для ЗГД");
   });
 
+  test("окно сузили до телефона и расширили обратно — Оперативщик и чат на виду и ничем не закрыты", async ({ page }) => {
+    test.skip((page.viewportSize()?.width ?? 0) < 768, "сценарий начинается с компьютерной ширины");
+    await page.goto("/tracker");
+    const ai = page.getByRole("button", { name: "Оперативщик" });
+    const chat = page.getByRole("button", { name: "Чат", exact: true });
+    for (const size of [{ width: 380, height: 700 }, { width: 1300, height: 900 }]) {
+      await page.setViewportSize(size);
+      // пробный щелчок: кнопка видна, на месте и до неё доходит нажатие (не под нижним меню и не за краем)
+      await ai.click({ trial: true });
+      await chat.click({ trial: true });
+    }
+  });
+
   test("чат: создать группу и написать сообщение", async ({ page }) => {
     const d = uiData();
     await page.goto("/today");

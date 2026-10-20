@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Check, ChevronDown, Plus, RefreshCw, Send, Settings2, Sparkles, Square, X } from "lucide-react";
 import { LocalModelSettings } from "@/components/LocalModelSettings";
+import { useIsMobile } from "@/lib/use-mobile";
 
 /** Анимированный шар-помощник (сжатый WebP 112×112, ~270 КБ) и его неподвижный кадр — для «уменьшить движение». */
 export function OperativshchikAvatar({ size = 56, still = false }: { size?: number; still?: boolean }) {
@@ -176,20 +177,25 @@ export function Operativshchik({ cycleId, versionIds = [], scope, disabledReason
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   // Шар можно перетащить, зажав левую кнопку: место запоминается в этом браузере. По умолчанию — правый нижний угол.
+  // pos — место, которое выбрал человек; в окно его вписываем только при показе: окно сузили и снова расширили — шар
+  // возвращается на своё место (раньше оставался прижатым к краю). На телефонной ширине — всегда угол над нижней панелью.
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [, setViewport] = useState(0);
+  const mobile = useIsMobile();
   const drag = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null);
   const clamp = (x: number, y: number) => ({ x: Math.min(Math.max(8, x), window.innerWidth - BALL - 8), y: Math.min(Math.max(8, y), window.innerHeight - BALL - 8) });
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(POS_KEY) ?? "null") as { x: number; y: number } | null;
-      if (saved && typeof saved.x === "number" && typeof saved.y === "number") setPos(clamp(saved.x, saved.y));
+      if (saved && typeof saved.x === "number" && typeof saved.y === "number") setPos(saved);
     } catch {
       // приватный режим — угол по умолчанию
     }
-    const onResize = () => setPos((p) => (p ? clamp(p.x, p.y) : p));
+    const onResize = () => setViewport((n) => n + 1);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  const place = pos && !mobile && typeof window !== "undefined" ? clamp(pos.x, pos.y) : null;
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -251,16 +257,16 @@ export function Operativshchik({ cycleId, versionIds = [], scope, disabledReason
   return (
     <div
       data-ai-ball=""
-      className={pos ? "fixed z-40" : "fixed bottom-5 right-5 z-40 max-md:bottom-[calc(4.2rem+env(safe-area-inset-bottom))] max-md:right-3"}
-      style={pos ? { left: pos.x, top: pos.y } : undefined}
+      className={place ? "fixed z-40" : "fixed bottom-5 right-5 z-40 max-md:bottom-[calc(4.2rem+env(safe-area-inset-bottom))] max-md:right-3"}
+      style={place ? { left: place.x, top: place.y } : undefined}
     >
       {open && (
         <div
           className="animate-fade-in absolute flex h-[480px] max-h-[70vh] w-[360px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl border border-outline-variant bg-surface shadow-2xl"
           // окно чата раскрывается в ту сторону, где есть место: над шаром или под ним, вправо или влево от него
           style={{
-            ...(pos && pos.y < window.innerHeight / 2 ? { top: BALL + 8 } : { bottom: BALL + 8 }),
-            ...(pos && pos.x < window.innerWidth / 2 ? { left: 0 } : { right: 0 }),
+            ...(place && place.y < window.innerHeight / 2 ? { top: BALL + 8 } : { bottom: BALL + 8 }),
+            ...(place && place.x < window.innerWidth / 2 ? { left: 0 } : { right: 0 }),
           }}
         >
           <div className="flex items-center gap-2 border-b border-outline-variant px-3 py-2">
@@ -360,7 +366,8 @@ export function Operativshchik({ cycleId, versionIds = [], scope, disabledReason
         }}
         onPointerMove={(e) => {
           const d = drag.current;
-          if (!d) return;
+          // на телефонной ширине шар не перетаскивается: место там одно — над нижней панелью
+          if (!d || mobile) return;
           // меньше 5 px — это ещё щелчок, а не перетаскивание
           if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
           d.moved = true;
@@ -394,7 +401,7 @@ export function Operativshchik({ cycleId, versionIds = [], scope, disabledReason
       >
         <OperativshchikAvatar size={56} />
         {!open && messages.length === 0 && (
-          <span className={`pointer-events-none absolute top-1/2 hidden -translate-y-1/2 whitespace-nowrap rounded-full bg-surface px-3 py-1 text-[12px] font-semibold text-on-surface shadow-md group-hover:block ${pos && pos.x < 200 ? "left-[64px]" : "right-[64px]"}`}>
+          <span className={`pointer-events-none absolute top-1/2 hidden -translate-y-1/2 whitespace-nowrap rounded-full bg-surface px-3 py-1 text-[12px] font-semibold text-on-surface shadow-md group-hover:block ${place && place.x < 200 ? "left-[64px]" : "right-[64px]"}`}>
             Привет! Я Оперативщик
           </span>
         )}

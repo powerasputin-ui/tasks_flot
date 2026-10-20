@@ -104,7 +104,9 @@ export function ChatDock({ meId }: { meId: string }) {
   }, []);
 
   if (!mounted || typeof document === "undefined") return null;
-  const placed = dragPos ?? (saved ? clamp(saved.x, saved.y) : base);
+  // на телефонной ширине — место по умолчанию (над шаром Оперативщика или над нижней панелью): своё место с компьютера там
+  // уходило под нижнее меню; окно снова расширили — кнопка возвращается на своё место
+  const placed = dragPos ?? (saved && !mobile ? clamp(saved.x, saved.y) : base);
   // открыта панель справа и кнопка на неё заходит — отступает левее панели; места слева нет (телефон, панель на весь экран) — прячется,
   // пока панель открыта (в карточке задачи есть «Обсудить»). Пока человек тащит кнопку — она под его пальцем.
   const overPanel = !dragPos && panelLeft !== null && placed.x + BALL > panelLeft;
@@ -137,7 +139,8 @@ export function ChatDock({ meId }: { meId: string }) {
           }}
           onPointerMove={(e) => {
             const d = drag.current;
-            if (!d) return;
+            // на телефонной ширине кнопка не перетаскивается (место — над нижней панелью), и своё место с компьютера не затирается
+            if (!d || mobile) return;
             // меньше 5 px — это ещё щелчок, а не перетаскивание
             if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
             d.moved = true;
