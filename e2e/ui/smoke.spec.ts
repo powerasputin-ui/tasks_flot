@@ -34,6 +34,25 @@ test.describe("руководитель", () => {
     await noSideScroll(page);
   });
 
+  test("трекер: поиск — в шапке, как в таблице; в адресе и после перезагрузки; «Сбросить фильтры» снимает и его", async ({ page }) => {
+    const d = uiData();
+    await page.goto("/tracker?view=list");
+    const search = () => page.getByRole("textbox", { name: "Поиск по задачам" });
+    await expect(search()).toHaveCount(1); // одно поле — в шапке (на телефоне — строкой под ней), своего у трекера нет
+    await search().fill(d.items.soon.title);
+    await expect(page).toHaveURL(/[?&]q=/);
+    await expect(page.getByText(d.items.overdue.title)).toHaveCount(0);
+    await expect(page.getByText(d.items.soon.title)).toBeVisible();
+    await page.reload();
+    await expect(search()).toHaveValue(d.items.soon.title);
+    await expect(page.getByText(d.items.overdue.title)).toHaveCount(0);
+    if ((page.viewportSize()?.width ?? 1300) < 768) await page.getByRole("button", { name: /^Фильтры/ }).click();
+    await page.getByRole("button", { name: "Сбросить фильтры" }).click();
+    await expect(search()).toHaveValue("");
+    await expect(page.getByText(d.items.overdue.title)).toBeVisible();
+    await noSideScroll(page);
+  });
+
   test("стартовая страница — «Мой день»", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/today$/);

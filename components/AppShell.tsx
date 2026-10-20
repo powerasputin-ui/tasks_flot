@@ -62,7 +62,8 @@ export const NAV_BY_ROLE: Record<string, Array<{ href: string; label: string }>>
   ],
 };
 
-const SEARCH_PATHS = ["/table", "/archive"];
+// поиск — одно место для всех разделов с задачами: в шапке (на телефоне — строка под ней), пишет ?q= в адрес
+const SEARCH_PATHS = ["/table", "/archive", "/tracker"];
 
 /** Значки разделов для нижней панели на телефоне. */
 const NAV_ICON: Record<string, ReactNode> = {
@@ -110,7 +111,7 @@ function TopSearch({ className = "relative hidden w-72 md:block lg:ml-4 xl:w-96"
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setValue("")}
         placeholder="Поиск: задача, комментарий, трек, ответственный, статус…"
-        aria-label="Поиск по таблице"
+        aria-label={pathname.startsWith("/tracker") ? "Поиск по задачам" : "Поиск по таблице"}
         maxLength={200}
         className="input w-full pl-9 pr-9"
       />

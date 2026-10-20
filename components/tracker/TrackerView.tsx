@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isOverdueRow } from "@/lib/overdue";
-import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Star, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, Flame, KanbanSquare, List, MoreHorizontal, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, Star, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { ItemPanel, type ItemRow, type Refs } from "@/components/ItemPanel";
 import { FilterChip } from "@/components/FilterChips";
@@ -89,11 +89,26 @@ export function TrackerView() {
   const [error, setError] = useState<string | null>(null);
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [view, setView] = useState<View>("list");
-  // Фильтры живут в адресе (?kind=&scope=&mine=&col=&seg=&owner=&q=…): вид можно переслать ссылкой, он переживает перезагрузку
+  // Фильтры живут в адресе (?kind=&scope=&mine=&col=&seg=&owner=…): вид можно переслать ссылкой, он переживает перезагрузку
   // и ссылки из сводок и уведомлений (?kind=review, ?scope=mine)
-  const [filters, setFilters] = useState<TrackerFilters>(() => filtersFromParams((k) => params.get(k), SIGNAL_ORDER, SCOPES));
+  const [filters, setFilters] = useState<TrackerFilters>(() => ({ ...filtersFromParams((k) => params.get(k), SIGNAL_ORDER, SCOPES), q: "" }));
   const patch = (p: Partial<TrackerFilters>) => setFilters((f) => ({ ...f, ...p }));
-  const { mine, slip: slipOnly, seg: segmentIds, owner: ownerIds, q } = filters;
+  const { mine, slip: slipOnly, seg: segmentIds, owner: ownerIds } = filters;
+  // поиск — в шапке, как в таблице (одно место для всех разделов): строка в адресе ?q=, её пишет поле поиска шапки
+  const q = params.get("q") ?? "";
+  const filtered = hasActiveFilters({ ...filters, q });
+  /** Адрес без отдельных параметров, остальное (фильтры, поиск, вид) — как есть. */
+  const replaceWithout = (...keys: string[]) => {
+    const next = new URLSearchParams(window.location.search);
+    if (!keys.some((k) => next.has(k))) return;
+    for (const k of keys) next.delete(k);
+    const s = next.toString();
+    router.replace(s ? `/tracker?${s}` : "/tracker", { scroll: false });
+  };
+  const resetFilters = () => {
+    setFilters({ ...EMPTY_FILTERS, cancelled: filters.cancelled, doneAll: filters.doneAll });
+    replaceWithout("q");
+  };
   const kind = filters.kind as SignalKind | null;
   const scopeRaw = filters.scope as "all" | "control" | "orders" | "mine" | "waiting";
   const [ordering, setOrdering] = useState(false);
@@ -116,16 +131,17 @@ export function TrackerView() {
   const [today, setToday] = useState(() => mskDay(Date.now()));
   useEffect(() => setToday(mskDay(Date.now())), [tick]);
   useEffect(() => {
-    // фильтры → адрес (поиск — с задержкой, чтобы не писать в историю каждую букву)
+    // фильтры → адрес (с задержкой: несколько щелчков подряд — одна запись). Поиск (?q=) пишет шапка — его не трогаем; адрес берём
+    // текущий, а не из прошлой отрисовки: иначе отложенная запись вернула бы старый поиск поверх только что набранного
     const t = setTimeout(() => {
-      const next = new URLSearchParams(params.toString());
-      for (const k of FILTER_KEYS) next.delete(k);
-      for (const [k, v] of Object.entries(filtersToParams(filters))) next.set(k, v);
+      const now = new URLSearchParams(window.location.search);
+      const next = new URLSearchParams(now);
+      for (const k of FILTER_KEYS) if (k !== "q") next.delete(k);
+      for (const [k, v] of Object.entries(filtersToParams(filters))) if (k !== "q") next.set(k, v);
       const s = next.toString();
-      if (s !== params.toString()) router.replace(s ? `/tracker?${s}` : "/tracker", { scroll: false });
+      if (s !== now.toString()) router.replace(s ? `/tracker?${s}` : "/tracker", { scroll: false });
     }, 250);
     return () => clearTimeout(t);
-    // params читаем в момент записи: зависеть от него нельзя — запись адреса меняет params и зациклила бы эффект
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
@@ -528,16 +544,12 @@ export function TrackerView() {
         />
         <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={(v) => patch({ seg: v })} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={(v) => patch({ owner: v })} />
-        {hasActiveFilters(filters) && (
-          <button onClick={() => setFilters({ ...EMPTY_FILTERS, cancelled: filters.cancelled, doneAll: filters.doneAll })} className="btn-ghost h-8 text-[12px]" title="Снять все фильтры и поиск">
+        {filtered && (
+          <button onClick={resetFilters} className="btn-ghost h-8 text-[12px]" title="Снять все фильтры и поиск">
             <X size={14} /> Сбросить фильтры
           </button>
         )}
         </div>
-        <label className="relative ml-auto max-md:ml-0 max-md:w-full">
-          <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-outline" />
-          <input value={q} onChange={(e) => patch({ q: e.target.value })} placeholder="Поиск по задачам" className="input w-64 pl-8 max-md:w-full" aria-label="Поиск по задачам" />
-        </label>
       </div>
 
       {error && <div className="mb-3 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-[13px] text-status-red">{error}</div>}
@@ -553,9 +565,9 @@ export function TrackerView() {
       ) : <div className="skeleton h-64 w-full rounded-lg" />)}
       {data && rows.length === 0 && (
         <div className="surface px-4 py-10 text-center text-[13px] text-on-surface-variant">
-          <p>{hasActiveFilters(filters) ? "Задач по этим условиям нет." : deleted ? "Удалённых задач нет." : "Задач пока нет."}</p>
-          {hasActiveFilters(filters) && (
-            <button onClick={() => setFilters({ ...EMPTY_FILTERS, cancelled: filters.cancelled, doneAll: filters.doneAll })} className="btn-ghost mt-3 h-8">
+          <p>{filtered ? "Задач по этим условиям нет." : deleted ? "Удалённых задач нет." : "Задач пока нет."}</p>
+          {filtered && (
+            <button onClick={resetFilters} className="btn-ghost mt-3 h-8">
               Сбросить фильтры
             </button>
           )}
@@ -648,12 +660,12 @@ export function TrackerView() {
           actor={me ? { id: me.id, role: me.role } : null}
           onClose={() => {
             setEditor(null);
-            if (params.get("item")) router.replace("/tracker");
+            replaceWithout("item"); // фильтры и поиск в адресе остаются
           }}
           onSaved={() => {
             setEditor(null);
             setTick((t) => t + 1);
-            if (params.get("item")) router.replace("/tracker");
+            replaceWithout("item");
           }}
         />
       )}
