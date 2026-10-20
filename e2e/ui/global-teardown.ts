@@ -12,6 +12,7 @@ export default async function globalTeardown() {
     const items = (await prisma.operationalItem.findMany({ where: { directorateId: data.directorateId }, select: { id: true } })).map((i) => i.id);
     await prisma.chatThread.deleteMany({ where: { OR: [{ members: { some: { userId: { in: people } } } }, { userAId: { in: people } }, { userBId: { in: people } }] } });
     await prisma.rateLimit.deleteMany({ where: { OR: people.map((p) => ({ key: { contains: p } })) } });
+    await prisma.appSetting.deleteMany({ where: { key: { in: people.map((p) => `table.filters:${p}`) } } });
     await prisma.notification.deleteMany({ where: { userId: { in: people } } });
     await prisma.auditEvent.deleteMany({ where: { OR: [{ entityId: { in: items } }, { actorId: { in: people } }] } });
     await prisma.itemNote.deleteMany({ where: { itemId: { in: items } } });

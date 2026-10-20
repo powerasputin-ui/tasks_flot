@@ -13,6 +13,27 @@ test.describe("руководитель", () => {
     await noSideScroll(page);
   });
 
+  test("таблица: фильтры по выбору — по умолчанию только «+ Фильтры»; отмеченный появляется в ряду и остаётся после перезагрузки", async ({ page }) => {
+    await page.goto("/table");
+    const picker = () => page.getByRole("button", { name: /^Фильтры/ });
+    const statusChip = () => page.getByRole("button", { name: /^Статус\s*Все/ });
+    const toggle = async () => {
+      await picker().click();
+      // выбор сохраняется в учётной записи — ждём ответа, прежде чем перезагружать
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/api/table-filters") && r.request().method() === "PUT"), page.getByRole("checkbox", { name: "Статус", exact: true }).click()]);
+    };
+    await expect(picker()).toBeVisible();
+    await expect(statusChip()).toHaveCount(0);
+    await toggle();
+    await expect(statusChip()).toBeVisible();
+    await page.reload();
+    await expect(statusChip()).toBeVisible();
+    // снять галочку — фильтр уходит из ряда (заодно ряд возвращается к исходному для следующего прогона)
+    await toggle();
+    await expect(statusChip()).toHaveCount(0);
+    await noSideScroll(page);
+  });
+
   test("стартовая страница — «Мой день»", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/today$/);

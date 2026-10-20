@@ -14,7 +14,8 @@ import { TableExportMenu } from "@/components/TableExportMenu";
 import { CycleStrip } from "@/components/CycleStrip";
 import { WeekSelect } from "@/components/WeekSelect";
 import { isOverdueRow } from "@/lib/overdue";
-import { FilterChip, FilterField, MoreFilters } from "@/components/FilterChips";
+import { ChoiceChip, DateRangeChip, FilterChip, FilterPicker } from "@/components/FilterChips";
+import { normalizeShownFilters, TABLE_FILTERS, type TableFilterKey } from "@/lib/table-filters";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemPrefill, type ItemRow, type Refs } from "@/components/ItemPanel";
@@ -140,6 +141,8 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [deadlineFrom, setDeadlineFrom] = useState("");
   const [deadlineTo, setDeadlineTo] = useState("");
+  // какие фильтры стоят в ряду — личный выбор (галочки в «+ Фильтры», хранится в учётной записи); пусто — только «+ Фильтры»
+  const [shownFilters, setShownFilters] = useState<TableFilterKey[]>([]);
   const [refetchTick, setRefetchTick] = useState(0);
   // лента изменений обновляется отдельно и в фоне: правка не должна ждать её перезагрузки
   const [feedTick, setFeedTick] = useState(0);
@@ -250,6 +253,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     loadBootstrap().then((b) => {
       if (!b) return;
       setMe(b.user);
+      setShownFilters(normalizeShownFilters(b.tableFilters));
       setCustomCols(b.columns ?? []);
       setSegmentRefs(b.segments.map((x) => ({ id: x.id, name: x.name, color: x.color ?? null })));
       setRefs({
@@ -464,8 +468,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const operCount = visibleRows.filter((r) => r.operFlag).length;
   const lastUpdated = visibleRows.reduce<string | null>((m, r) => (!m || r.updatedAt > m ? r.updatedAt : m), null);
 
-  const moreActive = [deadlineFrom || deadlineTo, archive !== defaultArchive].filter(Boolean).length;
-  const anyFilter = !!(trackIds.length || statusIds.length || attractivenessIds.length || ownerIds.length || operFlags.length || q || moreActive);
+  const anyFilter = !!(trackIds.length || statusIds.length || attractivenessIds.length || ownerIds.length || operFlags.length || q || deadlineFrom || deadlineTo || archive !== defaultArchive);
   /** Убирает поисковый запрос из адреса (строка поиска в шапке следит за адресом и очистится сама). */
   function clearQuery() {
     router.replace(pathname, { scroll: false });
@@ -476,6 +479,32 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     setTrackIds([]); setStatusIds([]); setAttractivenessIds([]); setOwnerIds([]); setOperFlags([]);
     setDeadlineFrom(""); setDeadlineTo(""); setArchive(defaultArchive);
   }
+
+  /** Галочка в «+ Фильтры»: показать фильтр в ряду или спрятать — спрятанный сбрасывается, чтобы не отбирать строки молча. */
+  function toggleFilter(key: TableFilterKey, on: boolean) {
+    const next = normalizeShownFilters(on ? [...shownFilters, key] : shownFilters.filter((k) => k !== key));
+    setShownFilters(next);
+    if (!on) {
+      if (key === "track") setTrackIds([]);
+      if (key === "status") setStatusIds([]);
+      if (key === "attractiveness") setAttractivenessIds([]);
+      if (key === "owner") setOwnerIds([]);
+      if (key === "operFlag") setOperFlags([]);
+      if (key === "deadline") { setDeadlineFrom(""); setDeadlineTo(""); }
+      if (key === "archive") setArchive(defaultArchive);
+    }
+    // «Посмотреть как»: в ряду меняется, но чужие настройки не сохраняем
+    if (preview) return;
+    fetch("/api/table-filters", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shown: next }) })
+      .then(() => clearBootstrap())
+      .catch(() => {});
+  }
+  // подпись фильтра — как у колонки (её можно переименовать в настройках)
+  const FILTER_COLUMN: Record<Exclude<TableFilterKey, "archive">, keyof typeof DEFAULT_LABEL> = { week: "deadlineWeek", track: "track", status: "status", attractiveness: "attractiveness", owner: "owner", operFlag: "operFlag", deadline: "deadline" };
+  const filterLabel = (k: TableFilterKey) => (k === "archive" ? "Показывать" : colLabel(FILTER_COLUMN[k]));
+  // неделя — переход к таблице прошлой оперативки; в «Удалённых» её нет
+  const filterItems = TABLE_FILTERS.filter((k) => k !== "week" || defaultArchive !== "archived").map((k) => ({ key: k, label: filterLabel(k) }));
+  const shows = (k: TableFilterKey) => shownFilters.includes(k);
 
   // «Опер» — только для тех, кто не составляет справку сам (они видят «В справку» вместо этого); «В справку» — только составителям при активном цикле
   // «Отправить директору» нужно тем, кто подаёт свои позиции: руководителям (и составителям справки из них) и админам с флагом «подаёт как руководитель»
@@ -762,49 +791,43 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
 
           <div className="mt-3 flex flex-wrap items-center gap-2 max-md:-mx-3 max-md:flex-nowrap max-md:overflow-x-auto max-md:px-3 max-md:pb-1 max-md:[scrollbar-width:none]">
             <SortMenu sortBy={sortBy} sortDir={sortDir} onChange={(f, d) => { setSortBy(f); setSortDir(d); }} labelOf={colLabel} />
-            {defaultArchive !== "archived" && <WeekSelect selected={null} label={colLabel("deadlineWeek")} />}
-            <FilterChip
-              label={colLabel("track")}
-              value={trackIds}
-              options={refs.tracks}
-              onChange={setTrackIds}
-              width={340}
-              footer={(close) => (
-                <AddTrackInline
-                  tracks={segments.length === 1 ? refs.tracks.filter((t) => t.segmentId === segments[0] || t.segmentId === null) : refs.tracks}
-                  segmentId={segments.length === 1 ? segments[0] : null}
-                  segmentName={segments.length === 1 ? segmentName(segments[0]) : null}
-                  onCreated={(t) => setRefs((r) => (r.tracks.some((x) => x.id === t.id) ? r : { ...r, tracks: [...r.tracks, t] }))}
-                  onPick={(id) => setTrackIds((ids) => (ids.includes(id) ? ids : [...ids, id]))}
-                  onClose={close}
-                />
-              )}
-            />
-            <FilterChip label={colLabel("status")} value={statusIds} options={refs.statuses} onChange={setStatusIds} />
-            <FilterChip label={colLabel("attractiveness")} value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />
-            <FilterChip label={colLabel("owner")} value={ownerIds} options={refs.users} onChange={setOwnerIds} />
-            <FilterChip
-              label={colLabel("operFlag")}
-              value={operFlags}
-              options={[{ id: "true", name: "Отправлено" }, { id: "false", name: "Не отправлено" }]}
-              onChange={setOperFlags}
-            />
-            <MoreFilters activeCount={moreActive}>
-              <FilterField label={colLabel("deadline")}>
-                <div className="flex items-center gap-1.5">
-                  <input type="date" value={deadlineFrom} onChange={(e) => setDeadlineFrom(e.target.value)} className="input w-full" />
-                  <span className="text-outline">—</span>
-                  <input type="date" value={deadlineTo} onChange={(e) => setDeadlineTo(e.target.value)} className="input w-full" />
-                </div>
-              </FilterField>
-              <FilterField label="Показывать">
-                <select value={archive} onChange={(e) => setArchive(e.target.value as typeof archive)} className="select w-full">
-                  {(Object.keys(ARCHIVE_LABEL) as Array<keyof typeof ARCHIVE_LABEL>).map((k) => (
-                    <option key={k} value={k}>{ARCHIVE_LABEL[k]}</option>
-                  ))}
-                </select>
-              </FilterField>
-            </MoreFilters>
+            {/* в ряду — только отмеченные в «+ Фильтры», в постоянном порядке */}
+            {shows("week") && defaultArchive !== "archived" && <WeekSelect selected={null} label={colLabel("deadlineWeek")} />}
+            {shows("track") && (
+              <FilterChip
+                label={colLabel("track")}
+                value={trackIds}
+                options={refs.tracks}
+                onChange={setTrackIds}
+                width={340}
+                footer={(close) => (
+                  <AddTrackInline
+                    tracks={segments.length === 1 ? refs.tracks.filter((t) => t.segmentId === segments[0] || t.segmentId === null) : refs.tracks}
+                    segmentId={segments.length === 1 ? segments[0] : null}
+                    segmentName={segments.length === 1 ? segmentName(segments[0]) : null}
+                    onCreated={(t) => setRefs((r) => (r.tracks.some((x) => x.id === t.id) ? r : { ...r, tracks: [...r.tracks, t] }))}
+                    onPick={(id) => setTrackIds((ids) => (ids.includes(id) ? ids : [...ids, id]))}
+                    onClose={close}
+                  />
+                )}
+              />
+            )}
+            {shows("status") && <FilterChip label={colLabel("status")} value={statusIds} options={refs.statuses} onChange={setStatusIds} />}
+            {shows("attractiveness") && <FilterChip label={colLabel("attractiveness")} value={attractivenessIds} options={refs.attractiveness.map((a) => ({ ...a, name: attractivenessText(a.name) }))} onChange={setAttractivenessIds} />}
+            {shows("owner") && <FilterChip label={colLabel("owner")} value={ownerIds} options={refs.users} onChange={setOwnerIds} />}
+            {shows("operFlag") && (
+              <FilterChip
+                label={colLabel("operFlag")}
+                value={operFlags}
+                options={[{ id: "true", name: "Отправлено" }, { id: "false", name: "Не отправлено" }]}
+                onChange={setOperFlags}
+              />
+            )}
+            {shows("deadline") && <DateRangeChip label={colLabel("deadline")} from={deadlineFrom} to={deadlineTo} onChange={(f, t) => { setDeadlineFrom(f); setDeadlineTo(t); }} />}
+            {shows("archive") && (
+              <ChoiceChip label="Показывать" value={archive} options={(Object.keys(ARCHIVE_LABEL) as Array<keyof typeof ARCHIVE_LABEL>).map((k) => ({ id: k, name: ARCHIVE_LABEL[k] }))} defaultValue={defaultArchive} onChange={setArchive} />
+            )}
+            <FilterPicker items={filterItems} shown={shownFilters} onToggle={(k, on) => toggleFilter(k as TableFilterKey, on)} />
             {anyFilter && (
               <button onClick={resetFilters} className="flex h-9 items-center gap-1.5 px-2 text-[12px] font-semibold text-primary hover:underline">
                 <RotateCcw size={13} />

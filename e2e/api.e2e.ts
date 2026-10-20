@@ -113,6 +113,7 @@ import * as aiSettingsTest from "@/app/api/ai/settings/test/route";
 import * as aiChat from "@/app/api/ai/chat/route";
 import * as aiConsolidate from "@/app/api/ai/consolidate/route";
 import * as aiConsolidateExport from "@/app/api/ai/consolidate/export/route";
+import * as tableFilters from "@/app/api/table-filters/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -891,6 +892,30 @@ describe("быстрая загрузка", () => {
     for (const k of ["segments", "tracks", "statuses", "attractiveness", "users", "columns"]) expect(Array.isArray(r.data[k])).toBe(true);
     expect(r.data.segments.length).toBeGreaterThan(0);
     expect("tableColumns" in r.data).toBe(true);
+  });
+
+  it("фильтры в ряду таблицы — личный выбор: в учётной записи, у другого свой; мусор отброшен; ЗГД и «Посмотреть как» не сохраняют", async () => {
+    const keys = [`table.filters:${head.id}`, `table.filters:${director.id}`];
+    const before = await prisma.appSetting.findMany({ where: { key: { in: keys } } });
+    const shown = async (a: Actor) => (await call(a, bootstrap.GET, "/api/bootstrap")).data.tableFilters;
+    const put = (a: Actor, body: unknown) => call(a, tableFilters.PUT, "/api/table-filters", { method: "PUT", body });
+    try {
+      await prisma.appSetting.deleteMany({ where: { key: { in: keys } } });
+      expect(await shown(head)).toEqual([]); // ничего не настроено — в ряду только «+ Фильтры»
+      const r = await put(head, { shown: ["owner", "хак", "status", "owner"] });
+      expect(r.status).toBe(200);
+      expect(r.data.shown).toEqual(["status", "owner"]); // постоянный порядок ряда, без повторов и неизвестных
+      expect(await shown(head)).toEqual(["status", "owner"]);
+      expect(await shown(director)).toEqual([]);
+      expect((await put(head, { shown: "status" })).status).toBe(400);
+      expect((await put(management, { shown: ["status"] })).status).toBe(403); // у ЗГД таблицы нет
+      const viewing = { ...head, viewAs: { realId: director.id, realName: "Директор", realRole: "DIRECTOR" } } as Actor;
+      expect((await put(viewing, { shown: [] })).status).toBe(403);
+      expect(await shown(head)).toEqual(["status", "owner"]);
+    } finally {
+      await prisma.appSetting.deleteMany({ where: { key: { in: keys } } });
+      for (const x of before) await prisma.appSetting.create({ data: { key: x.key, value: x.value as Prisma.InputJsonValue } });
+    }
   });
 
   it("строки таблицы содержат имена справочников (кэш справочников подставляет их без join)", async () => {

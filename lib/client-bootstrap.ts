@@ -12,6 +12,8 @@ export type Bootstrap = {
   users: Array<{ id: string; name: string; role: string; submits?: boolean }>;
   columns: Array<{ id: string; name: string; type: "TEXT" | "NUMBER" | "DATE" | "SELECT"; options: string[] }>;
   tableColumns: unknown;
+  /** Какие фильтры держать в ряду над таблицей — личный выбор (lib/table-filters.ts). */
+  tableFilters?: string[];
   /** Дирекция, в которой человек работает (у ЗГД нет). */
   directorate?: { id: string; name: string } | null;
   /** Только админу: дирекции для переключателя. */

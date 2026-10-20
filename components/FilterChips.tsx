@@ -35,21 +35,7 @@ export function FilterChip({
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
-    <Popover
-      width={width}
-      trigger={({ toggle: open }) => (
-        <button
-          onClick={open}
-          className={`flex h-9 items-center gap-2 rounded-md border px-3 transition-colors ${
-            selected.length > 0 ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"
-          }`}
-        >
-          <span className="label-caps">{label}</span>
-          <span className={`max-w-36 truncate text-[13px] font-semibold ${selected.length > 0 ? "text-primary" : "text-on-surface"}`}>{summary}</span>
-          <ChevronDown size={14} className="text-outline" />
-        </button>
-      )}
-    >
+    <Popover width={width} trigger={({ toggle: open }) => <ChipButton label={label} summary={summary} active={selected.length > 0} onClick={open} />}>
       {(close) => (
         <div>
           {options.length > 8 && (
@@ -92,34 +78,95 @@ function Row({ children, checked, onClick, hint, leading }: { children: ReactNod
   );
 }
 
-/** Пунктирная «+ Фильтры»: остальные условия (срок, архив). */
-export function MoreFilters({ activeCount, children }: { activeCount: number; children: ReactNode }) {
+/** Кнопка чипа «МЕТКА значение ▾»; выбранный фильтр подсвечен. */
+function ChipButton({ label, summary, active, onClick }: { label: string; summary: string; active: boolean; onClick: () => void }) {
   return (
-    <Popover
-      width={340}
-      trigger={({ toggle }) => (
-        <button
-          onClick={toggle}
-          className={`flex h-9 items-center gap-1.5 rounded-md border border-dashed px-3 transition-colors ${
-            activeCount > 0 ? "border-primary bg-primary-soft text-primary" : "border-outline text-on-surface-variant hover:bg-surface-high"
-          }`}
-        >
-          <Plus size={14} />
-          <span className="label-caps" style={{ color: "inherit" }}>Фильтры</span>
-          {activeCount > 0 && <span className="rounded-full bg-primary px-1.5 text-[10px] font-bold text-white">{activeCount}</span>}
-        </button>
+    <button onClick={onClick} className={`flex h-9 items-center gap-2 rounded-md border px-3 transition-colors ${active ? "border-primary bg-primary-soft" : "border-outline-variant bg-surface hover:bg-surface-high"}`}>
+      <span className="label-caps">{label}</span>
+      <span className={`max-w-36 truncate text-[13px] font-semibold ${active ? "text-primary" : "text-on-surface"}`}>{summary}</span>
+      <ChevronDown size={14} className="text-outline" />
+    </button>
+  );
+}
+
+const ruDate = (v: string) => new Date(`${v}T00:00:00Z`).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "UTC" });
+
+/** Чип «МЕТКА с — по ▾»: диапазон дат (любая граница может быть пустой). */
+export function DateRangeChip({ label, from, to, onChange }: { label: string; from: string; to: string; onChange: (from: string, to: string) => void }) {
+  const active = !!(from || to);
+  const summary = !active ? "Все" : from && to ? `${ruDate(from)} — ${ruDate(to)}` : from ? `с ${ruDate(from)}` : `по ${ruDate(to)}`;
+  return (
+    <Popover width={300} trigger={({ toggle }) => <ChipButton label={label} summary={summary} active={active} onClick={toggle} />}>
+      {() => (
+        <div className="space-y-2 p-3">
+          <div className="flex items-center gap-1.5">
+            <input type="date" value={from} onChange={(e) => onChange(e.target.value, to)} className="input w-full" aria-label={`${label}: с`} />
+            <span className="text-outline">—</span>
+            <input type="date" value={to} onChange={(e) => onChange(from, e.target.value)} className="input w-full" aria-label={`${label}: по`} />
+          </div>
+          {active && (
+            <button onClick={() => onChange("", "")} className="text-[12px] font-semibold text-primary hover:underline">
+              Сбросить
+            </button>
+          )}
+        </div>
       )}
-    >
-      {() => <div className="space-y-3 p-3.5">{children}</div>}
     </Popover>
   );
 }
 
-export function FilterField({ label, children }: { label: string; children: ReactNode }) {
+/** Чип с одним вариантом из нескольких («Показывать: Активные»); подсвечен, когда выбран не вариант по умолчанию. */
+export function ChoiceChip<T extends string>({ label, value, options, defaultValue, onChange }: { label: string; value: T; options: Array<{ id: T; name: string }>; defaultValue: T; onChange: (v: T) => void }) {
   return (
-    <div>
-      <label className="label-caps mb-1 block">{label}</label>
-      {children}
-    </div>
+    <Popover width={220} trigger={({ toggle }) => <ChipButton label={label} summary={options.find((o) => o.id === value)?.name ?? ""} active={value !== defaultValue} onClick={toggle} />}>
+      {(close) => (
+        <div className="py-1">
+          {options.map((o) => (
+            <button
+              key={o.id}
+              role="menuitemradio"
+              aria-checked={o.id === value}
+              onClick={() => {
+                onChange(o.id);
+                close();
+              }}
+              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] hover:bg-primary-soft"
+            >
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center text-primary">{o.id === value && <Check size={14} strokeWidth={3} />}</span>
+              <span className={o.id === value ? "font-semibold text-primary" : "text-on-surface"}>{o.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Popover>
+  );
+}
+
+/**
+ * Пунктирная «+ Фильтры»: какие фильтры держать в ряду — галочками (выбор личный, в учётной записи). Отмеченные стоят в ряду
+ * в постоянном порядке; снятая галочка прячет фильтр и сбрасывает его — спрятанный фильтр не должен молча отбирать строки.
+ */
+export function FilterPicker({ items, shown, onToggle }: { items: Array<{ key: string; label: string }>; shown: string[]; onToggle: (key: string, on: boolean) => void }) {
+  return (
+    <Popover
+      width={280}
+      trigger={({ toggle }) => (
+        <button onClick={toggle} className="flex h-9 items-center gap-1.5 rounded-md border border-dashed border-outline px-3 text-on-surface-variant transition-colors hover:bg-surface-high">
+          <Plus size={14} />
+          <span className="label-caps" style={{ color: "inherit" }}>Фильтры</span>
+        </button>
+      )}
+    >
+      {() => (
+        <div className="pb-1">
+          <p className="px-3.5 pb-1 pt-2 text-[11px] text-on-surface-variant">Отметьте, какие фильтры держать в ряду. Снятая галочка сбрасывает фильтр.</p>
+          {items.map((i) => (
+            <Row key={i.key} checked={shown.includes(i.key)} onClick={() => onToggle(i.key, !shown.includes(i.key))}>
+              {i.label}
+            </Row>
+          ))}
+        </div>
+      )}
+    </Popover>
   );
 }
