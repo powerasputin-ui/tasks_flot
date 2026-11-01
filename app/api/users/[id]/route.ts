@@ -42,6 +42,9 @@ async function PATCHHandler(request: NextRequest, { params }: { params: Promise<
   // Директор видит и правит только людей своей дирекции; чужие для него «не существуют».
   const isAdminActor = session.role === "ADMIN" || session.role === "SYSTEM_ADMIN";
   if (!isAdminActor && target.directorateId !== session.directorateId) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  // Кого можно вести вообще — до любых полей: админ не ведёт технического администратора ни в чём (пароль, отключение, имя,
+  // флаги, дирекция), директор — только руководителей. Иначе админ перехватил бы учётку с большими правами.
+  if (!canManageUser(actor, target.role)) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   if ((parsed.data.memoEditor !== undefined || parsed.data.submits !== undefined) && !isAdminActor) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   if (parsed.data.directorateId !== undefined) {
     if (!isAdminActor) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -59,12 +62,6 @@ async function PATCHHandler(request: NextRequest, { params }: { params: Promise<
     const err = checkRoleChange(actor, { id, role: target.role, isActive: target.isActive }, newRole, activeAdmins);
     if (err) return NextResponse.json({ error: err }, { status: err === "FORBIDDEN" ? 403 : err === "LAST_ADMIN" ? 409 : 400 });
   }
-  // Имя, пароль и отключение куратор может менять только у руководителей.
-  const otherFields = parsed.data.name !== undefined || parsed.data.isActive !== undefined || parsed.data.password !== undefined;
-  if (otherFields && !canManageUser(actor, target.role)) {
-    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  }
-
   // Админ не может лишить себя доступа: иначе управлять системой станет некому.
   if (id === session.userId && (parsed.data.isActive === false || (parsed.data.role && parsed.data.role !== target.role))) {
     return NextResponse.json({ error: "CANNOT_DEMOTE_SELF" }, { status: 400 });

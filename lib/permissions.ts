@@ -104,11 +104,14 @@ export function canManageUsers(role: UserRole): boolean {
 }
 
 /**
- * Технический администратор и Админ ведут всех пользователей. Директор — только руководителей (роль HEAD)
- * своей дирекции: добавляет, меняет имя и пароль, отключает; роли назначать не может.
+ * Технический администратор ведёт всех пользователей. Админ — всех, кроме технического администратора: завести его,
+ * сменить ему пароль, имя, отключить — нельзя (иначе админ получил бы права выше своих; смену роли тех. администратора
+ * ему и так запрещает checkRoleChange). Директор — только руководителей (роль HEAD) своей дирекции: добавляет, меняет
+ * имя и пароль, отключает; роли назначать не может.
  */
 export function canManageUser(actor: Actor, targetRole: UserRole): boolean {
-  if (actor.role === "SYSTEM_ADMIN" || actor.role === "ADMIN") return true;
+  if (actor.role === "SYSTEM_ADMIN") return true;
+  if (actor.role === "ADMIN") return targetRole !== "SYSTEM_ADMIN";
   return actor.role === "DIRECTOR" && targetRole === "HEAD";
 }
 

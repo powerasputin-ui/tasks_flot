@@ -185,7 +185,7 @@ export default function SettingsPage() {
           </p>
         )}
 
-        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} directorates={directorates} currentDirectorate={currentDirectorate} preset={userPreset} onPresetUsed={() => setUserPreset(null)} />}
+        {section === "users" && <UsersSection users={users} act={act} isAdmin={isAdmin} canManageTech={me?.role === "SYSTEM_ADMIN"} directorates={directorates} currentDirectorate={currentDirectorate} preset={userPreset} onPresetUsed={() => setUserPreset(null)} />}
         {section === "directorates" && (
           <DirectoratesSection
             directorates={directorates}
@@ -272,6 +272,7 @@ function UsersSection({
   users,
   act,
   isAdmin,
+  canManageTech,
   directorates,
   currentDirectorate,
   preset,
@@ -280,6 +281,8 @@ function UsersSection({
   users: UserRow[];
   act: Act;
   isAdmin: boolean;
+  /** Только технический администратор ведёт технических администраторов: у админа сервер ответит 403. */
+  canManageTech: boolean;
   directorates: Directorate[];
   currentDirectorate: string | null;
   preset: UserPreset | null;
@@ -289,6 +292,8 @@ function UsersSection({
   const [creating, setCreating] = useState(!!preset);
   // дирекция человека: админ выбирает её прямо в строке, а список сгруппирован по дирекциям — не надо искать, кто где
   const canMove = isAdmin;
+  // строка технического администратора для всех, кроме него самого (и других тех. администраторов), — только для чтения
+  const isLocked = (role: string) => role === "SYSTEM_ADMIN" && !canManageTech;
   // фильтр по дирекции: "" — все, NO_DIR — без дирекции (ЗГД, админы), иначе id дирекции
   const [dirFilter, setDirFilter] = useState("");
   const [presetDir, setPresetDir] = useState<string | null>(null);
@@ -393,7 +398,7 @@ function UsersSection({
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    {isAdmin ? (
+                    {isAdmin && !isLocked(u.role) ? (
                       <select value={u.role} onChange={(e) => patch(u.id, { role: e.target.value }, "Роль изменена.")} className="select w-full">
                         {Object.entries(ROLE_LABEL).filter(([k]) => k !== "SYSTEM_ADMIN" || u.role === "SYSTEM_ADMIN").map(([k, v]) => (
                           <option key={k} value={k}>{v}</option>
@@ -420,6 +425,7 @@ function UsersSection({
                           }}
                           className="select w-full"
                           aria-label="Дирекция"
+                          disabled={isLocked(u.role)}
                         >
                           {(u.role === "ADMIN" || u.role === "SYSTEM_ADMIN") && <option value="">без дирекции</option>}
                           {directorates.filter((d) => d.isActive || d.id === u.directorateId).map((d) => (
@@ -431,7 +437,7 @@ function UsersSection({
                   )}
                   <td className="px-4 py-3"><ActiveBadge active={u.isActive} /></td>
                   <td className="px-4 py-3">
-                    {isAdmin || u.role === "HEAD" ? (
+                    {(isAdmin || u.role === "HEAD") && !isLocked(u.role) ? (
                     <div className="flex items-center justify-end gap-1.5">
                       {resetFor === u.id ? (
                         <>
@@ -488,7 +494,7 @@ function UsersSection({
                     </div>
                     ) : (
                       <div className="flex justify-end">
-                        <span className="text-[12px] text-outline">Директоров и админов ведёт админ</span>
+                        <span className="text-[12px] text-outline">{isLocked(u.role) ? "Ведёт технический администратор" : "Директоров и админов ведёт админ"}</span>
                       </div>
                     )}
                   </td>

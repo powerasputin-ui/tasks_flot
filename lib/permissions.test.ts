@@ -141,12 +141,18 @@ describe("управление пользователями", () => {
     expect(canManageUsers("EXECUTIVE")).toBe(false);
   });
 
-  it("директор ведёт только руководителей (HEAD); админ и технический администратор — всех", () => {
+  it("директор ведёт только руководителей (HEAD); админ — всех, кроме технического администратора; технический администратор — всех", () => {
     expect(canManageUser(director, "HEAD")).toBe(true);
     for (const t of ["DIRECTOR", "ADMIN", "EXECUTIVE", "SYSTEM_ADMIN"] as const) expect(canManageUser(director, t)).toBe(false);
     for (const t of ["HEAD", "DIRECTOR", "ADMIN", "EXECUTIVE"] as const) expect(canManageUser(admin, t)).toBe(true);
-    expect(canManageUser(tech, "ADMIN")).toBe(true);
+    for (const t of ["HEAD", "DIRECTOR", "ADMIN", "EXECUTIVE", "SYSTEM_ADMIN"] as const) expect(canManageUser(tech, t)).toBe(true);
     expect(canManageUser(head, "HEAD")).toBe(false);
+  });
+
+  // Аудит 01·H-1: canManageUser отдавал админу и SYSTEM_ADMIN — можно было завести технического администратора
+  // (POST /api/users) или сменить ему пароль / отключить (PATCH /api/users/:id), т.е. получить права выше своих.
+  it("админ не ведёт технического администратора: ни завести, ни сменить пароль, ни отключить", () => {
+    expect(canManageUser(admin, "SYSTEM_ADMIN")).toBe(false);
   });
 });
 
