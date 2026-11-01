@@ -4,6 +4,7 @@
 # Нужны секреты репозитория (Settings → Secrets and variables → Actions):
 #   NEON_DATABASE_URL  — строка подключения к базе (как DATABASE_URL в Vercel)
 #   BACKUP_PASSPHRASE  — длинный пароль для шифрования копий; сохраните его отдельно, без него копию не открыть
+# Если секретов нет, запуск краснеет (письмо от GitHub) — копия не должна «молча» не сниматься.
 #
 # Восстановление (на своём компьютере, нужен Docker):
 #   1) скачать артефакт db-backup-<дата> во вкладке Actions и распаковать zip → neon-<дата>.dump.gpg
@@ -25,20 +26,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Секреты заданы?
-        id: check
         env:
           URL: ${{ secrets.NEON_DATABASE_URL }}
           PASS: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
+          # Без секретов копия не снимается — это ошибка, а не предупреждение: раньше запуск оставался зелёным,
+          # копий не было, и никто об этом не узнавал (GitHub пишет о красном запуске письмом).
           if [ -z "$URL" ] || [ -z "$PASS" ]; then
-            echo "::warning::Резервная копия не снята: задайте секреты NEON_DATABASE_URL и BACKUP_PASSPHRASE."
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Резервная копия не снята: задайте секреты NEON_DATABASE_URL и BACKUP_PASSPHRASE (Settings → Secrets and variables → Actions)."
+            exit 1
           fi
 
       - name: Снять копию (pg_dump 18) и зашифровать
-        if: steps.check.outputs.ok == 'true'
         env:
           URL: ${{ secrets.NEON_DATABASE_URL }}
           PASS: ${{ secrets.BACKUP_PASSPHRASE }}
@@ -58,7 +57,6 @@ jobs:
           ls -l out
 
       - name: Сохранить копию (30 дней)
-        if: steps.check.outputs.ok == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: db-backup-${{ env.DATE }}

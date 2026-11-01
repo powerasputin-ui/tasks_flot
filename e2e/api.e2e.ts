@@ -591,6 +591,8 @@ describe("напоминания по срокам позиций", () => {
   it("ответственному — «через 2 дня» и «просрочено», директору — сводка; повторный запуск не дублирует", async () => {
     // «сегодня» — 08.10.2030 09:00 МСК, чтобы не пересекаться с живыми данными
     const now = new Date("2030-10-08T06:00:00Z");
+    // рассылка ниже заводит уведомления всем, чьи сроки раньше «сегодняшней» даты, — убираем только созданные ею, а не «за последние минуты»
+    const since = new Date(Date.now() - 60_000);
     const mk = async (title: string, deadline: string) => {
       const r = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG}-${title}`, deadline } });
       expect(r.status).toBe(201);
@@ -616,11 +618,12 @@ describe("напоминания по срокам позиций", () => {
     const again = await sendDeadlineReminders(now);
     expect(again).toEqual({ soon: 0, overdue: 0, summaries: 0 });
     expect(await prisma.notification.count({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] } } })).toBe(before);
-    await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: new Date(Date.now() - 600000) } } });
+    await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: since } } });
   });
 
   it("сданная на проверку: исполнителя не торопим, директору — в сводке «ждёт вашей приёмки», повтор не дублирует", async () => {
     const now = new Date("2031-10-08T06:00:00Z");
+    const since = new Date(Date.now() - 60_000); // как в тесте выше: убираем только уведомления, созданные этой рассылкой
     const r = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG}-сдана с опозданием`, deadline: "2031-10-07" } });
     created.items.push(r.data.row.id);
     const sid = r.data.row.id as string;
@@ -633,7 +636,7 @@ describe("напоминания по срокам позиций", () => {
     expect(await summary()).toBe(1);
     await sendDeadlineReminders(now);
     expect(await summary()).toBe(1);
-    await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: new Date(Date.now() - 600000) } } });
+    await prisma.notification.deleteMany({ where: { type: { in: ["DEADLINE_SOON", "DEADLINE_OVERDUE"] }, createdAt: { gte: since } } });
   });
 });
 
@@ -2606,7 +2609,11 @@ describe("ЗГД в трекере: только подтверждённое д
     expect(sub.status).toBe(200);
     const monday = new Date(Date.now() + ((8 - new Date(Date.now() + 3 * 3600e3).getUTCDay()) % 7) * 864e5);
     const since = new Date(Date.now() - 60000);
-    await prisma.appSetting.deleteMany({ where: { key: "weekly.digest.week" } }); // отметка недели от прошлого прогона мешала бы
+    // «неделя уже разослана» — общая настройка базы: снимаем её, чтобы рассылка сработала, а в конце ВОЗВРАЩАЕМ прежнюю,
+    // иначе после прогона сводка за эту неделю ушла бы людям второй раз
+    const digestKey = "weekly.digest.week";
+    const digestBefore = await prisma.appSetting.findUnique({ where: { key: digestKey } });
+    await prisma.appSetting.deleteMany({ where: { key: digestKey } });
     try {
       const first = await sendWeeklyDigests(monday);
       expect(first.directors).toBeGreaterThan(0);
@@ -2622,7 +2629,8 @@ describe("ЗГД в трекере: только подтверждённое д
       // неделя отмечена: даже без защиты «6 дней» повторный запуск ничего не шлёт
       expect(await sendWeeklyDigests(monday)).toEqual({ zgd: 0, directors: 0 });
     } finally {
-      await prisma.appSetting.deleteMany({ where: { key: "weekly.digest.week" } });
+      await prisma.appSetting.deleteMany({ where: { key: digestKey } });
+      if (digestBefore) await prisma.appSetting.create({ data: { key: digestBefore.key, value: digestBefore.value as Prisma.InputJsonValue } });
       await prisma.notification.deleteMany({ where: { type: "WEEKLY_UPDATE_DUE", createdAt: { gte: since } } });
     }
   });
@@ -3594,9 +3602,14 @@ describe("журнал ошибок сайта", () => {
   const route = "/api/errors";
   // в журнале длинные числа вычищаются (телефоны) — метка теста только из букв
   const ETAG = TAG.replace(/\d/g, (d) => "abcdefghij"[Number(d)]);
+  // сводка «Ошибки на сайте за сутки» уходит всем админам: убираем только созданную тестами этого блока, а не «за последний час»
+  let since = new Date();
+  beforeAll(() => {
+    since = new Date(Date.now() - 5000);
+  });
   afterAll(async () => {
     await prisma.appError.deleteMany({ where: { message: { contains: ETAG } } });
-    await prisma.notification.deleteMany({ where: { message: { startsWith: "Ошибки на сайте за сутки" }, createdAt: { gte: new Date(Date.now() - 3600e3) } } });
+    await prisma.notification.deleteMany({ where: { message: { startsWith: "Ошибки на сайте за сутки" }, createdAt: { gte: since } } });
   });
 
   it("браузер сообщает об ошибке: без входа — 401; маршрут без параметров, e-mail вычищен, повтор склеивается", async () => {
