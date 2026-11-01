@@ -12,13 +12,15 @@
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "backup-db": "tsx scripts/backup-db.ts",
+    "restore-db": "tsx scripts/restore-db.ts",
+    "backup-check": "tsx scripts/backup-check.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "import-tracks": "tsx scripts/import-tracks.ts",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "db:local": "node scripts/local-db.mjs",
     "db:pull": "tsx scripts/pull-prod-data.ts",
-    "db:prod:migrate": "node scripts/prod-migrate.mjs",
+    "db:prod:migrate": "tsx scripts/prod-migrate.ts",
     "test:ui": "playwright test"
   },
   "dependencies": {

@@ -269,6 +269,7 @@ model Notification {
   createdAt DateTime         @default(now())
 
   @@index([userId, isRead])
+  @@index([createdAt]) // cron: антидубль напоминаний и чистка старого идут по времени, а не по человеку
   @@map("notifications")
 }
 
@@ -583,6 +584,7 @@ model ChatMessage {
   createdAt  DateTime   @default(now())
 
   @@index([threadId, createdAt])
+  @@index([createdAt]) // cron: ежедневная чистка старых сообщений
   @@map("chat_messages")
 }
 
