@@ -50,7 +50,7 @@ jobs:
         run: |
           npx prisma migrate deploy
           npm run db:seed
-          npx tsx scripts/ci-fixtures.ts
+          npm run ci:fixtures
       - name: Типы
         # LayoutProps/PageProps генерирует Next в .next/types — без сборки их делает next typegen
         run: |

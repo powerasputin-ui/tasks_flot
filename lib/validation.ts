@@ -20,7 +20,6 @@ export const MAX_DATE = new Date("2100-12-31T23:59:59.999Z");
 export const sensibleDate = z.coerce.date().min(MIN_DATE, "Дата вне допустимого диапазона (2000–2100)").max(MAX_DATE, "Дата вне допустимого диапазона (2000–2100)");
 
 const idOrNull = z.string().min(1).nullable().optional();
-const textOrNull = z.string().nullable().optional();
 // Длинные «простыни» ломают журнал и выгрузки: комментарий до 2000 символов, задача до 300.
 const commentOrNull = z.string().max(2000, "Комментарий не длиннее 2000 символов").nullable().optional();
 

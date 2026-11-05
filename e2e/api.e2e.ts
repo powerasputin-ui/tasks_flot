@@ -3637,7 +3637,7 @@ describe("журнал ошибок сайта", () => {
   });
 
   it("необработанная ошибка API попадает в журнал как серверная, ответ не меняется; сводка и уборка в cron", async () => {
-    const boom = withApiErrors(async (_req: NextRequest) => {
+    const boom = withApiErrors(async (_req: NextRequest) => { // eslint-disable-line @typescript-eslint/no-unused-vars -- форма обработчика маршрута
       throw new Error(`${ETAG} сервер упал`);
     });
     await expect(boom(new NextRequest("http://localhost/api/items/cmvaxfrkg00035qggy1mn7yx5/workflow?x=1"))).rejects.toThrow("сервер упал");

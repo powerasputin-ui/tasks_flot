@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -87,7 +87,9 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 5, delayMs = 2000):
       return await fn();
     } catch (e) {
       lastError = e;
-      console.log(`Попытка ${i + 1}/${attempts} не удалась (вероятно, обрыв соединения с Neon), повтор через ${delayMs}мс…`);
+      // ошибка настройки (нет DATABASE_URL, неверный адрес) повтором не лечится — сразу показываем её
+      if (e instanceof Prisma.PrismaClientInitializationError && !/Can't reach|timed out|ECONN/i.test(e.message)) throw e;
+      console.log(`Попытка ${i + 1}/${attempts} не удалась (база не отвечает), повтор через ${delayMs}мс…`);
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
