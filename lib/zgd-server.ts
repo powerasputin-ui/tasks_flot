@@ -131,7 +131,7 @@ export async function createOrder(actor: Actor, input: { directorateId: unknown;
   // исполнителя можно выбрать сразу; иначе его назначает директор
   const resp = await assignee(dir.id, input.responsibleId);
   if (input.responsibleId && !resp) return fail(400, "Исполнитель не найден в этой дирекции.");
-  const statuses = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
+  const statuses = await prisma.status.findMany({ where: { isActive: true, directorateId: null }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
   const who = await nameOf(actor.id);
   const now = new Date();
   const item = await prisma.operationalItem.create({
@@ -162,7 +162,7 @@ export async function directorOrder(actor: Actor, input: { responsibleId: unknow
   if (!resp) return fail(400, "Выберите исполнителя из своей дирекции.");
   const segmentId = typeof input.segmentId === "string" && input.segmentId ? input.segmentId : null;
   if (segmentId && !(await prisma.segment.findFirst({ where: { id: segmentId, directorateId: actor.directorateId } }))) return fail(400, "Сегмент не найден.");
-  const statuses = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
+  const statuses = await prisma.status.findMany({ where: { isActive: true, directorateId: null }, orderBy: { sortOrder: "asc" }, select: { id: true, trackerColumn: true } });
   const who = await nameOf(actor.id);
   const item = await prisma.operationalItem.create({
     data: {

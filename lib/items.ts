@@ -60,11 +60,15 @@ async function lockedForHead(actor: Actor, existing: { operFlag: boolean }): Pro
 }
 
 /** Сегмент, трек и ответственный должны быть из дирекции актора: иначе через чужой id можно «привязаться» к чужой дирекции. */
-async function refsInDirectorate(directorateId: string, f: { segmentId?: string | null; trackId?: string | null; responsibleId?: string | null }): Promise<boolean> {
+async function refsInDirectorate(directorateId: string, f: { segmentId?: string | null; trackId?: string | null; responsibleId?: string | null; statusId?: string | null; attractivenessId?: string | null }): Promise<boolean> {
+  // статус и «Внимание»: общее значение (без дирекции) или своё значение этой дирекции — чужое подставить нельзя
+  const mine = (x: { directorateId: string | null } | undefined) => !!x && (x.directorateId === null || x.directorateId === directorateId);
   const ok = (d: Dicts) =>
     (!f.segmentId || d.segments.get(f.segmentId)?.directorateId === directorateId) &&
     (!f.trackId || d.tracks.get(f.trackId)?.directorateId === directorateId) &&
-    (!f.responsibleId || d.users.get(f.responsibleId)?.directorateId === directorateId);
+    (!f.responsibleId || d.users.get(f.responsibleId)?.directorateId === directorateId) &&
+    (!f.statusId || mine(d.statuses.get(f.statusId))) &&
+    (!f.attractivenessId || mine(d.attractiveness.get(f.attractivenessId)));
   if (ok(await getDicts())) return true;
   // справочник в памяти живёт минуту и у каждого сервера свой: сотрудника, сегмент или трек могли завести только что
   // на другом — перечитываем один раз, прежде чем отказать

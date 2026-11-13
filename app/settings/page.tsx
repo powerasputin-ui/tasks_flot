@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { DEFAULT_TERMS, normalizeTerms, TERM_MAX, type Terms } from "@/lib/terms";
 import { askConfirm, askText } from "@/components/ui/Dialog";
 import { attractivenessText } from "@/lib/attractiveness";
 import { systemStatusHint } from "@/lib/statuses";
@@ -10,13 +11,13 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Panel } from "@/components/ui/Panel";
 import { ROLE_LABEL } from "@/components/AppShell";
 import { ColumnsSettings } from "@/components/ColumnsSettings";
-import { clearBootstrap } from "@/lib/client-bootstrap";
+import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { TrackerSettings } from "@/components/TrackerSettings";
 import { MemoViewSettings } from "@/components/MemoViewSettings";
 import { AiSettingsPanel } from "@/components/AiSettingsPanel";
 import { ErrorsSettings } from "@/components/ErrorsSettings";
 
-type Ref = { id: string; name: string; color?: string | null };
+type Ref = { id: string; name: string; color?: string | null; /** Статусы и «Внимание»: пусто — общее значение для всех дирекций, иначе — своё значение дирекции. */ directorateId?: string | null };
 type Track = Ref & { segmentId: string | null; isActive: boolean; segment?: Ref | null };
 type UserRow = { id: string; name: string; email: string; role: string; isActive: boolean; directorateId: string | null; memoEditor?: boolean; submits?: boolean };
 type Directorate = {
@@ -60,6 +61,10 @@ export default function SettingsPage() {
   const [memoCount, setMemoCount] = useState(0);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
   const [userPreset, setUserPreset] = useState<UserPreset | null>(null);
+  // админ: новое значение статуса / шкалы — только для выбранной дирекции (иначе общее, для всех)
+  const [ownOnly, setOwnOnly] = useState(true);
+  // как дирекция называет разделы таблицы («Сегмент» → «Проект»)
+  const [terms, setTerms] = useState<Terms>(DEFAULT_TERMS);
 
   const reload = useCallback(async () => {
     const get = (u: string) => fetchRetry(u).then((r) => (r.ok ? r.json() : null));
@@ -84,6 +89,7 @@ export default function SettingsPage() {
     setDirectorates(dirs?.directorates ?? []);
     setCurrentDirectorate(dirs?.current ?? null);
     setMemoCount(memo?.sections?.length ?? 0);
+    setTerms(normalizeTerms((await loadBootstrap(true))?.terms));
   }, []);
 
   useEffect(() => {
@@ -137,10 +143,10 @@ export default function SettingsPage() {
     { key: "directorates", label: "Дирекции", icon: <Building2 size={16} />, count: directorates.length, adminOnly: true },
     { key: "memo", label: "Вид справки", icon: <FileText size={16} />, count: memoCount },
     { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
-    { key: "segments", label: "Сегменты", icon: <Layers size={16} />, count: segments.length },
+    { key: "segments", label: terms.many, icon: <Layers size={16} />, count: segments.length },
     { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
-    { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length, adminOnly: true },
-    { key: "attractiveness", label: "Внимание", icon: <Star size={16} />, count: attractiveness.length, adminOnly: true },
+    { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length },
+    { key: "attractiveness", label: "Внимание", icon: <Star size={16} />, count: attractiveness.length },
     // ИИ-помощник по справкам: подключает админ (ключ API); ЗГД делает то же у себя на странице «Оперативка»
     ...(me?.role === "ADMIN" ? [{ key: "ai" as const, label: "ИИ-помощник", icon: <Bot size={16} />, count: 0, noCount: true }] : []),
     // журнал ошибок сайта — админу и техадмину (ссылка из ежедневной сводки: /settings?section=errors)
@@ -148,6 +154,14 @@ export default function SettingsPage() {
   ];
   // Директор ведёт колонки таблицы, руководителей и треки; админ — всё.
   const sections = allSections.filter((s) => isAdmin || !s.adminOnly);
+  // общие значения (для всех дирекций) меняет админ; свои значения дирекции — директор и админ
+  const commonLocked = (i: Ref) => (!isAdmin && !i.directorateId ? "Общее значение для всех дирекций — его меняет админ. Своё значение добавьте выше." : null);
+  const ownScope = isAdmin ? ownOnly : true;
+  const scopeSwitch = isAdmin ? (
+    <label className="mb-3 flex items-center gap-2 text-[13px] text-on-surface">
+      <input type="checkbox" checked={ownOnly} onChange={(e) => setOwnOnly(e.target.checked)} /> Новое значение — только для выбранной дирекции (без галочки — общее, для всех дирекций)
+    </label>
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0">
@@ -201,26 +215,28 @@ export default function SettingsPage() {
         {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
         {section === "segments" && (
           <RefSection
-            title="Сегменты"
-            hint={isAdmin ? "Левая колонка таблицы вашей дирекции. Переименование видно сразу во всех позициях; удалить можно сегмент без позиций и треков." : "Левая колонка таблицы вашей дирекции. Переименовывать и удалять сегменты может админ."}
+            title={terms.many}
+            beforeAdd={<TermsForm key={`${terms.one}|${terms.many}`} terms={terms} onSave={(t) => act(send("/api/directorates/terms", "PUT", t), "Названия сохранены.")} />}
+            hint="Левая колонка таблицы вашей дирекции — у каждой дирекции свой набор. Переименование видно сразу во всех позициях; удалить можно сегмент без позиций и треков."
             items={segments}
             onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")}
-            onRename={isAdmin ? (id, name) => act(send(`/api/segments/${id}`, "PATCH", { name }), "Сегмент переименован.") : undefined}
-            onDelete={isAdmin ? (id) => act(send(`/api/segments/${id}`, "DELETE"), "Сегмент удалён.") : undefined}
+            onRename={(id, name) => act(send(`/api/segments/${id}`, "PATCH", { name }), "Сегмент переименован.")}
+            onDelete={(id) => act(send(`/api/segments/${id}`, "DELETE"), "Сегмент удалён.")}
           />
         )}
         {section === "statuses" && (
           <>
             <RefSection
               title="Статусы"
-              hint="Значения колонки «Статус» (общие для всех дирекций). Переименование видно сразу во всех позициях; удалить можно статус, который не стоит ни в одной позиции."
+              hint="Значения колонки «Статус». Общие статусы одинаковы у всех дирекций (на них держатся проверка, приёмка и отмена задач); свои рабочие статусы дирекция добавляет сама — их видит только она. Удалить можно статус, который не стоит ни в одной позиции."
               items={statuses}
-              onAdd={(name) => act(send("/api/statuses", "POST", { name }), "Статус добавлен.")}
+              beforeAdd={scopeSwitch}
+              onAdd={(name) => act(send("/api/statuses", "POST", { name, own: ownScope }), "Статус добавлен.")}
               onRename={(id, name) => act(send(`/api/statuses/${id}`, "PATCH", { name }), "Статус переименован.")}
               onDelete={(id) => act(send(`/api/statuses/${id}`, "DELETE"), "Статус удалён.")}
-              locked={(i) => systemStatusHint(i.name)}
+              locked={(i) => (i.directorateId ? null : systemStatusHint(i.name)) ?? commonLocked(i)}
             />
-            <TrackerSettings reloadKey={statuses.length} />
+            <TrackerSettings reloadKey={statuses.length} isAdmin={isAdmin} />
           </>
         )}
         {section === "errors" && isAdmin && <ErrorsSettings />}
@@ -235,10 +251,12 @@ export default function SettingsPage() {
         {section === "attractiveness" && (
           <RefSection
             title="Внимание"
-            hint="Шкала: Высокое / Выше среднего / Среднее / Низкое / Отсутствует (общая для всех дирекций). Порядок шкалы при сортировке сохраняется и после переименования."
+            hint="Значения колонки «Внимание» (её название меняется в «Колонках таблицы»). Общая шкала: Высокое / Выше среднего / Среднее / Низкое / Отсутствует; свои значения дирекция добавляет сама — их видит только она."
             items={attractiveness}
             display={attractivenessText}
-            onAdd={(name) => act(send("/api/attractiveness", "POST", { name }), "Значение добавлено.")}
+            beforeAdd={scopeSwitch}
+            locked={commonLocked}
+            onAdd={(name) => act(send("/api/attractiveness", "POST", { name, own: ownScope }), "Значение добавлено.")}
             onRename={(id, name) => act(send(`/api/attractiveness/${id}`, "PATCH", { name }), "Значение переименовано.")}
             onDelete={(id) => act(send(`/api/attractiveness/${id}`, "DELETE"), "Значение удалено.")}
           />
@@ -779,6 +797,37 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
+/** «Как называть»: единственное и множественное число раздела таблицы — только для этой дирекции. */
+function TermsForm({ terms, onSave }: { terms: Terms; onSave: (t: Terms) => void }) {
+  const [one, setOne] = useState(terms.one);
+  const [many, setMany] = useState(terms.many);
+  const changed = one.trim() !== terms.one || many.trim() !== terms.many;
+  return (
+    <div className="mb-4 max-w-xl rounded-lg border border-outline-variant bg-surface p-3">
+      <p className="text-[13px] font-semibold text-on-surface">Как называть в вашей дирекции</p>
+      <p className="mt-0.5 text-[12px] text-on-surface-variant">Например «Проект / Проекты» или «Направление / Направления». Меняется в таблице, карточке и трекере — только у вашей дирекции.</p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="min-w-36 flex-1 text-[12px] text-on-surface-variant">
+          Один
+          <input value={one} onChange={(e) => setOne(e.target.value)} maxLength={TERM_MAX} className="input mt-1 w-full" aria-label="Название в единственном числе" />
+        </label>
+        <label className="min-w-36 flex-1 text-[12px] text-on-surface-variant">
+          Много
+          <input value={many} onChange={(e) => setMany(e.target.value)} maxLength={TERM_MAX} className="input mt-1 w-full" aria-label="Название во множественном числе" />
+        </label>
+        <button disabled={!changed || !one.trim() || !many.trim()} onClick={() => onSave({ one: one.trim(), many: many.trim() })} className="btn-primary">
+          Сохранить названия
+        </button>
+        {(terms.one !== DEFAULT_TERMS.one || terms.many !== DEFAULT_TERMS.many) && (
+          <button onClick={() => onSave(DEFAULT_TERMS)} className="btn-ghost">
+            Вернуть «Сегменты»
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AddRow({ placeholder, onAdd, extra }: { placeholder: string; onAdd: (name: string) => void; extra?: ReactNode }) {
   const [value, setValue] = useState("");
   return (
@@ -908,6 +957,7 @@ function RefSection({
   items,
   onAdd,
   display,
+  beforeAdd,
   onRename,
   onDelete,
   locked,
@@ -917,6 +967,8 @@ function RefSection({
   items: Ref[];
   onAdd: (name: string) => void;
   display?: (name: string) => string;
+  /** Блок над строкой добавления (админ: «только для выбранной дирекции»). */
+  beforeAdd?: ReactNode;
   /** Нет — правка недоступна (не админ). */
   onRename?: (id: string, name: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
@@ -926,6 +978,7 @@ function RefSection({
   return (
     <>
       <SectionHeader title={title} hint={hint} />
+      {beforeAdd}
       <AddRow placeholder="Новое значение" onAdd={onAdd} />
       <ListCard>
         {items.map((i) => (
@@ -989,6 +1042,7 @@ function RefItem({
         <div className="flex items-center gap-2.5">
           {item.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />}
           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-on-surface">{label}</span>
+          {item.directorateId && <span className="shrink-0 rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary" title="Своё значение этой дирекции: другие дирекции его не видят">только эта дирекция</span>}
           {lockedReason && (onRename || onDelete) && (
             <span className="flex h-8 w-8 items-center justify-center text-outline" title={lockedReason}>
               <Lock size={14} />

@@ -16,7 +16,7 @@ async function GETHandler() {
   const [{ versions, publications }, directorates, statuses] = await Promise.all([
     loadZgdSources(),
     prisma.directorate.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, shortName: true } }),
-    prisma.status.findMany({ select: { name: true, trackerColumn: true } }),
+    prisma.status.findMany({ orderBy: [{ directorateId: { sort: "asc", nulls: "first" } }, { sortOrder: "asc" }], select: { name: true, trackerColumn: true } }),
   ]);
   const ids = [...new Set([...versions.flatMap((v) => v.rows.map((r) => r.id)), ...publications.map((p) => p.itemId)])];
   // пометки самого ЗГД (поручение, контроль) — живые; удалённые дирекцией задачи не учитываются
@@ -25,7 +25,8 @@ async function GETHandler() {
     versions,
     publications,
     directorates: directorates.map((d) => ({ id: d.id, name: d.shortName || d.name })),
-    statusColumns: new Map(statuses.map((s) => [s.name, s.trackerColumn])),
+    // при совпадении названий у дирекций — колонка общего статуса (он в списке первым)
+    statusColumns: new Map([...statuses].reverse().map((s) => [s.name, s.trackerColumn])),
     live,
     meId: actor.id,
     now: Date.now(),

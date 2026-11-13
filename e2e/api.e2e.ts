@@ -114,6 +114,7 @@ import * as aiChat from "@/app/api/ai/chat/route";
 import * as aiConsolidate from "@/app/api/ai/consolidate/route";
 import * as aiConsolidateExport from "@/app/api/ai/consolidate/export/route";
 import * as tableFilters from "@/app/api/table-filters/route";
+import * as termsRoute from "@/app/api/directorates/terms/route";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -579,10 +580,13 @@ describe("справочники: переименование и удалени
     const sg = await call(curator, segments.POST, "/api/segments", { method: "POST", body: { name: `${TAG}-сегмент` } });
     expect(sg.status).toBe(201);
     const gid = sg.data.segment.id as string;
-    expect((await call(director, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-z` } })).status).toBe(403);
+    // директор ведёт сегменты своей дирекции сам (раньше переименовать и удалить мог только админ); руководитель — нет
+    expect((await call(head, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-z` } })).status).toBe(403);
+    expect((await call(director, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-z` } })).status).toBe(200);
     expect((await call(curator, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-сегмент-2` } })).status).toBe(200);
     // чужая дирекция не видит
-    expect((await call(directorB, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(403);
+    expect((await call(directorB, segmentOne.PATCH, `/api/segments/${gid}`, { method: "PATCH", id: gid, body: { name: `${TAG}-чужой` } })).status).toBe(404);
+    expect((await call(directorB, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(404);
     expect((await call(curator, segmentOne.DELETE, `/api/segments/${gid}`, { method: "DELETE", id: gid })).status).toBe(200);
   });
 });
@@ -928,6 +932,77 @@ describe("быстрая загрузка", () => {
     expect(withTrack.every((r) => !!r.trackName)).toBe(true);
     expect(rows.filter((r) => r.ownerId).every((r) => !!r.ownerName)).toBe(true);
     expect(rows.filter((r) => r.segmentId).every((r) => !!r.segmentName)).toBe(true);
+  });
+});
+
+describe("дирекция настраивает себя сама: свои статусы, шкала «Внимание» и названия разделов", () => {
+  const ids = { status: "", attr: "" };
+  afterAll(async () => {
+    await prisma.status.deleteMany({ where: { name: { contains: TAG } } });
+    await prisma.attractiveness.deleteMany({ where: { name: { contains: TAG } } });
+    await prisma.appSetting.deleteMany({ where: { key: { in: [`directorate.terms:${dirB}`, `directorate.terms:${curator.directorateId}`] } } });
+  });
+
+  it("свой статус: добавляет директор, видит только его дирекция; общий статус директор не меняет", async () => {
+    expect((await call(headB, statusesRoute.POST, "/api/statuses", { method: "POST", body: { name: `${TAG} свой` } })).status).toBe(403);
+    const made = await call(directorB, statusesRoute.POST, "/api/statuses", { method: "POST", body: { name: `${TAG} На согласовании у верфи` } });
+    expect(made.status).toBe(201);
+    ids.status = made.data.status.id;
+    expect(made.data.status).toMatchObject({ directorateId: dirB, trackerColumn: "DOING" });
+    const names = async (a: Actor) => ((await call(a, bootstrap.GET, "/api/bootstrap")).data.statuses as Array<{ id: string }>).map((s) => s.id);
+    expect(await names(headB)).toContain(ids.status);
+    expect(await names(head)).not.toContain(ids.status);
+    // и общие статусы у дирекции остались
+    const common = await prisma.status.findFirstOrThrow({ where: { name: "В работе", directorateId: null } });
+    expect(await names(headB)).toContain(common.id);
+    // название не дублирует общее; общий статус директор не трогает; чужой свой статус не виден
+    expect((await call(directorB, statusesRoute.POST, "/api/statuses", { method: "POST", body: { name: "в работе" } })).status).toBe(409);
+    expect((await call(directorB, statusOne.PATCH, `/api/statuses/${common.id}`, { method: "PATCH", id: common.id, body: { name: `${TAG} взлом` } })).status).toBe(403);
+    expect((await call(director, statusOne.PATCH, `/api/statuses/${ids.status}`, { method: "PATCH", id: ids.status, body: { name: `${TAG} чужой` } })).status).toBe(404);
+    // свой статус — рабочий: в «Выполнено» / «На проверке» задачу переводят только действия трекера
+    expect((await call(directorB, statusOne.PATCH, `/api/statuses/${ids.status}`, { method: "PATCH", id: ids.status, body: { trackerColumn: "DONE" } })).status).toBe(400);
+    expect((await call(directorB, statusOne.PATCH, `/api/statuses/${ids.status}`, { method: "PATCH", id: ids.status, body: { trackerColumn: "TODO" } })).status).toBe(200);
+  });
+
+  it("свой статус ставится только в задачах своей дирекции; занятый статус не удаляется", async () => {
+    const mine = await call(headB, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} со своим статусом`, statusId: ids.status } });
+    expect(mine.status).toBe(201);
+    created.items.push(mine.data.row.id);
+    expect(mine.data.row.statusName).toBe(`${TAG} На согласовании у верфи`);
+    const alien = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} с чужим статусом`, statusId: ids.status } });
+    expect(alien.status).toBe(400);
+    expect((await call(directorB, statusOne.DELETE, `/api/statuses/${ids.status}`, { method: "DELETE", id: ids.status })).status).toBe(409);
+    // трекер дирекции знает колонку своего статуса, чужой трекер статуса не получает
+    const trB = (await call(directorB, tracker.GET, "/api/tracker")).data.statuses as Array<{ id: string; trackerColumn: string }>;
+    expect(trB.find((s) => s.id === ids.status)?.trackerColumn).toBe("TODO");
+    const trA = (await call(director, tracker.GET, "/api/tracker")).data.statuses as Array<{ id: string }>;
+    expect(trA.some((s) => s.id === ids.status)).toBe(false);
+  });
+
+  it("своё значение «Внимание»: только у своей дирекции; чужое в задачу не подставить", async () => {
+    const made = await call(directorB, attrRoute.POST, "/api/attractiveness", { method: "POST", body: { name: `${TAG} Стратегическое` } });
+    expect(made.status).toBe(201);
+    ids.attr = made.data.attractiveness.id;
+    const list = async (a: Actor) => ((await call(a, attrRoute.GET, "/api/attractiveness")).data.attractiveness as Array<{ id: string }>).map((x) => x.id);
+    expect(await list(headB)).toContain(ids.attr);
+    expect(await list(head)).not.toContain(ids.attr);
+    const alien = await call(head, items.POST, "/api/items", { method: "POST", body: { title: `${TAG} с чужим вниманием`, attractivenessId: ids.attr } });
+    expect(alien.status).toBe(400);
+    expect((await call(director, attrOne.DELETE, `/api/attractiveness/${ids.attr}`, { method: "DELETE", id: ids.attr })).status).toBe(404);
+    expect((await call(directorB, attrOne.PATCH, `/api/attractiveness/${ids.attr}`, { method: "PATCH", id: ids.attr, body: { name: `${TAG} Ключевое` } })).status).toBe(200);
+  });
+
+  it("названия разделов («Сегмент» → «Проект») — у каждой дирекции свои; руководитель не меняет", async () => {
+    const put = (a: Actor, body: unknown) => call(a, termsRoute.PUT, "/api/directorates/terms", { method: "PUT", body });
+    const terms = async (a: Actor) => (await call(a, bootstrap.GET, "/api/bootstrap")).data.terms;
+    expect(await terms(headB)).toEqual({ one: "Сегмент", many: "Сегменты" });
+    expect((await put(headB, { one: "Проект", many: "Проекты" })).status).toBe(403);
+    expect((await put(directorB, { one: "  Проект ", many: "Проекты" })).status).toBe(200);
+    expect(await terms(headB)).toEqual({ one: "Проект", many: "Проекты" });
+    expect(await terms(head)).toEqual({ one: "Сегмент", many: "Сегменты" });
+    // пустое поле — название по умолчанию; мусор — 400
+    expect((await put(directorB, { one: "", many: "Суда" })).data.terms).toEqual({ one: "Сегмент", many: "Суда" });
+    expect((await put(directorB, { one: 5 })).status).toBe(400);
   });
 });
 

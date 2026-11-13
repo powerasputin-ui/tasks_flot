@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { useTerms } from "@/lib/use-terms";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -320,6 +321,7 @@ export function ItemPanel({
     }
   };
 
+  const terms = useTerms(); // «Сегмент» у дирекции может называться иначе
   const disabled = !canEdit || (base?.archived ?? false) || reviewLocked;
   const editable = canEdit && !(base?.archived ?? false) && !previewMode;
   // «Обсудить»: чат по задаче (директор и админ; руководитель — по своей); окно чата открывает событие chat:open
@@ -462,7 +464,7 @@ export function ItemPanel({
 
           <Section title="Классификация">
             <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-              <Field label="Сегмент">
+              <Field label={terms.one}>
                 <Sel value={form.segmentId} onChange={(v) => set("segmentId", v)} options={refs.segments} disabled={disabled} />
               </Field>
               <Field label={L("track")}>

@@ -14,6 +14,8 @@ export type Bootstrap = {
   tableColumns: unknown;
   /** Какие фильтры держать в ряду над таблицей — личный выбор (lib/table-filters.ts). */
   tableFilters?: string[];
+  /** Как дирекция называет разделы таблицы (lib/terms.ts); у ЗГД — null. */
+  terms?: { one: string; many: string } | null;
   /** Дирекция, в которой человек работает (у ЗГД нет). */
   directorate?: { id: string; name: string } | null;
   /** Только админу: дирекции для переключателя. */

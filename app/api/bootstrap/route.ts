@@ -7,6 +7,8 @@ import { withApiErrors } from "@/lib/api-guard";
 import { canViewItems } from "@/lib/permissions";
 import { TRACKER_SETTING } from "@/lib/tracker";
 import { normalizeShownFilters, tableFiltersKey } from "@/lib/table-filters";
+import { visibleTo } from "@/lib/reference-edit";
+import { normalizeTerms, termsKey } from "@/lib/terms";
 
 /**
  * Всё, что нужно экрану сразу при открытии: текущий пользователь, справочники, свои колонки и общий вид таблицы.
@@ -20,21 +22,24 @@ async function GETHandler() {
   if (actor.role === "EXECUTIVE") {
     const user = await prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true } });
     const trackerSetting = await prisma.appSetting.findUnique({ where: { key: TRACKER_SETTING } });
-    return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, tableFilters: [], directorate: null, directorates: [], viewAs, tracker: trackerSetting?.value !== false });
+    return NextResponse.json({ user, segments: [], tracks: [], statuses: [], attractiveness: [], users: [], columns: [], tableColumns: null, tableFilters: [], terms: null, directorate: null, directorates: [], viewAs, tracker: trackerSetting?.value !== false });
   }
   const directorateId = requireDirectorate(actor);
-  const [user, segments, tracks, statuses, attractiveness, users, columns, layout, trackerSetting, filters] = await Promise.all([
+  const [user, segments, tracks, statuses, attractiveness, users, columns, layout, trackerSetting, filters, terms] = await Promise.all([
     prisma.user.findUnique({ where: { id: actor.id }, select: { id: true, name: true, email: true, role: true, isActive: true, memoEditor: true, submits: true } }),
     prisma.segment.findMany({ where: { isActive: true, directorateId }, orderBy: { sortOrder: "asc" } }),
     prisma.track.findMany({ where: { isActive: true, directorateId }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, segmentId: true } }),
-    prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.attractiveness.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
+    // общие значения + свои значения этой дирекции
+    prisma.status.findMany({ where: { isActive: true, ...visibleTo(directorateId) }, orderBy: { sortOrder: "asc" } }),
+    prisma.attractiveness.findMany({ where: { isActive: true, ...visibleTo(directorateId) }, orderBy: { sortOrder: "asc" } }),
     prisma.user.findMany({ where: { isActive: true, directorateId }, select: { id: true, name: true, role: true, submits: true }, orderBy: { name: "asc" } }),
     prisma.customColumn.findMany({ where: { isActive: true, directorateId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
     prisma.appSetting.findUnique({ where: { key: `table.columns:${directorateId}` } }),
     prisma.appSetting.findUnique({ where: { key: TRACKER_SETTING } }),
     // какие фильтры человек держит в ряду над таблицей (личный выбор; в «Посмотреть как» — того, кого смотрят)
     prisma.appSetting.findUnique({ where: { key: tableFiltersKey(actor.id) } }),
+    // как дирекция называет разделы таблицы («Сегмент» → «Проект»)
+    prisma.appSetting.findUnique({ where: { key: termsKey(directorateId) } }),
   ]);
   const dirs = await listDirectorates();
   // список дирекций нужен только админу (переключатель); остальным — название своей
@@ -50,6 +55,7 @@ async function GETHandler() {
     columns,
     tableColumns: layout?.value ?? null,
     tableFilters: normalizeShownFilters(filters?.value),
+    terms: normalizeTerms(terms?.value),
     directorate: dirs.find((d) => d.id === directorateId) ?? null,
     directorates: isAdmin && !viewAs ? dirs.filter((d) => d.isActive) : [],
     viewAs,

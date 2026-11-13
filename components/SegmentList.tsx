@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Layers } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { NO_SEGMENT, type SegmentCount, type TrackCount } from "@/lib/segment-counts";
+import { allLabel, noneLabel } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 
 /** Какие сегменты раскрыты в сайдбаре — помним в этом браузере. */
 const OPEN_KEY = "operativka.segmentsOpen.v1";
@@ -93,6 +95,8 @@ export function SegmentList({
   onToggleTrack: (key: string) => void;
 }) {
   const colors = segmentColors(segments);
+  // «Сегменты» у дирекции могут называться иначе («Проекты») — Настройки → Сегменты
+  const terms = useTerms();
   const [open, toggleOpen] = useOpenSegments();
   const [collapsed, toggleCollapsed] = usePanelCollapsed();
   // правая кнопка по карточке сегмента — меню «Раскрыть сегмент» / «Свернуть сегмент»
@@ -116,7 +120,7 @@ export function SegmentList({
 
   const items: Array<{ id: string; name: string; count: SegmentCount }> = [
     ...segments.map((s) => ({ id: s.id, name: s.name, count: counts.get(s.id) ?? { total: 0, oper: 0 } })),
-    ...(noSegment ? [{ id: NO_SEGMENT, name: "Без сегмента", count: noSegment }] : []),
+    ...(noSegment ? [{ id: NO_SEGMENT, name: noneLabel(terms), count: noSegment }] : []),
   ];
   const allActive = selected.length === 0 && trackPicks.length === 0;
   const picked = selected.length + trackPicks.length;
@@ -124,13 +128,13 @@ export function SegmentList({
   // свёрнута — узкая полоса: развернуть, название и сколько выбрано (отбор продолжает действовать)
   if (collapsed)
     return (
-      <aside aria-label="Сегменты (свёрнуто)" className="hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-outline-variant bg-surface-low py-3 lg:flex">
-        <button onClick={toggleCollapsed} aria-label="Развернуть панель сегментов" title="Развернуть панель сегментов" className="flex h-7 w-7 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface">
+      <aside aria-label={`${terms.many} (свёрнуто)`} className="hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-outline-variant bg-surface-low py-3 lg:flex">
+        <button onClick={toggleCollapsed} aria-label="Развернуть панель" title={`Развернуть панель «${terms.many}»`} className="flex h-7 w-7 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface">
           <ChevronsRight size={16} />
         </button>
         {picked > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-white" title={`Выбрано: ${picked}`}>{picked}</span>}
         <button onClick={toggleCollapsed} className="text-[12px] font-bold text-on-surface-variant [writing-mode:vertical-rl] hover:text-on-surface">
-          Сегменты
+          {terms.many}
         </button>
       </aside>
     );
@@ -140,7 +144,7 @@ export function SegmentList({
       <div className="flex items-center justify-between gap-2 border-b border-outline-variant bg-surface px-4 py-3">
         <div className="flex items-center gap-2">
           <Layers size={15} className="text-outline" />
-          <span className="label-caps">Сегменты</span>
+          <span className="label-caps">{terms.many}</span>
         </div>
         <div className="flex items-center gap-2">
           {picked > 0 && (
@@ -148,7 +152,7 @@ export function SegmentList({
               Сбросить ({picked})
             </button>
           )}
-          <button onClick={toggleCollapsed} aria-label="Свернуть панель сегментов" title="Свернуть панель — больше места таблице" className="flex h-6 w-6 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface">
+          <button onClick={toggleCollapsed} aria-label="Свернуть панель" title="Свернуть панель — больше места таблице" className="flex h-6 w-6 items-center justify-center rounded-md text-outline hover:bg-surface-high hover:text-on-surface">
             <ChevronsLeft size={15} />
           </button>
         </div>
@@ -167,7 +171,7 @@ export function SegmentList({
           }}
         >
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-[13px] font-bold text-on-surface">Все сегменты</h3>
+            <h3 className="text-[13px] font-bold text-on-surface">{allLabel(terms)}</h3>
             <CountBadge color="#64748b" value={total} />
           </div>
           <p className="mt-1 text-[11px] text-on-surface-variant">{totalOper > 0 ? `${totalOper} отправлено директору` : "нет отправленных"}</p>
@@ -293,11 +297,12 @@ export function SegmentSelect({
   trackPicks: string[];
   onToggleTrack: (key: string) => void;
 }) {
-  const options = [...segments.map((s) => ({ id: s.id, name: s.name })), ...(counts.get(NO_SEGMENT) ? [{ id: NO_SEGMENT, name: "Без сегмента" }] : [])];
+  const terms = useTerms();
+  const options = [...segments.map((s) => ({ id: s.id, name: s.name })), ...(counts.get(NO_SEGMENT) ? [{ id: NO_SEGMENT, name: noneLabel(terms) }] : [])];
   const label =
     selected.length === 0 && trackPicks.length === 0
-      ? "Все сегменты"
-      : [selected.length ? `Сегментов: ${selected.length}` : null, trackPicks.length ? `треков: ${trackPicks.length}` : null].filter(Boolean).join(", ");
+      ? allLabel(terms)
+      : [selected.length ? `${terms.many}: ${selected.length}` : null, trackPicks.length ? `треков: ${trackPicks.length}` : null].filter(Boolean).join(", ");
 
   return (
     <div className="lg:hidden">
@@ -314,7 +319,7 @@ export function SegmentSelect({
         {() => (
           <div>
             <button onClick={onClear} className={`flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] hover:bg-primary-soft ${selected.length === 0 && trackPicks.length === 0 ? "bg-primary-soft font-semibold text-primary" : ""}`}>
-              Все сегменты
+              {allLabel(terms)}
             </button>
             {options.map((o) => {
               const active = selected.includes(o.id);

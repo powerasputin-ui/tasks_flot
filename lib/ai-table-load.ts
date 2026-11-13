@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { visibleTo } from "@/lib/reference-edit";
 import { loadAuditWindow } from "@/lib/audit-window";
 import { canViewItems, type Actor } from "@/lib/permissions";
 import { readFiles } from "@/lib/item-files";
@@ -26,8 +27,8 @@ export async function loadTableFacts(actor: Actor, directorateId?: string | null
     }),
     prisma.segment.findMany({ where: { directorateId: dir }, select: { name: true } }),
     prisma.track.findMany({ where: { directorateId: dir }, select: { name: true } }),
-    prisma.status.findMany({ select: { id: true, name: true, trackerColumn: true } }),
-    prisma.attractiveness.findMany({ select: { id: true, name: true } }),
+    prisma.status.findMany({ where: visibleTo(dir), select: { id: true, name: true, trackerColumn: true } }),
+    prisma.attractiveness.findMany({ where: visibleTo(dir), select: { id: true, name: true } }),
     prisma.user.findMany({ where: { directorateId: dir }, select: { id: true, name: true } }),
   ]);
   const items: FactItem[] = rows.map((r) => ({

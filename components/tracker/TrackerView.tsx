@@ -22,6 +22,8 @@ import { useIsMobile } from "@/lib/use-mobile";
 import { SIGNAL_LABEL, type SignalKind } from "@/lib/ai-table";
 import { BOARD_COLUMNS, closedOf, columnOf, deadlineChip, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, mskDay, pickTop, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
+import { noneLabel } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { TrackerBoard } from "@/components/tracker/TrackerBoard";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
 import { Operativshchik } from "@/components/Operativshchik";
@@ -112,6 +114,7 @@ export function TrackerView() {
   const kind = filters.kind as SignalKind | null;
   const scopeRaw = filters.scope as "all" | "control" | "orders" | "mine" | "waiting";
   const [ordering, setOrdering] = useState(false);
+  const terms = useTerms(); // «Сегмент» у дирекции может называться иначе (у ЗГД — общее слово: дирекций много)
   // телефон: выпадающие фильтры свёрнуты в одну кнопку «Фильтры» — иначе они занимают пол-экрана до первой карточки
   const [moreFilters, setMoreFilters] = useState(false);
   const extraFilters = [filters.dir, filters.col, kind || slipOnly, segmentIds.length, ownerIds.length].filter(Boolean).length;
@@ -509,7 +512,7 @@ export function TrackerView() {
           }}
           width={280}
         />
-        <FilterChip label="Сегмент" value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: "Без сегмента" }]} onChange={(v) => patch({ seg: v })} />
+        <FilterChip label={sent ? "Сегмент" : terms.one} value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: sent ? "Без сегмента" : noneLabel(terms) }]} onChange={(v) => patch({ seg: v })} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={(v) => patch({ owner: v })} />
         {filtered && (
           <button onClick={resetFilters} className="btn-ghost h-8 text-[12px]" title="Снять все фильтры и поиск">

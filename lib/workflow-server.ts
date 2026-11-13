@@ -195,10 +195,11 @@ export async function performTransition(actor: Actor, id: string, action: Workfl
   if (actor.role === "HEAD" && item.operFlag && (await prisma.cycle.findFirst({ where: { directorateId: item.directorateId ?? "-", status: "IN_REVIEW" }, select: { id: true } })))
     return { ok: false, status: 409, error: "LOCKED", message: "Идёт сборка справки директором: поданные позиции сейчас не меняются. Дождитесь отправки справки или возврата позиции директором." };
   const me = { id: actor.id, name: d.users.get(actor.id)?.name ?? "—" };
-  const statuses = [...d.statuses].map(([sid, s]) => ({ id: sid, name: s.name, trackerColumn: s.trackerColumn }));
+  // действия трекера переводят задачу в общие статусы (свои статусы дирекции — только ручные рабочие)
+  const statuses = [...d.statuses].filter(([, s]) => s.directorateId === null).map(([sid, s]) => ({ id: sid, name: s.name, trackerColumn: s.trackerColumn }));
   const target = TARGET_COLUMN[action];
   // «Принять» / «Вернуть» / «Отменить» — в первый статус колонки по порядку (Настройки → Статусы), не «На стопе»
-  const ordered = await prisma.status.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, trackerColumn: true } });
+  const ordered = await prisma.status.findMany({ where: { isActive: true, directorateId: null }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, trackerColumn: true } });
   const pool = ordered.length ? ordered : statuses;
   const working = pool.filter((s) => s.name !== STOP_STATUS);
   let statusId = target ? statusForColumn(target, working) : undefined;

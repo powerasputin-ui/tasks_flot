@@ -7,7 +7,29 @@ import { z } from "zod";
  * (сначала значение меняют в позициях). Переименование видно сразу во всех позициях.
  */
 
+import { canManageDirectory, canManageSegments } from "@/lib/permissions";
+import type { UserRole } from "@prisma/client";
+
 export { PROTECTED_STATUSES } from "@/lib/statuses";
+
+/**
+ * Статусы и шкала «Внимание»: общие значения (directorateId пуст) видны всем дирекциям, их ведёт админ;
+ * свои значения дирекция добавляет сама (директор, админ в выбранной дирекции) — и видит их только она.
+ */
+export const visibleTo = (directorateId: string | null | undefined) => (directorateId ? { OR: [{ directorateId: null }, { directorateId }] } : { directorateId: null });
+
+/** Можно ли править значение: общее — админ; своё — тот, кто ведёт справочники дирекции, и только в своей дирекции. */
+export function canEditReference(actor: { role: UserRole; directorateId?: string | null }, row: { directorateId: string | null }): boolean {
+  if (row.directorateId === null) return canManageDirectory(actor.role);
+  return canManageSegments(actor.role) && row.directorateId === (actor.directorateId ?? null);
+}
+
+/** Куда добавить новое значение: директор — всегда в свою дирекцию; админ — в общие или (own) в выбранную дирекцию. null — нельзя. */
+export function newReferenceScope(actor: { role: UserRole; directorateId?: string | null }, own: boolean): { directorateId: string | null } | null {
+  if (canManageDirectory(actor.role) && !own) return { directorateId: null };
+  if (canManageSegments(actor.role) && actor.directorateId) return { directorateId: actor.directorateId };
+  return null;
+}
 
 export const renameSchema = z.object({ name: z.string().trim().min(1, "Название не может быть пустым").max(80, "Название не длиннее 80 символов") });
 

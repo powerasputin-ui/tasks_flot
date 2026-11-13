@@ -16,6 +16,8 @@ import { WeekSelect } from "@/components/WeekSelect";
 import { isOverdueRow } from "@/lib/overdue";
 import { ChoiceChip, DateRangeChip, FilterChip, FilterPicker } from "@/components/FilterChips";
 import { normalizeShownFilters, TABLE_FILTERS, type TableFilterKey } from "@/lib/table-filters";
+import { allLabel, noneLabel } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
 import { ItemPanel, type ItemPrefill, type ItemRow, type Refs } from "@/components/ItemPanel";
@@ -438,14 +440,15 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const colLabel = (k: keyof typeof DEFAULT_LABEL) => columns.find((c) => c.key === k)?.label?.trim() || DEFAULT_LABEL[k];
   const visibleRows = useMemo(() => filterBySegmentsAndTracks(rows, segments, trackPicks), [rows, segments, trackPicks]);
   const colors = useMemo(() => segmentColors(segmentRefs), [segmentRefs]);
-  const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : segmentRefs.find((s) => s.id === id)?.name ?? "Сегмент");
+  const terms = useTerms();
+  const segmentName = (id: string) => (id === NO_SEGMENT ? noneLabel(terms) : segmentRefs.find((s) => s.id === id)?.name ?? terms.one);
   const pickName = (key: string) => {
     const seg = key.slice(0, key.indexOf(":"));
     const t = trackCounts.get(seg)?.find((x) => x.key === key);
     return `${segmentName(seg)} · ${t?.name ?? "трек"}`;
   };
   const sideNames = [...segments.filter((s) => !trackPicks.some((k) => k.startsWith(`${s}:`))).map(segmentName), ...trackPicks.map(pickName)];
-  const selectedName = sideNames.length === 0 ? "Все сегменты" : sideNames.length <= 2 ? sideNames.join(" · ") : `Выбрано: ${sideNames.length}`;
+  const selectedName = sideNames.length === 0 ? allLabel(terms) : sideNames.length <= 2 ? sideNames.join(" · ") : `Выбрано: ${sideNames.length}`;
   // При нескольких сегментах (или «все») строки группируются по сегментам — так их удобно сравнивать.
   // Большая таблица показывается порциями; правка строки порцию не сбрасывает, смена фильтра/поиска/сортировки — сбрасывает.
   const chunk = useChunk(visibleRows.length, [trackIds, statusIds, attractivenessIds, ownerIds, operFlags, q, deadlineFrom, deadlineTo, archive, sortBy, sortDir, segments, trackPicks]);
@@ -1064,7 +1067,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
       )}
 
       {history && (
-        <Panel title="История изменений" subtitle={segments.length === 0 ? "Все сегменты" : selectedName} width={480} onClose={() => setHistory(false)}>
+        <Panel title="История изменений" subtitle={segments.length === 0 ? allLabel(terms) : selectedName} width={480} onClose={() => setHistory(false)}>
           <RecentChanges
             segments={segments}
             refreshKey={feedTick + refetchTick}

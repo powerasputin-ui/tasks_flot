@@ -5,11 +5,11 @@ import { clearBootstrap, loadBootstrap } from "@/lib/client-bootstrap";
 import { SYSTEM_STATUSES } from "@/lib/statuses";
 import { COLUMN_LABEL, type TrackerColumnKey } from "@/lib/tracker";
 
-type S = { id: string; name: string; trackerColumn: TrackerColumnKey | null };
+type S = { id: string; name: string; trackerColumn: TrackerColumnKey | null; directorateId?: string | null };
 const KEYS: TrackerColumnKey[] = ["TODO", "DOING", "REVIEW", "DONE", "HIDDEN"];
 
 /** Настройки → Статусы: в какой колонке «Трекера» стоит каждый статус, и показывать ли «Трекер» в меню. */
-export function TrackerSettings({ reloadKey }: { reloadKey: number }) {
+export function TrackerSettings({ reloadKey, isAdmin }: { reloadKey: number; /** Админ меняет колонки общих статусов и показ «Трекера»; директор — колонки своих статусов. */ isAdmin: boolean }) {
   const [statuses, setStatuses] = useState<S[]>([]);
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -45,14 +45,15 @@ export function TrackerSettings({ reloadKey }: { reloadKey: number }) {
       <p className="mt-1 text-[13px] text-on-surface-variant">
         Доска «Сделать → В работе → На проверке → Выполнено» строится по статусам таблицы. «Выполнено» ставит и снимает только директор или админ.
       </p>
-      {enabled !== null && (
+      {enabled !== null && isAdmin && (
         <label className="mt-3 flex items-center gap-2 text-[13px] text-on-surface">
           <input type="checkbox" checked={enabled} onChange={(e) => toggle(e.target.checked)} /> Показывать «Трекер» в меню
         </label>
       )}
       <ul className="surface mt-3 divide-y divide-outline-variant/60">
         {statuses.map((s) => {
-          const fixed = SYSTEM_STATUSES.includes(s.name);
+          const own = !!s.directorateId;
+          const fixed = own ? false : SYSTEM_STATUSES.includes(s.name) || !isAdmin;
           return (
             <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2 text-[13px]">
               <span className="text-on-surface">{s.name}</span>
@@ -60,11 +61,12 @@ export function TrackerSettings({ reloadKey }: { reloadKey: number }) {
                 className="select w-44"
                 value={s.trackerColumn ?? "TODO"}
                 disabled={fixed}
-                title={fixed ? "Системный статус: колонка закреплена" : undefined}
+                title={fixed ? (isAdmin ? "Системный статус: колонка закреплена" : "Общий статус: колонку меняет админ") : undefined}
                 onChange={(e) => setColumn(s, e.target.value as TrackerColumnKey)}
                 aria-label={`Колонка трекера для статуса ${s.name}`}
               >
-                {KEYS.map((k) => (
+                {/* свой статус дирекции — рабочий: проверку, приёмку и отмену ведут системные статусы */}
+                {(own ? KEYS.filter((k) => k === "TODO" || k === "DOING") : KEYS).map((k) => (
                   <option key={k} value={k}>
                     {COLUMN_LABEL[k]}
                   </option>

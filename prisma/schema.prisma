@@ -64,23 +64,32 @@ model Segment {
   @@map("segments")
 }
 
+/// Шкала «Внимание»: общие значения (directorateId пуст — видны всем дирекциям, ведёт админ) и свои значения дирекции.
 model Attractiveness {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  color     String?
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String       @id @default(cuid())
+  name          String
+  directorateId String?
+  directorate   Directorate? @relation(fields: [directorateId], references: [id], onDelete: Cascade)
+  color         String?
+  sortOrder     Int          @default(0)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   items OperationalItem[]
 
+  @@unique([directorateId, name])
+  @@index([directorateId])
   @@map("attractiveness")
 }
 
+/// Статусы: общие (directorateId пуст — системные и стандартные, видны всем, ведёт админ) и свои статусы дирекции
+/// (только рабочие — колонки «Сделать» и «В работе»; проверку, приёмку и отмену ведут системные статусы трекера).
 model Status {
   id            String         @id @default(cuid())
-  name          String         @unique
+  name          String
+  directorateId String?
+  directorate   Directorate?   @relation(fields: [directorateId], references: [id], onDelete: Cascade)
   sortOrder     Int            @default(0)
   color         String?
   isActive      Boolean        @default(true)
@@ -91,6 +100,8 @@ model Status {
 
   items OperationalItem[]
 
+  @@unique([directorateId, name])
+  @@index([directorateId])
   @@map("statuses")
 }
 
@@ -378,6 +389,8 @@ model Directorate {
   tracks          Track[]
   cycles          Cycle[]
   customColumns   CustomColumn[]
+  statuses        Status[]
+  attractiveness  Attractiveness[]
   reportTemplates ReportTemplate[]
   memoSections    MemoSection[]
   memoVersions    MemoVersion[]

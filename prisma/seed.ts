@@ -60,22 +60,19 @@ async function main() {
   }
 
   for (const [i, a] of ATTRACTIVENESS.entries()) {
-    await prisma.attractiveness.upsert({
-      where: { name: a.name },
-      update: { color: a.color, sortOrder: i },
-      create: { name: a.name, color: a.color, sortOrder: i },
-    });
+    // общие значения (без дирекции): название уникально среди общих — в базе NULL-дирекции не сравниваются, ищем сами
+    const found = await prisma.attractiveness.findFirst({ where: { name: a.name, directorateId: null } });
+    if (found) await prisma.attractiveness.update({ where: { id: found.id }, data: { color: a.color, sortOrder: i } });
+    else await prisma.attractiveness.create({ data: { name: a.name, color: a.color, sortOrder: i } });
   }
 
   for (const [i, s] of STATUSES.entries()) {
-    await prisma.status.upsert({
-      where: { name: s.name },
-      update: { color: s.color },
-      create: { name: s.name, color: s.color, sortOrder: i, trackerColumn: s.column },
-    });
+    const found = await prisma.status.findFirst({ where: { name: s.name, directorateId: null } });
+    if (found) await prisma.status.update({ where: { id: found.id }, data: { color: s.color } });
+    else await prisma.status.create({ data: { name: s.name, color: s.color, sortOrder: i, trackerColumn: s.column } });
   }
 
-  for (const s of STATUSES) await prisma.status.updateMany({ where: { name: s.name, trackerColumn: null }, data: { trackerColumn: s.column } });
+  for (const s of STATUSES) await prisma.status.updateMany({ where: { name: s.name, directorateId: null, trackerColumn: null }, data: { trackerColumn: s.column } });
 
   console.log("Seed завершён: справочники Segment/Attractiveness/Status заполнены. Администратора создаёт npm run create-admin.");
 }
