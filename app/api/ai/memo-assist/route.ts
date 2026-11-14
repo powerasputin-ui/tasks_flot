@@ -82,7 +82,7 @@ async function POSTHandler(request: NextRequest) {
         outScale: b?.localDevice === "cpu" ? 0.75 : 1,
         // таблица (итоги, выборка по вопросу, карточки) — с правилом; из поиска — только найденное в справках
         hits: [
-          facts ? `${TABLE_RULE}\n${tableContext({ ...facts, question, memoItemIds, budget: Math.round(lb.contextChars * 0.45) }).text}` : "",
+          facts ? `${TABLE_RULE}\n${tableContext({ ...facts, question, memoItemIds, firstIds: foundItemIds(found), budget: Math.round(lb.contextChars * 0.45) }).text}` : "",
           found && (task === "search" || found.hits.length) && !(facts && hasConditions(parseTableQuestion(question, facts.dict))) ? hitsBlock(facts ? { ...found, hits: found.hits.filter((h) => h.kind === "memo") } : found, Math.round(lb.contextChars * 0.15), found.scope) : "",
         ].filter(Boolean).join("\n\n") || undefined,
         docs,
@@ -122,7 +122,7 @@ async function POSTHandler(request: NextRequest) {
     const make = async (c: Parameters<typeof aiBudget>[0] & Parameters<typeof streamText>[0]) => {
       used = c;
       const budget = aiBudget(c);
-      const table = facts ? tableContext({ ...facts, question, memoItemIds, budget: Math.round(budget.contextChars * 0.5) }).text : "";
+      const table = facts ? tableContext({ ...facts, question, memoItemIds, firstIds: foundItemIds(found), budget: Math.round(budget.contextChars * 0.5) }).text : "";
       const hits = memoFound && (task === "search" || memoFound.hits.length) ? hitsBlock(memoFound, Math.round(budget.contextChars * 0.15), memoFound.scope) : "";
       // документы и таблица — отдельно и целиком: при сжатии справки под окно их не должно отрезать
       const memoText = ctx.text.slice(0, Math.max(2000, budget.contextChars - hits.length - docsText.length - table.length));
@@ -147,6 +147,9 @@ async function searchFor(actor: Parameters<typeof aiSearch>[0], messages: ChatMe
   const found = task === "search" || task === "free" ? await aiSearch(actor, question, { draft: { title: state.title, doc: state.doc } }) : null;
   return { task, found };
 }
+
+/** Позиции таблицы, найденные поиском: из блока «НАЙДЕНО ПОИСКОМ» они убраны (таблица — отдельным блоком), поэтому их карточки ставим в таблице первыми. */
+const foundItemIds = (found: { hits: Array<{ kind: string; item?: { id: string } }> } | null) => (found ? found.hits.flatMap((h) => (h.kind === "item" && h.item ? [h.item.id] : [])) : []);
 
 /** Документы пунктов черновика (ссылки на общий диск у позиций-источников). */
 function memoDocs(state: { doc: Parameters<typeof memoAssistContext>[0]; sources: Array<{ id: string; title: string; files?: Array<{ id: string; name: string; path: string }> }> }): AiDoc[] {

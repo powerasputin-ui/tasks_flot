@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { as, expect, menu, noSideScroll, test, uiData } from "./fixtures";
 
 // Дымовые сценарии по ролям: открывается, нажимается, не ломает вёрстку. Каждый — на компьютере и телефоне (projects).
@@ -116,8 +117,68 @@ test.describe("руководитель", () => {
   });
 });
 
+/** Раздел настроек: на компьютере — пункт слева, на телефоне — выпадающий список. */
+async function openSettings(page: Page, label: string) {
+  if ((page.viewportSize()?.width ?? 1300) < 768) await page.locator("select").first().selectOption({ label });
+  else await page.locator("aside nav").getByRole("button", { name: new RegExp(`^${label}`) }).click();
+}
+
 test.describe("директор", () => {
   test.use(as("director"));
+
+  test("настройки: директор добавляет свой статус — он виден только его дирекции и есть в карточке; общий статус под замком", async ({ page }, info) => {
+    const d = uiData();
+    const name = `Ждём верфь ${d.tag} ${info.project.name}`;
+    await page.goto("/settings");
+    await openSettings(page, "Статусы");
+    await page.getByPlaceholder("Новое значение").fill(name);
+    await page.getByRole("button", { name: "Добавить" }).click();
+    const row = page.locator("li", { hasText: name }).first();
+    await expect(row).toContainText("только эта дирекция");
+    await expect(row.getByRole("button", { name: "Удалить" })).toBeVisible();
+    // общий статус (на нём держатся приёмка и отмена) директор не переименовывает
+    await expect(page.locator("li", { hasText: "В работе" }).first().getByRole("button", { name: "Переименовать" })).toHaveCount(0);
+    // свой статус можно поставить в задаче дирекции
+    await page.goto(`/tracker?item=${d.items.soon.id}`);
+    await expect(page.locator("aside[data-side-panel] select option", { hasText: name })).toHaveCount(1);
+    await noSideScroll(page);
+  });
+
+  test("настройки: «Сегменты» называются по-своему — название меняется в таблице и возвращается обратно", async ({ page }) => {
+    // начинаем с названий по умолчанию, даже если прошлый прогон оборвался на середине
+    await page.request.put("/api/directorates/terms", { data: { one: "", many: "" } });
+    await page.goto("/settings");
+    await openSettings(page, "Сегменты");
+    await expect(page.getByLabel("Название в единственном числе")).toHaveValue("Сегмент");
+    await page.getByLabel("Название в единственном числе").fill("Проект");
+    await page.getByLabel("Название во множественном числе").fill("Проекты");
+    await page.getByRole("button", { name: "Сохранить названия" }).click();
+    await expect(page.getByText("Названия сохранены.")).toBeVisible();
+    await page.goto("/table");
+    await expect(page.locator("h2", { hasText: "Проекты: все" })).toBeVisible();
+    // вернуть как было: следующий прогон начинает с «Сегментов»
+    await page.goto("/settings");
+    await openSettings(page, "Проекты");
+    await page.getByRole("button", { name: "Вернуть «Сегменты»" }).click();
+    await expect(page.getByText("Названия сохранены.")).toBeVisible();
+    await page.goto("/table");
+    await expect(page.locator("h2", { hasText: "Все сегменты" })).toBeVisible();
+  });
+
+  test("шапка на ноутбуке: все пункты меню на виду — поиск ужимается, «Трекер» не уезжает за край", async ({ page }) => {
+    test.skip((page.viewportSize()?.width ?? 0) < 768, "на телефоне меню — нижняя панель");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (const url of ["/table", "/tracker"]) {
+      await page.goto(url);
+      await expect(page.locator("header nav").getByRole("link", { name: "Трекер" })).toBeVisible();
+      const cut = await page.evaluate(() => {
+        const nav = document.querySelector("header nav")!;
+        const right = nav.getBoundingClientRect().right;
+        return [...nav.querySelectorAll("a")].filter((a) => a.getBoundingClientRect().right > right + 1).map((a) => a.textContent);
+      });
+      expect(cut, `пункты меню за краем на ${url}`).toEqual([]);
+    }
+  });
 
   test("трекер: три вида, нет кнопки «Сегодня», список «Колонка» фильтрует доску", async ({ page }) => {
     await page.goto("/tracker?view=list");

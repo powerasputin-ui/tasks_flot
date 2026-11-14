@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type DragEvent } from "react";
+import { noneLabel } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { ChevronsLeft, ChevronsRight, Paperclip, Plus } from "lucide-react";
 import { StatusPill } from "@/components/ui/Badge";
 import { PersonAvatar } from "@/components/ui/Person";
@@ -228,6 +230,7 @@ function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, de
   onOpen: (r: TRow) => void;
   onMenu?: Props["onMenu"];
 }) {
+  const terms = useTerms();
   const files = r.files?.length ?? 0;
   return (
     <article
@@ -244,7 +247,7 @@ function Card({ r, col, ghost, colors, hot, summary, mainStatus, unconfirmed, de
       style={{ borderLeftColor: colors.get(r.segmentId ?? "none") ?? "#94a3b8" }}
     >
       <MenuButton row={r} onMenu={onMenu} className="absolute right-1.5 top-1.5" />
-      <div className="truncate pr-7 text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || "Без сегмента"}</div>
+      <div className="truncate pr-7 text-[11px] text-outline">{[r.segmentName, r.trackName].filter(Boolean).join(" · ") || noneLabel(terms)}</div>
       <div className={`font-medium text-on-surface [overflow-wrap:anywhere] mt-0.5 line-clamp-3 text-[13px]`}>{r.name}</div>
       {r.statusName && r.statusId !== mainStatus.get(col) && (
         <div className="mt-1.5">

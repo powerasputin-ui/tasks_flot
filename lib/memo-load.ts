@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { withTermLabels } from "@/lib/terms";
+import { loadTerms } from "@/lib/terms-server";
 import { readFiles, type ItemFile } from "@/lib/item-files";
 import { getDicts } from "@/lib/dictionaries";
 import { directorateName } from "@/lib/directorates";
@@ -32,18 +34,20 @@ export function canEditMemo(actor: Actor, cycle: { directorateId: string | null 
 /** Столбцы таблицы, которые можно включить в текст пункта: те, что сейчас есть в таблице (убранные и скрытые не предлагаются), в порядке таблицы. */
 const COLUMN_TO_FIELD: Record<string, string> = { track: "track", name: "task", comment: "comment", owner: "owner", deadline: "deadline", status: "status", cost: "cost", attractiveness: "attractiveness" };
 export async function loadFieldOptions(directorateId: string): Promise<Array<{ key: string; label: string }>> {
-  const [setting, custom] = await Promise.all([
+  const [setting, custom, terms] = await Promise.all([
     prisma.appSetting.findUnique({ where: { key: `table.columns:${directorateId}` } }),
     prisma.customColumn.findMany({ where: { directorateId, isActive: true }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
+    loadTerms(directorateId),
   ]);
   const saved = Array.isArray(setting?.value) ? (setting!.value as unknown as ColumnConfig[]) : DEFAULT_COLUMNS;
   const customCols: CustomCol[] = custom.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options }));
-  const cols = withCustomColumns(normalizeColumns(saved.map((c) => ({ ...c }))), customCols).filter((c) => c.visible && !c.removed);
+  // «Сегмент» и «Трек» — как их назвала дирекция (Настройки → Сегменты / Треки)
+  const cols = withTermLabels(withCustomColumns(normalizeColumns(saved.map((c) => ({ ...c }))), customCols), terms).filter((c) => c.visible && !c.removed);
   const options = cols
     .map((c) => ({ key: c.key.startsWith("custom:") ? c.key : COLUMN_TO_FIELD[c.key] ?? "", label: c.label }))
     .filter((o) => o.key);
   // сегмента нет в столбцах таблицы (он слева списком), но в тексте пункта он нужен как в образце
-  return [{ key: "segment", label: "Сегмент" }, ...options];
+  return [{ key: "segment", label: terms.one }, ...options];
 }
 
 export async function loadMemoConfig(directorateId: string): Promise<MemoConfig> {

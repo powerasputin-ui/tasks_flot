@@ -1,6 +1,8 @@
 "use client";
 
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { allLabel, noneLabel } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { AlertTriangle, FileDown, Search } from "lucide-react";
 import { Highlight } from "@/components/ui/Highlight";
 import { HoverText } from "@/components/ui/HoverText";
@@ -47,6 +49,7 @@ type View = ArchiveView | "changed";
 
 /** Сама таблица снимка: фильтры, поиск, порционный показ; при `diff` — ещё и «что изменилось с прошлой недели». */
 export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, prevNumber, lead, hideMemo = false }: { table: Table; diff?: TableDiff | null; focusItemId?: string | null; exportBase?: string; prevNumber?: number | null; lead?: ReactNode; hideMemo?: boolean }) {
+  const terms = useTerms(); // «Сегмент» у дирекции может называться иначе (у ЗГД — общее слово)
   const [view, setView] = useState<View>("all");
   const [q, setQ] = useState("");
   const [segment, setSegment] = useState<string>("");
@@ -82,7 +85,7 @@ export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, 
   const total = table.rows.length;
   const submitted = table.rows.filter((r) => r.submitted).length;
   const inMemo = table.rows.filter((r) => r.inMemo).length;
-  const segmentName = (id: string) => (id === NO_SEGMENT ? "Без сегмента" : table.segments.find((s) => s.id === id)?.name ?? "Сегмент");
+  const segmentName = (id: string) => (id === NO_SEGMENT ? noneLabel(terms) : table.segments.find((s) => s.id === id)?.name ?? terms.one);
   const segmentsInTable = [...new Set(table.rows.map((r) => r.segmentId ?? NO_SEGMENT))];
   const exportHref = (format: string) => {
     const p = new URLSearchParams({ format, view: view === "changed" ? "all" : view });
@@ -130,8 +133,8 @@ export function ArchiveTableView({ table, diff = null, focusItemId, exportBase, 
           ))}
         </div>
         {segmentsInTable.length > 1 && (
-          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="input h-9" aria-label="Сегмент">
-            <option value="">Все сегменты</option>
+          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="input h-9" aria-label={terms.one}>
+            <option value="">{allLabel(terms)}</option>
             {segmentsInTable.map((id) => (
               <option key={id} value={id}>
                 {segmentName(id)}

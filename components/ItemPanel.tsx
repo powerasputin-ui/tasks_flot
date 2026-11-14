@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { trackColumnLabel } from "@/lib/terms";
 import { useTerms } from "@/lib/use-terms";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -168,7 +169,8 @@ export function ItemPanel({
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const pathname = usePathname() ?? "";
-  const L = (key: string) => labels[key] || DEFAULT_LABEL[key as keyof typeof DEFAULT_LABEL] || key;
+  const terms = useTerms(); // «Сегмент» и «Трек» у дирекции могут называться иначе
+  const L = (key: string) => (key === "track" ? trackColumnLabel(labels.track, terms) : labels[key] || DEFAULT_LABEL[key as keyof typeof DEFAULT_LABEL] || key);
   const [addingTrack, setAddingTrack] = useState(false);
   const [tab, setTab] = useState<"details" | "history">(row ? initialTab : "details");
   const [history, setHistory] = useState<Event[] | null>(null);
@@ -321,7 +323,6 @@ export function ItemPanel({
     }
   };
 
-  const terms = useTerms(); // «Сегмент» у дирекции может называться иначе
   const disabled = !canEdit || (base?.archived ?? false) || reviewLocked;
   const editable = canEdit && !(base?.archived ?? false) && !previewMode;
   // «Обсудить»: чат по задаче (директор и админ; руководитель — по своей); окно чата открывает событие chat:open
@@ -637,7 +638,7 @@ export function ItemPanel({
                     e.fieldName && isTrackerEvent(e.fieldName) ? (
                       describeAuditAction(e.action, e.fieldName)
                     ) : e.fieldName ? (
-                      <>изменил(а) поле «{(HIST_KEY[e.fieldName] ? labels[HIST_KEY[e.fieldName]] : undefined) ?? FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»</>
+                      <>изменил(а) поле «{(e.fieldName === "segmentId" ? terms.one : e.fieldName === "trackId" ? L("track") : HIST_KEY[e.fieldName] ? labels[HIST_KEY[e.fieldName]] : undefined) ?? FIELD_LABEL[e.fieldName] ?? customColumns.find((c) => `custom:${c.id}` === e.fieldName)?.name ?? (e.fieldName.startsWith("custom:") ? "Доп. поле" : e.fieldName)}»</>
                     ) : e.action === "CREATE" ? (
                       "создал(а) позицию"
                     ) : e.action === "ARCHIVE" ? (

@@ -54,7 +54,9 @@ async function POSTHandler(request: NextRequest) {
     const facts = sentMode ? await loadSentFacts() : await loadTableFacts(actor);
     const memoItemIds = memos.flatMap((m) => m.doc.sections.flatMap((s) => s.bullets.flatMap((x) => x.itemIds)));
     const SENT_NOTE = "Таблица и трекер ниже — по снимкам ОТПРАВЛЕННЫХ справок (состояние на дату последней справки каждой дирекции, история — что менялось от справки к справке); рабочих черновиков дирекций здесь нет.\n";
-    const tableFor = (budget: number) => (facts ? `${sentMode ? SENT_NOTE : ""}${tableContext({ ...facts, question, memoItemIds, budget }).text}` : "");
+    // позиции таблицы, найденные поиском, из блока «НАЙДЕНО ПОИСКОМ» убраны (таблица — отдельным блоком): их карточки — первыми, чтобы окно не отрезало
+    const foundIds = found ? found.hits.flatMap((h) => (h.kind === "item" ? [h.item.id] : [])) : [];
+    const tableFor = (budget: number) => (facts ? `${sentMode ? SENT_NOTE : ""}${tableContext({ ...facts, question, memoItemIds, firstIds: foundIds, budget }).text}` : "");
     // ссылки-метки [Т…] у ЗГД ведут в его трекер (таблицы у него нет)
     const refsFor = () => (facts ? itemRefs({ ...facts, question, memoItemIds }).map((r) => (sentMode ? { ...r, h: "t" as const } : r)) : []);
     const memoHits = (f: NonNullable<typeof found>) => (facts ? { ...f, hits: f.hits.filter((h) => h.kind === "memo") } : f);

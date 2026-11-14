@@ -1,6 +1,8 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
+import { withoutTermLabels, withTermLabels } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Lock, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clearBootstrap } from "@/lib/client-bootstrap";
@@ -26,7 +28,9 @@ export function ColumnsSettings() {
   const [newType, setNewType] = useState<ColumnType>("TEXT");
   const [newOptions, setNewOptions] = useState("");
 
-  const columns = useMemo(() => withCustomColumns(saved, customCols), [saved, customCols]);
+  // колонка «Трек» без своей подписи называется так, как её назвала дирекция (Настройки → Треки)
+  const terms = useTerms();
+  const columns = useMemo(() => withTermLabels(withCustomColumns(saved, customCols), terms), [saved, customCols, terms]);
   const active = columns.filter((c) => !c.removed);
   const removed = columns.filter((c) => c.removed);
   const visibleTotal = active.filter((c) => c.visible).reduce((s, c) => s + c.width, 0) || 1;
@@ -78,7 +82,9 @@ export function ColumnsSettings() {
     },
     [send]
   );
-  const change = (next: ColumnConfig[]) => {
+  const change = (shown: ColumnConfig[]) => {
+    // название из терминов дирекции не сохраняем как свою подпись колонки
+    const next = withoutTermLabels(shown, terms);
     setSaved(next);
     persist(next);
   };

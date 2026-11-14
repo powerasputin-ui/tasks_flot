@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Layers } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { NO_SEGMENT, type SegmentCount, type TrackCount } from "@/lib/segment-counts";
-import { allLabel, noneLabel } from "@/lib/terms";
+import { allLabel, emptySegmentHint, expandLabel, noneLabel, pickedTracks, pickHint, segmentsCount, trackPickTitle, tracksCount } from "@/lib/terms";
 import { useTerms } from "@/lib/use-terms";
 
 /** Какие сегменты раскрыты в сайдбаре — помним в этом браузере. */
@@ -157,7 +157,7 @@ export function SegmentList({
           </button>
         </div>
       </div>
-      <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">Выберите несколько сегментов, чтобы сравнить их в одной таблице. Правая кнопка по сегменту — «Раскрыть сегмент»: его треки.</p>
+      <p className="border-b border-outline-variant/60 px-4 py-2 text-[11px] text-on-surface-variant">{pickHint(terms)}</p>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         <button
@@ -208,7 +208,7 @@ export function SegmentList({
                   </div>
                   <p className="mt-1 text-[11px] text-on-surface-variant">
                     {it.count.oper > 0 ? `${it.count.oper} отправлено директору` : "нет отправленных"}
-                    {picked > 0 && !isOpen && <span className="font-semibold" style={{ color }}> · выбрано треков: {picked}</span>}
+                    {picked > 0 && !isOpen && <span className="font-semibold" style={{ color }}> · {pickedTracks(terms, picked)}</span>}
                   </p>
                 </button>
               </div>
@@ -223,7 +223,7 @@ export function SegmentList({
                           aria-pressed={on}
                           className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${on ? "font-semibold" : "text-on-surface hover:bg-surface-high"}`}
                           style={on ? { background: `${color}1a`, color, boxShadow: `inset 0 0 0 1px ${color}80` } : undefined}
-                          title={on ? "Снять выбор трека" : "Показать в таблице только этот трек"}
+                          title={trackPickTitle(terms, on)}
                         >
                           <span className={`min-w-0 flex-1 truncate ${t.trackId === "none" ? "italic text-on-surface-variant" : ""}`}>{t.name}</span>
                           <span className="shrink-0 text-[11px] font-bold tabular-nums" style={{ color: on ? color : undefined }}>{t.total}</span>
@@ -249,7 +249,7 @@ export function SegmentList({
               onClick={(e) => e.stopPropagation()}
             >
               {list.length === 0 ? (
-                <p className="px-3.5 py-2 text-[12px] text-on-surface-variant">В сегменте пока нет позиций с треками.</p>
+                <p className="px-3.5 py-2 text-[12px] text-on-surface-variant">{emptySegmentHint(terms)}</p>
               ) : (
                 <button
                   onClick={() => {
@@ -259,7 +259,7 @@ export function SegmentList({
                   className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft"
                 >
                   {isOpen ? <ChevronsDownUp size={14} className="text-outline" /> : <ChevronsUpDown size={14} className="text-outline" />}
-                  {isOpen ? "Свернуть сегмент" : `Раскрыть сегмент (треков: ${list.length})`}
+                  {expandLabel(terms, isOpen, list.length)}
                 </button>
               )}
             </div>
@@ -302,7 +302,7 @@ export function SegmentSelect({
   const label =
     selected.length === 0 && trackPicks.length === 0
       ? allLabel(terms)
-      : [selected.length ? `${terms.many}: ${selected.length}` : null, trackPicks.length ? `треков: ${trackPicks.length}` : null].filter(Boolean).join(", ");
+      : [selected.length ? segmentsCount(terms, selected.length) : null, trackPicks.length ? tracksCount(terms, trackPicks.length) : null].filter(Boolean).join(", ");
 
   return (
     <div className="lg:hidden">

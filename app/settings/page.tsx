@@ -1,7 +1,7 @@
 "use client";
 
 import { fetchRetry } from "@/lib/fetch-retry";
-import { DEFAULT_TERMS, normalizeTerms, TERM_MAX, type Terms } from "@/lib/terms";
+import { DEFAULT_TERMS, isDefaultSegmentTerm, isDefaultTrackTerm, noneLabel, normalizeTerms, TERM_MAX, type Terms } from "@/lib/terms";
 import { askConfirm, askText } from "@/components/ui/Dialog";
 import { attractivenessText } from "@/lib/attractiveness";
 import { systemStatusHint } from "@/lib/statuses";
@@ -144,7 +144,7 @@ export default function SettingsPage() {
     { key: "memo", label: "Вид справки", icon: <FileText size={16} />, count: memoCount },
     { key: "columns", label: "Колонки таблицы", icon: <Columns3 size={16} />, count: columns.length },
     { key: "segments", label: terms.many, icon: <Layers size={16} />, count: segments.length },
-    { key: "tracks", label: "Треки", icon: <Route size={16} />, count: tracks.length },
+    { key: "tracks", label: terms.trackMany, icon: <Route size={16} />, count: tracks.length },
     { key: "statuses", label: "Статусы", icon: <ListChecks size={16} />, count: statuses.length },
     { key: "attractiveness", label: "Внимание", icon: <Star size={16} />, count: attractiveness.length },
     // ИИ-помощник по справкам: подключает админ (ключ API); ЗГД делает то же у себя на странице «Оперативка»
@@ -212,12 +212,25 @@ export default function SettingsPage() {
         )}
         {section === "memo" && <MemoStructureSection />}
         {section === "columns" && <ColumnsSettings />}
-        {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} />}
+        {section === "tracks" && <TracksSection tracks={tracks} segments={segments} act={act} terms={terms} />}
         {section === "segments" && (
           <RefSection
             title={terms.many}
-            beforeAdd={<TermsForm key={`${terms.one}|${terms.many}`} terms={terms} onSave={(t) => act(send("/api/directorates/terms", "PUT", t), "Названия сохранены.")} />}
-            hint="Левая колонка таблицы вашей дирекции — у каждой дирекции свой набор. Переименование видно сразу во всех позициях; удалить можно сегмент без позиций и треков."
+            beforeAdd={
+              <TermsForm
+                key={`${terms.one}|${terms.many}`}
+                one={terms.one}
+                many={terms.many}
+                defaults={{ one: DEFAULT_TERMS.one, many: DEFAULT_TERMS.many }}
+                example="Например «Проект / Проекты» или «Направление / Направления»."
+                onSave={(one, many) => act(send("/api/directorates/terms", "PUT", { one, many }), "Названия сохранены.")}
+              />
+            }
+            hint={
+              isDefaultSegmentTerm(terms) && isDefaultTrackTerm(terms)
+                ? "Левая колонка таблицы вашей дирекции — у каждой дирекции свой набор. Переименование видно сразу во всех позициях; удалить можно сегмент без позиций и треков."
+                : `Левая колонка таблицы вашей дирекции («${terms.many}») — у каждой дирекции свой набор. Переименование видно сразу во всех позициях; удалить можно значение, у которого нет позиций и привязанных к нему значений поля «${terms.trackOne}».`
+            }
             items={segments}
             onAdd={(name) => act(send("/api/segments", "POST", { name }), "Сегмент добавлен.")}
             onRename={(id, name) => act(send(`/api/segments/${id}`, "PATCH", { name }), "Сегмент переименован.")}
@@ -231,6 +244,7 @@ export default function SettingsPage() {
               hint="Значения колонки «Статус». Общие статусы одинаковы у всех дирекций (на них держатся проверка, приёмка и отмена задач); свои рабочие статусы дирекция добавляет сама — их видит только она. Удалить можно статус, который не стоит ни в одной позиции."
               items={statuses}
               beforeAdd={scopeSwitch}
+              scopeBadge
               onAdd={(name) => act(send("/api/statuses", "POST", { name, own: ownScope }), "Статус добавлен.")}
               onRename={(id, name) => act(send(`/api/statuses/${id}`, "PATCH", { name }), "Статус переименован.")}
               onDelete={(id) => act(send(`/api/statuses/${id}`, "DELETE"), "Статус удалён.")}
@@ -255,6 +269,7 @@ export default function SettingsPage() {
             items={attractiveness}
             display={attractivenessText}
             beforeAdd={scopeSwitch}
+            scopeBadge
             locked={commonLocked}
             onAdd={(name) => act(send("/api/attractiveness", "POST", { name, own: ownScope }), "Значение добавлено.")}
             onRename={(id, name) => act(send(`/api/attractiveness/${id}`, "PATCH", { name }), "Значение переименовано.")}
@@ -797,15 +812,15 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-/** «Как называть»: единственное и множественное число раздела таблицы — только для этой дирекции. */
-function TermsForm({ terms, onSave }: { terms: Terms; onSave: (t: Terms) => void }) {
-  const [one, setOne] = useState(terms.one);
-  const [many, setMany] = useState(terms.many);
-  const changed = one.trim() !== terms.one || many.trim() !== terms.many;
+/** «Как называть»: единственное и множественное число раздела таблицы (сегмента или трека) — только для этой дирекции. */
+function TermsForm({ one: savedOne, many: savedMany, defaults, example, onSave }: { one: string; many: string; defaults: { one: string; many: string }; example: string; onSave: (one: string, many: string) => void }) {
+  const [one, setOne] = useState(savedOne);
+  const [many, setMany] = useState(savedMany);
+  const changed = one.trim() !== savedOne || many.trim() !== savedMany;
   return (
     <div className="mb-4 max-w-xl rounded-lg border border-outline-variant bg-surface p-3">
       <p className="text-[13px] font-semibold text-on-surface">Как называть в вашей дирекции</p>
-      <p className="mt-0.5 text-[12px] text-on-surface-variant">Например «Проект / Проекты» или «Направление / Направления». Меняется в таблице, карточке и трекере — только у вашей дирекции.</p>
+      <p className="mt-0.5 text-[12px] text-on-surface-variant">{example} Меняется в таблице, карточке, фильтрах и трекере — только у вашей дирекции.</p>
       <div className="mt-2 flex flex-wrap items-end gap-2">
         <label className="min-w-36 flex-1 text-[12px] text-on-surface-variant">
           Один
@@ -815,12 +830,12 @@ function TermsForm({ terms, onSave }: { terms: Terms; onSave: (t: Terms) => void
           Много
           <input value={many} onChange={(e) => setMany(e.target.value)} maxLength={TERM_MAX} className="input mt-1 w-full" aria-label="Название во множественном числе" />
         </label>
-        <button disabled={!changed || !one.trim() || !many.trim()} onClick={() => onSave({ one: one.trim(), many: many.trim() })} className="btn-primary">
+        <button disabled={!changed || !one.trim() || !many.trim()} onClick={() => onSave(one.trim(), many.trim())} className="btn-primary">
           Сохранить названия
         </button>
-        {(terms.one !== DEFAULT_TERMS.one || terms.many !== DEFAULT_TERMS.many) && (
-          <button onClick={() => onSave(DEFAULT_TERMS)} className="btn-ghost">
-            Вернуть «Сегменты»
+        {(savedOne !== defaults.one || savedMany !== defaults.many) && (
+          <button onClick={() => onSave(defaults.one, defaults.many)} className="btn-ghost">
+            Вернуть «{defaults.many}»
           </button>
         )}
       </div>
@@ -851,26 +866,39 @@ function ListCard({ children, empty }: { children: ReactNode; empty?: string }) 
   );
 }
 
-function TracksSection({ tracks, segments, act }: { tracks: Track[]; segments: Ref[]; act: Act }) {
+function TracksSection({ tracks, segments, act, terms }: { tracks: Track[]; segments: Ref[]; act: Act; terms: Terms }) {
   const [segmentId, setSegmentId] = useState("");
+  // со своим названием («Суда») фразы строятся без слова «трек»
+  const std = isDefaultTrackTerm(terms) && isDefaultSegmentTerm(terms);
   return (
     <>
-      <SectionHeader title="Треки" hint="Добавляйте, меняйте и удаляйте треки. Трек можно привязать к сегменту — тогда в форме позиции он предлагается для этого сегмента." />
+      <SectionHeader
+        title={terms.trackMany}
+        hint={std ? "Добавляйте, меняйте и удаляйте треки. Трек можно привязать к сегменту — тогда в форме позиции он предлагается для этого сегмента." : `Список значений поля «${terms.trackOne}» вашей дирекции. Значение можно привязать к разделу («${terms.one}») — тогда в форме позиции оно предлагается для него.`}
+      />
+      <TermsForm
+        key={`${terms.trackOne}|${terms.trackMany}`}
+        one={terms.trackOne}
+        many={terms.trackMany}
+        defaults={{ one: DEFAULT_TERMS.trackOne, many: DEFAULT_TERMS.trackMany }}
+        example="Например «Судно / Суда» или «Объект / Объекты». Колонка таблицы называется так же, пока ей не дали свою подпись в «Колонках таблицы»."
+        onSave={(trackOne, trackMany) => act(send("/api/directorates/terms", "PUT", { trackOne, trackMany }), "Названия сохранены.")}
+      />
       <AddRow
-        placeholder="Новый трек"
-        onAdd={(name) => act(send("/api/tracks", "POST", { name, segmentId: segmentId || null }), "Трек добавлен.")}
+        placeholder={std ? "Новый трек" : "Новое значение"}
+        onAdd={(name) => act(send("/api/tracks", "POST", { name, segmentId: segmentId || null }), std ? "Трек добавлен." : "Добавлено.")}
         extra={
           <select value={segmentId} onChange={(e) => setSegmentId(e.target.value)} className="select">
-            <option value="">Без сегмента</option>
+            <option value="">{noneLabel(terms)}</option>
             {segments.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         }
       />
-      <ListCard empty={tracks.length === 0 ? "Треков пока нет." : undefined}>
+      <ListCard empty={tracks.length === 0 ? (std ? "Треков пока нет." : "Пока пусто.") : undefined}>
         {tracks.map((t) => (
-          <TrackItem key={t.id} track={t} segments={segments} act={act} />
+          <TrackItem key={t.id} track={t} segments={segments} act={act} terms={terms} std={std} />
         ))}
       </ListCard>
     </>
@@ -878,7 +906,7 @@ function TracksSection({ tracks, segments, act }: { tracks: Track[]; segments: R
 }
 
 /** Строка трека: карандаш — изменить название и сегмент, корзина — удалить (с подтверждением в строке). */
-function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[]; act: Act }) {
+function TrackItem({ track: t, segments, act, terms, std }: { track: Track; segments: Ref[]; act: Act; terms: Terms; /** Названия по умолчанию — привычные фразы со словом «трек». */ std: boolean }) {
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
   const [name, setName] = useState(t.name);
   const [segmentId, setSegmentId] = useState(t.segmentId ?? "");
@@ -889,14 +917,14 @@ function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[];
         <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-on-surface">{t.name}</p>
           <p className="text-[12px] text-on-surface-variant">
-            {t.segment?.name ?? "Без сегмента"}
+            {t.segment?.name ?? noneLabel(terms)}
             {!t.isActive && " · скрыт"}
           </p>
         </div>
         {mode === "view" && (
           <div className="flex shrink-0 items-center gap-1">
             {!t.isActive && (
-              <button onClick={() => act(send(`/api/tracks/${t.id}`, "PATCH", { isActive: true }), "Трек возвращён.")} className="btn-ghost h-8">Вернуть</button>
+              <button onClick={() => act(send(`/api/tracks/${t.id}`, "PATCH", { isActive: true }), std ? "Трек возвращён." : "Возвращено.")} className="btn-ghost h-8">Вернуть</button>
             )}
             <button onClick={() => { setName(t.name); setSegmentId(t.segmentId ?? ""); setMode("edit"); }} className="btn-icon h-8 w-8" title="Изменить" aria-label="Изменить">
               <Pencil size={15} />
@@ -912,14 +940,14 @@ function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[];
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="input min-w-48 flex-1" />
           <select value={segmentId} onChange={(e) => setSegmentId(e.target.value)} className="select">
-            <option value="">Без сегмента</option>
+            <option value="">{noneLabel(terms)}</option>
             {segments.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
           <button
             disabled={!name.trim()}
-            onClick={async () => { await act(send(`/api/tracks/${t.id}`, "PATCH", { name: name.trim(), segmentId: segmentId || null }), "Трек изменён."); setMode("view"); }}
+            onClick={async () => { await act(send(`/api/tracks/${t.id}`, "PATCH", { name: name.trim(), segmentId: segmentId || null }), std ? "Трек изменён." : "Изменено."); setMode("view"); }}
             className="btn-primary h-9"
           >
             Сохранить
@@ -930,13 +958,13 @@ function TrackItem({ track: t, segments, act }: { track: Track; segments: Ref[];
 
       {mode === "delete" && (
         <div className="mt-2.5 rounded-md border border-status-red/30 bg-status-red/5 p-3">
-          <p className="text-[13px] text-on-surface">Удалить трек «{t.name}»?</p>
-          <p className="mt-0.5 text-[12px] text-on-surface-variant">Если на трек ссылаются позиции, он будет скрыт, а в этих позициях останется.</p>
+          <p className="text-[13px] text-on-surface">{std ? "Удалить трек" : "Удалить"} «{t.name}»?</p>
+          <p className="mt-0.5 text-[12px] text-on-surface-variant">{std ? "Если на трек ссылаются позиции, он будет скрыт, а в этих позициях останется." : "Если значение стоит в позициях, оно будет скрыто из списка, а в этих позициях останется."}</p>
           <div className="mt-2.5 flex gap-2">
             <button
               onClick={async () => {
                 const r = await send(`/api/tracks/${t.id}`, "DELETE");
-                await act(Promise.resolve(r), r.data && (r.data as { mode?: string }).mode === "hidden" ? "Трек используется в позициях, поэтому скрыт." : "Трек удалён.");
+                await act(Promise.resolve(r), r.data && (r.data as { mode?: string }).mode === "hidden" ? (std ? "Трек используется в позициях, поэтому скрыт." : "Значение используется в позициях, поэтому скрыто.") : std ? "Трек удалён." : "Удалено.");
                 setMode("view");
               }}
               className="btn-primary h-8 bg-status-red hover:bg-status-red"
@@ -958,6 +986,7 @@ function RefSection({
   onAdd,
   display,
   beforeAdd,
+  scopeBadge,
   onRename,
   onDelete,
   locked,
@@ -969,6 +998,8 @@ function RefSection({
   display?: (name: string) => string;
   /** Блок над строкой добавления (админ: «только для выбранной дирекции»). */
   beforeAdd?: ReactNode;
+  /** Помечать свои значения дирекции («только эта дирекция») — там, где рядом есть общие для всех (статусы, «Внимание»). */
+  scopeBadge?: boolean;
   /** Нет — правка недоступна (не админ). */
   onRename?: (id: string, name: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
@@ -982,7 +1013,7 @@ function RefSection({
       <AddRow placeholder="Новое значение" onAdd={onAdd} />
       <ListCard>
         {items.map((i) => (
-          <RefItem key={i.id} item={i} label={display ? display(i.name) : i.name} onRename={onRename} onDelete={onDelete} lockedReason={locked?.(i) ?? null} />
+          <RefItem key={i.id} item={i} label={display ? display(i.name) : i.name} onRename={onRename} onDelete={onDelete} lockedReason={locked?.(i) ?? null} own={!!scopeBadge && !!i.directorateId} />
         ))}
       </ListCard>
     </>
@@ -996,8 +1027,11 @@ function RefItem({
   onRename,
   onDelete,
   lockedReason,
+  own,
 }: {
   item: Ref;
+  /** Своё значение дирекции среди общих — показать пометку. */
+  own?: boolean;
   label: string;
   onRename?: (id: string, name: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
@@ -1042,7 +1076,7 @@ function RefItem({
         <div className="flex items-center gap-2.5">
           {item.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />}
           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-on-surface">{label}</span>
-          {item.directorateId && <span className="shrink-0 rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary" title="Своё значение этой дирекции: другие дирекции его не видят">только эта дирекция</span>}
+          {own && <span className="shrink-0 rounded-sm bg-primary-soft px-1.5 py-px text-[11px] font-semibold text-primary" title="Своё значение этой дирекции: другие дирекции его не видят">только эта дирекция</span>}
           {lockedReason && (onRename || onDelete) && (
             <span className="flex h-8 w-8 items-center justify-center text-outline" title={lockedReason}>
               <Lock size={14} />

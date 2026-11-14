@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { addTrackLabel, createTrackLabel, exactTrackHint, newTrackPlaceholder, similarTracksHint, trackPlaceHint } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { Check, Plus } from "lucide-react";
 import { clearBootstrap } from "@/lib/client-bootstrap";
 import { checkTrackName, findTrackMatches, TRACK_NAME_MAX } from "@/lib/track-name";
@@ -28,6 +30,7 @@ export function AddTrackForm({
   onCreated: (t: TrackOption) => void;
   onClose: () => void;
 }) {
+  const terms = useTerms();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,14 +93,14 @@ export function AddTrackForm({
             onClose();
           }
         }}
-        placeholder="Название нового трека"
+        placeholder={newTrackPlaceholder(terms)}
         className="input h-9 w-full"
-        aria-label="Название нового трека"
+        aria-label={newTrackPlaceholder(terms)}
       />
 
       {matches.length > 0 && (
         <div>
-          <p className="mb-1 text-[11px] font-semibold text-on-surface-variant">{exact ? "Такой трек уже есть:" : "Уже есть похожие — выберите, чтобы не создавать повтор:"}</p>
+          <p className="mb-1 text-[11px] font-semibold text-on-surface-variant">{exact ? exactTrackHint(terms) : "Уже есть похожие — выберите, чтобы не создавать повтор:"}</p>
           <ul className="space-y-1">
             {matches.map((m) => (
               <li key={m.track.id}>
@@ -114,13 +117,13 @@ export function AddTrackForm({
 
       {invalid && <p className="text-[12px] text-status-red">{invalid}</p>}
       {error && <p className="text-[12px] text-status-red">{error}</p>}
-      {confirmSimilar && !exact && <p className="text-[12px] text-status-amber">Есть похожие треки (см. выше). Если это точно другой трек — нажмите кнопку ещё раз.</p>}
+      {confirmSimilar && !exact && <p className="text-[12px] text-status-amber">{similarTracksHint(terms)}</p>}
 
-      <p className="text-[11px] leading-snug text-on-surface-variant">{segmentName ? `Трек будет в сегменте «${segmentName}».` : "Без сегмента — трек будет виден во всех сегментах."}</p>
+      <p className="text-[11px] leading-snug text-on-surface-variant">{trackPlaceHint(terms, segmentName)}</p>
 
       <div className="flex items-center gap-2">
         <button type="button" onClick={() => void create()} disabled={!check || !check.ok || !!exact || busy} className="btn-primary h-9 flex-1">
-          {exact ? "Уже есть" : confirmSimilar ? "Всё равно создать" : "Создать трек"}
+          {exact ? "Уже есть" : confirmSimilar ? "Всё равно создать" : createTrackLabel(terms)}
         </button>
         <button type="button" onClick={onClose} className="btn-ghost h-9">Отмена</button>
       </div>
@@ -144,6 +147,7 @@ export function TrackPicker({
   adding: boolean;
   onAdd: () => void;
 }) {
+  const terms = useTerms();
   return (
     <div>
       <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="select w-full">
@@ -154,7 +158,7 @@ export function TrackPicker({
       </select>
       {!disabled && !adding && (
         <button type="button" onClick={onAdd} className="mt-1.5 flex h-8 items-center gap-1 text-[12px] font-semibold text-primary">
-          <Plus size={14} /> Добавить трек
+          <Plus size={14} /> {addTrackLabel(terms)}
         </button>
       )}
     </div>
@@ -177,11 +181,12 @@ export function AddTrackInline({
   onPick: (id: string) => void;
   onClose: () => void;
 }) {
+  const terms = useTerms();
   const [adding, setAdding] = useState(false);
   if (!adding)
     return (
       <button type="button" onClick={() => setAdding(true)} className="flex h-9 w-full items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-primary hover:bg-primary-soft">
-        <Plus size={15} /> Добавить трек
+        <Plus size={15} /> {addTrackLabel(terms)}
       </button>
     );
   return (

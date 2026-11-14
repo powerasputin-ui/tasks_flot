@@ -1,18 +1,23 @@
 import type { Prisma } from "@prisma/client";
+import { termsKey } from "@/lib/terms";
 
 /**
  * Новая дирекция может начать с той же «Общей таблицы», что у существующей: копируются свои столбцы, раскладка таблицы,
- * сегменты, треки, разделы и вид справки. Позиции, люди, оперативки и справки НЕ копируются — у каждой дирекции свои.
+ * сегменты, треки, свои статусы и значения шкалы «Внимание», названия разделов («Сегмент» → «Проект»), разделы и вид справки.
+ * Позиции, люди, оперативки и справки НЕ копируются — у каждой дирекции свои.
  * Идентификаторы новые; ссылки внутри (трек → сегмент/раздел, раскладка и вид справки → свои столбцы) переводятся на копии.
  */
 export async function copyDirectorateStructure(tx: Prisma.TransactionClient, fromId: string, toId: string): Promise<void> {
-  const [segments, sections, tracks, columns, layout, from] = await Promise.all([
+  const [segments, sections, tracks, columns, layout, from, statuses, attention, terms] = await Promise.all([
     tx.segment.findMany({ where: { directorateId: fromId } }),
     tx.memoSection.findMany({ where: { directorateId: fromId } }),
     tx.track.findMany({ where: { directorateId: fromId } }),
     tx.customColumn.findMany({ where: { directorateId: fromId } }),
     tx.appSetting.findUnique({ where: { key: `table.columns:${fromId}` } }),
     tx.directorate.findUnique({ where: { id: fromId }, select: { memoConfig: true } }),
+    tx.status.findMany({ where: { directorateId: fromId } }),
+    tx.attractiveness.findMany({ where: { directorateId: fromId } }),
+    tx.appSetting.findUnique({ where: { key: termsKey(fromId) } }),
   ]);
 
   const segmentMap = new Map<string, string>();
@@ -42,6 +47,11 @@ export async function copyDirectorateStructure(tx: Prisma.TransactionClient, fro
     const n = await tx.customColumn.create({ data: { name: c.name, type: c.type, options: c.options, sortOrder: c.sortOrder, isActive: c.isActive, directorateId: toId } });
     columnMap.set(c.id, n.id);
   }
+
+  // свои статусы и значения «Внимание» дирекции-образца (общие для всех копировать не нужно — они и так видны)
+  for (const s of statuses) await tx.status.create({ data: { name: s.name, color: s.color, sortOrder: s.sortOrder, isActive: s.isActive, trackerColumn: s.trackerColumn, directorateId: toId } });
+  for (const a of attention) await tx.attractiveness.create({ data: { name: a.name, color: a.color, sortOrder: a.sortOrder, isActive: a.isActive, directorateId: toId } });
+  if (terms) await tx.appSetting.create({ data: { key: termsKey(toId), value: terms.value as Prisma.InputJsonValue } });
 
   if (layout) await tx.appSetting.create({ data: { key: `table.columns:${toId}`, value: remapCustomKeys(layout.value, columnMap) as Prisma.InputJsonValue } });
   if (from?.memoConfig) await tx.directorate.update({ where: { id: toId }, data: { memoConfig: remapCustomKeys(from.memoConfig, columnMap) as Prisma.InputJsonValue } });

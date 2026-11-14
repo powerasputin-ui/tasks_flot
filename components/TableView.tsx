@@ -16,7 +16,7 @@ import { WeekSelect } from "@/components/WeekSelect";
 import { isOverdueRow } from "@/lib/overdue";
 import { ChoiceChip, DateRangeChip, FilterChip, FilterPicker } from "@/components/FilterChips";
 import { normalizeShownFilters, TABLE_FILTERS, type TableFilterKey } from "@/lib/table-filters";
-import { allLabel, noneLabel } from "@/lib/terms";
+import { allLabel, duplicateTrackLabel, noneLabel, withoutTermLabels, withTermLabels } from "@/lib/terms";
 import { useTerms } from "@/lib/use-terms";
 import type { UserRole } from "@prisma/client";
 import { canCreateItem, canDeleteItem, canPurgeItem, isDirectorial, isSubmitter } from "@/lib/permissions";
@@ -95,7 +95,10 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const previewBlock = () => setError("Режим просмотра: изменения отключены.");
   const [savedColumns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [customCols, setCustomCols] = useState<CustomCol[]>([]);
-  const columns = useMemo(() => withCustomColumns(savedColumns, customCols), [savedColumns, customCols]);
+  // «Сегмент» и «Трек» дирекция может называть по-своему (Настройки → Сегменты / Треки)
+  const terms = useTerms();
+  // колонка «Трек» без своей подписи называется так, как её назвала дирекция
+  const columns = useMemo(() => withTermLabels(withCustomColumns(savedColumns, customCols), terms), [savedColumns, customCols, terms]);
   const [editor, setEditorState] = useState<{ row: Row | null; prefill?: ItemPrefill } | null>(null);
   const [analytics, setAnalytics] = useState(false);
   const [history, setHistory] = useState(false);
@@ -279,7 +282,9 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
     });
   }, []);
 
-  function saveColumns(next: ColumnConfig[]) {
+  function saveColumns(shown: ColumnConfig[]) {
+    // название из терминов дирекции не сохраняем как свою подпись колонки
+    const next = withoutTermLabels(shown, terms);
     setColumns(next);
     if (canLayoutRef.current) {
       persistColumns(next);
@@ -440,12 +445,11 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
   const colLabel = (k: keyof typeof DEFAULT_LABEL) => columns.find((c) => c.key === k)?.label?.trim() || DEFAULT_LABEL[k];
   const visibleRows = useMemo(() => filterBySegmentsAndTracks(rows, segments, trackPicks), [rows, segments, trackPicks]);
   const colors = useMemo(() => segmentColors(segmentRefs), [segmentRefs]);
-  const terms = useTerms();
   const segmentName = (id: string) => (id === NO_SEGMENT ? noneLabel(terms) : segmentRefs.find((s) => s.id === id)?.name ?? terms.one);
   const pickName = (key: string) => {
     const seg = key.slice(0, key.indexOf(":"));
     const t = trackCounts.get(seg)?.find((x) => x.key === key);
-    return `${segmentName(seg)} · ${t?.name ?? "трек"}`;
+    return `${segmentName(seg)} · ${t?.name ?? terms.trackOne}`;
   };
   const sideNames = [...segments.filter((s) => !trackPicks.some((k) => k.startsWith(`${s}:`))).map(segmentName), ...trackPicks.map(pickName)];
   const selectedName = sideNames.length === 0 ? allLabel(terms) : sideNames.length <= 2 ? sideNames.join(" · ") : `Выбрано: ${sideNames.length}`;
@@ -1035,7 +1039,7 @@ export function TableView({ defaultArchive = "active" }: { defaultArchive?: "act
                   }}
                   className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-on-surface hover:bg-primary-soft"
                 >
-                  <Copy size={14} className="text-outline" /> Дублировать трек
+                  <Copy size={14} className="text-outline" /> {duplicateTrackLabel(terms)}
                 </button>
               )}
               {me && isDirectorial(me.role) && ctx.row.operFlag && !ctx.row.archived && (

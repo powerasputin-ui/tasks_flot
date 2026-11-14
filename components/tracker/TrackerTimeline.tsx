@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { noneLabel } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { Check, X } from "lucide-react";
 import { columnOf, phasesOf, ruDay, timelineRange, type HotInfo, type TrackerColumnKey, type TrackerEvent, type TrackerEventKind } from "@/lib/tracker";
 import { MenuButton, overdue, type TRow } from "@/components/tracker/TrackerView";
@@ -71,6 +73,7 @@ type CardState = { row: TRow; groups: Array<[number, TrackerEvent[]]>; rect: DOM
  */
 export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, colors, onOpen, onMenu }: { rows: TRow[]; colOf: Map<string, TrackerColumnKey | null>; statusColumns: Map<string, TrackerColumnKey | null>; hot: Record<string, HotInfo>; events: Map<string, TrackerEvent[]>; colors: Map<string, string>; onOpen: (r: TRow, tab?: "details" | "history") => void; onMenu?: (r: TRow, e: { clientX: number; clientY: number; preventDefault: () => void }) => void }) {
   const mobile = useIsMobile();
+  const terms = useTerms();
   const nameW = mobile ? 150 : 300;
   const [now] = useState(() => Date.now()); // «сегодня» — на момент открытия страницы
   const nowS = now + MSK;
@@ -179,13 +182,13 @@ export function TrackerTimeline({ rows, colOf, statusColumns, hot, events, color
   const groups = useMemo(() => {
     const out: Array<{ head: string; color: string; rows: TRow[] }> = [];
     for (const r of rows) {
-      const head = [r.segmentName ?? "Без сегмента", r.trackName].filter(Boolean).join(" · ");
+      const head = [r.segmentName ?? noneLabel(terms), r.trackName].filter(Boolean).join(" · ");
       const g = out.find((o) => o.head === head);
       if (g) g.rows.push(r);
       else out.push({ head, color: colors.get(r.segmentId ?? "none") ?? "#94a3b8", rows: [r] });
     }
     return out;
-  }, [rows, colors]);
+  }, [rows, colors, terms]);
 
   return (
     // overflow-clip, а не hidden: hidden сделал бы блок контейнером прокрутки и шапка шкалы перестала бы прилипать

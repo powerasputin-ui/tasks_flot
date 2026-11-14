@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { byTracksTitle, noTrackLabel, pieEmptyHint, tracksCount } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { isOverdueRow } from "@/lib/overdue";
 import { attractivenessText } from "@/lib/attractiveness";
 import { Panel } from "@/components/ui/Panel";
@@ -34,6 +36,9 @@ function group(rows: AnalyticsRow[], name: (r: AnalyticsRow) => string, color: (
 
 /** Аналитика: считается из строк, которые сейчас видны в таблице. */
 export function AnalyticsPanel({ rows, title, onClose }: { rows: AnalyticsRow[]; title: string; onClose: () => void }) {
+  // «Трек» у дирекции может называться иначе
+  const terms = useTerms();
+  const noTrack = noTrackLabel(terms);
   const stats = useMemo(() => {
     const now = new Date();
     const active = rows.filter((r) => !r.archived);
@@ -45,11 +50,11 @@ export function AnalyticsPanel({ rows, title, onClose }: { rows: AnalyticsRow[];
       noOwner: rows.filter((r) => !r.ownerId).length,
       byAttractiveness: group(rows, (r) => r.attractivenessName ?? "P0", (r) => r.attractivenessColor ?? "#94a3b8"),
       byStatus: group(rows, (r) => r.statusName ?? "Без статуса", (r) => r.statusColor ?? "#64748b"),
-      byTrack: group(rows, (r) => r.trackName ?? "Без трека", () => "")
-        .sort((a, b) => Number(a.name === "Без трека") - Number(b.name === "Без трека") || b.count - a.count)
-        .map((s, i) => ({ ...s, color: s.name === "Без трека" ? "#94a3b8" : TRACK_PALETTE[i % TRACK_PALETTE.length] })),
+      byTrack: group(rows, (r) => r.trackName ?? noTrack, () => "")
+        .sort((a, b) => Number(a.name === noTrack) - Number(b.name === noTrack) || b.count - a.count)
+        .map((s, i) => ({ ...s, color: s.name === noTrack ? "#94a3b8" : TRACK_PALETTE[i % TRACK_PALETTE.length] })),
     };
-  }, [rows]);
+  }, [rows, noTrack]);
 
   return (
     <Panel title="Аналитика" subtitle={title} onClose={onClose} width={440}>
@@ -173,6 +178,7 @@ function arcPath(a0: number, a1: number, r = 50, c = 50): string {
  * пересчитывается по оставшимся — так видно, какой трек сколько занимает и как треки соотносятся между собой.
  */
 function TrackPie({ slices }: { slices: Slice[] }) {
+  const terms = useTerms();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [hover, setHover] = useState<string | null>(null);
   const shown = slices.filter((s) => !hidden.has(s.name));
@@ -191,7 +197,7 @@ function TrackPie({ slices }: { slices: Slice[] }) {
   return (
     <div className="rounded-lg border border-outline-variant bg-surface-low p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="label-caps">По трекам</h3>
+        <h3 className="label-caps">{byTracksTitle(terms)}</h3>
         {slices.length > 1 && (
           <div className="flex gap-2 text-[11px] font-semibold">
             <button onClick={() => setHidden(new Set())} disabled={hidden.size === 0} className="text-primary disabled:text-outline">Все</button>
@@ -205,7 +211,7 @@ function TrackPie({ slices }: { slices: Slice[] }) {
         <>
           <div className="flex justify-center">
             <div className="relative h-44 w-44">
-              <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label="Круговая диаграмма по трекам">
+              <svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label={`Круговая диаграмма: ${byTracksTitle(terms)}`}>
                 {total === 0 ? (
                   <circle cx="50" cy="50" r="50" fill="#e4eaf0" />
                 ) : (
@@ -234,9 +240,9 @@ function TrackPie({ slices }: { slices: Slice[] }) {
                 <span className="font-semibold text-on-surface">{focus.name}</span> — {focus.count} поз., {pct(focus.count)}%
               </>
             ) : total === 0 ? (
-              "Отметьте треки ниже, чтобы построить диаграмму."
+              pieEmptyHint(terms)
             ) : (
-              `В диаграмме: ${total} поз., треков: ${shown.length}`
+              `В диаграмме: ${total} поз., ${tracksCount(terms, shown.length)}`
             )}
           </p>
           <ul className="mt-3 max-h-64 space-y-0.5 overflow-y-auto pr-1">

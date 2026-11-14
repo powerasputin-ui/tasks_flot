@@ -115,6 +115,7 @@ import * as aiConsolidate from "@/app/api/ai/consolidate/route";
 import * as aiConsolidateExport from "@/app/api/ai/consolidate/export/route";
 import * as tableFilters from "@/app/api/table-filters/route";
 import * as termsRoute from "@/app/api/directorates/terms/route";
+import { loadColumnLabels } from "@/lib/column-labels";
 
 const prisma = new PrismaClient();
 const TAG = `E2E${Date.now()}`;
@@ -995,14 +996,23 @@ describe("дирекция настраивает себя сама: свои с
   it("названия разделов («Сегмент» → «Проект») — у каждой дирекции свои; руководитель не меняет", async () => {
     const put = (a: Actor, body: unknown) => call(a, termsRoute.PUT, "/api/directorates/terms", { method: "PUT", body });
     const terms = async (a: Actor) => (await call(a, bootstrap.GET, "/api/bootstrap")).data.terms;
-    expect(await terms(headB)).toEqual({ one: "Сегмент", many: "Сегменты" });
+    const std = { one: "Сегмент", many: "Сегменты", trackOne: "Трек", trackMany: "Треки" };
+    // повтор теста после сбоя начинает с чистого листа
+    await prisma.appSetting.deleteMany({ where: { key: `directorate.terms:${dirB}` } });
+    expect(await terms(headB)).toEqual(std);
     expect((await put(headB, { one: "Проект", many: "Проекты" })).status).toBe(403);
     expect((await put(directorB, { one: "  Проект ", many: "Проекты" })).status).toBe(200);
-    expect(await terms(headB)).toEqual({ one: "Проект", many: "Проекты" });
-    expect(await terms(head)).toEqual({ one: "Сегмент", many: "Сегменты" });
-    // пустое поле — название по умолчанию; мусор — 400
-    expect((await put(directorB, { one: "", many: "Суда" })).data.terms).toEqual({ one: "Сегмент", many: "Суда" });
+    expect(await terms(headB)).toEqual({ ...std, one: "Проект", many: "Проекты" });
+    expect(await terms(head)).toEqual(std);
+    // треки переименовываются отдельно — названия сегментов при этом остаются
+    expect((await put(directorB, { trackOne: "Судно", trackMany: "Суда" })).data.terms).toEqual({ one: "Проект", many: "Проекты", trackOne: "Судно", trackMany: "Суда" });
+    // подпись колонки «Трек» в выгрузках и напоминаниях — как назвала дирекция; у другой дирекции — прежняя
+    expect((await loadColumnLabels(dirB)).track).toBe("Судно");
+    expect((await loadColumnLabels(curator.directorateId!)).track).not.toBe("Судно");
+    // пустое поле — название по умолчанию; мусор и лишние поля — 400
+    expect((await put(directorB, { one: "", many: "Суда" })).data.terms).toMatchObject({ one: "Сегмент", many: "Суда", trackOne: "Судно" });
     expect((await put(directorB, { one: 5 })).status).toBe(400);
+    expect((await put(directorB, { one: "Проект", admin: true })).status).toBe(400);
   });
 });
 
@@ -2242,12 +2252,21 @@ describe("дирекции: заведение, директор, роли, от
     await prisma.memoSection.deleteMany({ where: { directorateId: dirC } });
     await prisma.segment.deleteMany({ where: { directorateId: dirC } });
     await prisma.customColumn.deleteMany({ where: { directorateId: dirC } });
-    await prisma.appSetting.deleteMany({ where: { key: `table.columns:${dirC}` } });
+    await prisma.appSetting.deleteMany({ where: { key: { in: [`table.columns:${dirC}`, `directorate.terms:${dirC}`, `directorate.terms:${dirB}`] } } });
+    await prisma.status.deleteMany({ where: { directorateId: { in: [dirB, dirC] }, name: { contains: TAG } } });
+    await prisma.attractiveness.deleteMany({ where: { directorateId: { in: [dirB, dirC] }, name: { contains: TAG } } });
     await prisma.directorate.deleteMany({ where: { id: dirC } });
   });
 
   it("новая дирекция: короткое название и копия «Общей таблицы» другой дирекции — без позиций и людей", async () => {
     expect((await call(director, directorates.POST, "/api/directorates", { method: "POST", body: { name: `${TAG} Дирекция В` } })).status).toBe(403);
+    // у дирекции-образца — свой статус, своё значение «Внимание» и свои названия разделов: в копию переходят и они
+    // (повтор теста после сбоя начинает с чистого листа)
+    await prisma.status.deleteMany({ where: { directorateId: dirB, name: { contains: TAG } } });
+    await prisma.attractiveness.deleteMany({ where: { directorateId: dirB, name: { contains: TAG } } });
+    expect((await call(directorB, statusesRoute.POST, "/api/statuses", { method: "POST", body: { name: `${TAG} Ждём судно`, trackerColumn: "TODO" } })).status).toBe(201);
+    expect((await call(directorB, attrRoute.POST, "/api/attractiveness", { method: "POST", body: { name: `${TAG} Особое` } })).status).toBe(201);
+    expect((await call(directorB, termsRoute.PUT, "/api/directorates/terms", { method: "PUT", body: { one: "Проект", many: "Проекты" } })).status).toBe(200);
     const r = await call(admin, directorates.POST, "/api/directorates", { method: "POST", body: { name: `${TAG} Дирекция В`, shortName: "ДВ", copyFrom: dirB } });
     expect(r.status).toBe(201);
     dirC = r.data.directorate.id;
@@ -2265,6 +2284,10 @@ describe("дирекции: заведение, директор, роли, от
     expect(itemsC).toBe(0);
     expect(peopleC).toBe(0);
     expect((await prisma.directorate.findUniqueOrThrow({ where: { id: dirC } })).shortName).toBe("ДВ");
+    // свои статусы, шкала и названия — копиями в новой дирекции (общие статусы не дублируются)
+    expect(await prisma.status.findMany({ where: { directorateId: dirC }, select: { name: true, trackerColumn: true } })).toEqual([{ name: `${TAG} Ждём судно`, trackerColumn: "TODO" }]);
+    expect((await prisma.attractiveness.findMany({ where: { directorateId: dirC }, select: { name: true } })).map((a) => a.name)).toEqual([`${TAG} Особое`]);
+    expect((await prisma.appSetting.findUnique({ where: { key: `directorate.terms:${dirC}` } }))?.value).toMatchObject({ one: "Проект", many: "Проекты" });
 
     const list = await call(admin, directorates.GET, "/api/directorates");
     const card = list.data.directorates.find((d: { id: string }) => d.id === dirC);

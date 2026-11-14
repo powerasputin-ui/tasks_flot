@@ -350,7 +350,7 @@ export const wantsJournal = (question: string) => JOURNAL_Q.test(n(question));
  * Блок «ТАБЛИЦА ДИРЕКЦИИ» для модели в пределах budget знаков: итоги, выборка по вопросу, карточки (сначала
  * выборка и позиции справки, потом остальные — пока влезают), журнал — если о нём спросили.
  */
-export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; question: string; dict: Parameters<typeof parseTableQuestion>[1]; memoItemIds: string[]; budget: number; today?: number }): { text: string; labels: Map<string, string>; query: TableQuery; matched: FactItem[]; shown: FactItem[] } {
+export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; question: string; dict: Parameters<typeof parseTableQuestion>[1]; memoItemIds: string[]; budget: number; today?: number; /** Позиции, найденные поиском по вопросу: их карточки идут первыми — иначе в большой таблице их отрезало бы окном, и модель отвечала «не найдено». */ firstIds?: string[] }): { text: string; labels: Map<string, string>; query: TableQuery; matched: FactItem[]; shown: FactItem[] } {
   const today = opts.today ?? todayMsk();
   const labels = labelItems(opts.items);
   const query = parseTableQuestion(opts.question, opts.dict);
@@ -367,7 +367,8 @@ export function tableContext(opts: { items: FactItem[]; events: FactEvent[]; que
   if (asked.length) parts.push(historyBlock(asked, labels));
   // на «что горит» карточки сигнальных позиций — первыми (чтобы не отрезало окном)
   const hot = wantsSignals(opts.question) ? sig.map((s) => s.item) : [];
-  const order = [...matched, ...hot, ...opts.items.filter((i) => opts.memoItemIds.includes(i.id)), ...opts.items];
+  const first = opts.firstIds?.length ? opts.firstIds.flatMap((id) => opts.items.find((i) => i.id === id) ?? []) : [];
+  const order = [...matched, ...first, ...hot, ...opts.items.filter((i) => opts.memoItemIds.includes(i.id)), ...opts.items];
   const seen = new Set<string>();
   const cards: string[] = [];
   const shown: FactItem[] = [];

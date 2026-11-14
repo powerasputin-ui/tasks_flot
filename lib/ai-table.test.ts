@@ -88,6 +88,19 @@ describe("движок фактов: что видит модель", () => {
     expect(small.text).toContain("Hai Qiang 18");
     expect(small.text).toMatch(/не показаны \d+ позиций — они учтены в ИТОГАХ/);
   });
+  it("найденное поиском — первым в окне: в большой таблице карточку не отрезает (иначе модель отвечала «не найдено»)", () => {
+    // вопрос без точных условий: порядок карточек — как в таблице, и последняя позиция в тесное окно не попадает
+    const last = items[items.length - 1];
+    const q = { items, events: [], question: "Найди, что было по этой позиции", dict, memoItemIds: [], today: TODAY };
+    const full = tableContext({ ...q, budget: 100000 });
+    const card = full.text.split("\n").find((l) => l.includes(last.title))!;
+    // окно, в которое помещаются итоги и одна-две карточки, но не вся таблица
+    const tight = full.text.length - card.length - 50;
+    const without = tableContext({ ...q, budget: tight });
+    expect(without.shown.map((i) => i.id)).not.toContain(last.id);
+    const withFound = tableContext({ ...q, budget: tight, firstIds: [last.id, "нет-такой"] });
+    expect(withFound.shown[0].id).toBe(last.id);
+  });
   it("без модели (процессор): точный список выборки", () => {
     const a = tableAnswer({ items, events: [], question: "Какие задачи у Сухова?", dict, memoItemIds: [], budget: 0, today: TODAY })!;
     expect(a).toMatch(/^Точная выборка по таблице \(ответственный Сухов В\.А\.\): 2 из 5 действующих позиций\./);

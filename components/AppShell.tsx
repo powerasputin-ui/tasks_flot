@@ -75,7 +75,8 @@ const NAV_ICON: Record<string, ReactNode> = {
 };
 
 /** Поиск хранится в адресе (?q=…): таблица читает его оттуда, без связи между компонентами. */
-function TopSearch({ className = "relative hidden w-72 md:block lg:ml-4 xl:w-96" }: { className?: string }) {
+// на ноутбуке места в шапке мало: поиск ужимается первым (до 8rem), а пункты меню остаются на виду — иначе «Трекер» уезжал за край
+function TopSearch({ className = "relative hidden w-72 min-w-32 shrink-[100] md:block lg:ml-4 xl:w-96" }: { className?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -222,7 +223,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="flex min-w-0 flex-col max-md:max-w-[52vw] md:hidden lg:flex">
             <span className="text-[13px] font-bold leading-[15px] tracking-tight text-on-surface">ГШП ОПЕРАТИВКА</span>
             {directorate && directorates.length <= 1 && (
-              <span className="max-w-[26rem] truncate text-[11px] leading-[14px] text-on-surface-variant max-md:max-w-full">
+              <span title={directorate.name} className="max-w-[13rem] truncate text-[11px] leading-[14px] text-on-surface-variant max-md:max-w-full 2xl:max-w-[26rem]">
                 {directorate.name}
               </span>
             )}
@@ -324,7 +325,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               trigger={({ toggle }) => (
                 <button onClick={() => { loadPeople(); toggle(); }} className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-surface-high">
                   <Avatar name={me.name} />
-                  <span className="hidden max-w-40 truncate text-[13px] font-semibold text-on-surface lg:inline">{me.name}</span>
+                  {/* на ноутбуке имя короче — место нужно пунктам меню; целиком оно в подсказке и в самом меню */}
+                  <span title={me.name} className="hidden max-w-24 truncate text-[13px] font-semibold text-on-surface lg:inline 2xl:max-w-40">{me.name}</span>
                   <ChevronDown size={14} className="text-outline" />
                 </button>
               )}

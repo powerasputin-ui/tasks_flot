@@ -22,7 +22,7 @@ import { useIsMobile } from "@/lib/use-mobile";
 import { SIGNAL_LABEL, type SignalKind } from "@/lib/ai-table";
 import { BOARD_COLUMNS, closedOf, columnOf, deadlineChip, DONE_WINDOW_DAYS, dropAction, dropTargets, EMPTY_FILTERS, filtersFromParams, filtersToParams, hasActiveFilters, isRecentlyDone, mskDay, pickTop, ruDay, statusForColumn, summarize, type HotInfo, type TaskSummary, type TrackerColumnKey, type TrackerEvent, type TrackerFilters } from "@/lib/tracker";
 import { TrackerTimeline } from "@/components/tracker/TrackerTimeline";
-import { noneLabel } from "@/lib/terms";
+import { noneLabel, noTrackLabel, type Terms } from "@/lib/terms";
 import { useTerms } from "@/lib/use-terms";
 import { TrackerBoard } from "@/components/tracker/TrackerBoard";
 import { AiChat, TRACKER_QUICK } from "@/components/AiChat";
@@ -114,7 +114,8 @@ export function TrackerView() {
   const kind = filters.kind as SignalKind | null;
   const scopeRaw = filters.scope as "all" | "control" | "orders" | "mine" | "waiting";
   const [ordering, setOrdering] = useState(false);
-  const terms = useTerms(); // «Сегмент» у дирекции может называться иначе (у ЗГД — общее слово: дирекций много)
+  // «Сегмент» и «Трек» у дирекции могут называться иначе; у ЗГД (дирекций много) — общие слова
+  const terms = useTerms();
   // телефон: выпадающие фильтры свёрнуты в одну кнопку «Фильтры» — иначе они занимают пол-экрана до первой карточки
   const [moreFilters, setMoreFilters] = useState(false);
   const extraFilters = [filters.dir, filters.col, kind || slipOnly, segmentIds.length, ownerIds.length].filter(Boolean).length;
@@ -212,9 +213,9 @@ export function TrackerView() {
   const segRefs = useMemo(() => {
     if (!sent) return (boot?.segments ?? []).map((s) => ({ id: s.id, name: s.name, color: s.color ?? null }));
     const m = new Map<string, string>();
-    for (const r of data?.rows ?? []) if (r.segmentId) m.set(r.segmentId, manyDirs ? `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` : r.segmentName ?? "Без сегмента");
+    for (const r of data?.rows ?? []) if (r.segmentId) m.set(r.segmentId, manyDirs ? `${r.directorateName} · ${r.segmentName ?? noneLabel(terms)}` : r.segmentName ?? noneLabel(terms));
     return [...m].map(([id, name]) => ({ id, name, color: null }));
-  }, [sent, manyDirs, boot, data]);
+  }, [sent, manyDirs, boot, data, terms]);
   const ownerOptions = useMemo(
     () => (sent ? [...new Set((data?.rows ?? []).map((r) => r.ownerName).filter((x): x is string => !!x))].sort().map((n) => ({ id: n, name: n })) : (boot?.users ?? []).map((u) => ({ id: u.id, name: u.name }))),
     [sent, data, boot],
@@ -225,7 +226,7 @@ export function TrackerView() {
   const baseRows = useMemo(() => {
     const tokens = tokenize(q);
     return (data?.rows ?? [])
-      .map((r) => (manyDirs ? { ...r, segmentName: `${r.directorateName} · ${r.segmentName ?? "Без сегмента"}` } : r))
+      .map((r) => (manyDirs ? { ...r, segmentName: `${r.directorateName} · ${r.segmentName ?? noneLabel(terms)}` } : r))
       .filter((r) => {
       const col = columnOf(r.statusId, colOf);
       // «Не актуально» (отменённые) — только по переключателю: иначе их не найти и «Переоткрыть» недостижим
@@ -245,7 +246,7 @@ export function TrackerView() {
       if (tokens.length && !matchesTokens(normalizeText([r.name, r.comment, r.expectedResult, r.blockedBy, r.segmentName, r.trackName, r.ownerName, r.statusName].filter(Boolean).join(" ")), tokens)) return false;
       return true;
     });
-  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted, filters.cancelled, filters.doneAll, filters.dir, byItem]);
+  }, [data, colOf, mine, kind, slipOnly, scope, summaries, segmentIds, ownerIds, q, me, manyDirs, directorial, deleted, filters.cancelled, filters.doneAll, filters.dir, byItem, terms]);
   const rows = useMemo(() => (filters.col ? baseRows.filter((r) => columnOf(r.statusId, colOf) === filters.col) : baseRows), [baseRows, colOf, filters.col]);
 
   const refs: Refs = useMemo(
@@ -512,7 +513,7 @@ export function TrackerView() {
           }}
           width={280}
         />
-        <FilterChip label={sent ? "Сегмент" : terms.one} value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: sent ? "Без сегмента" : noneLabel(terms) }]} onChange={(v) => patch({ seg: v })} />
+        <FilterChip label={terms.one} value={segmentIds} options={[...segRefs.map((s) => ({ id: s.id, name: s.name })), { id: "none", name: noneLabel(terms) }]} onChange={(v) => patch({ seg: v })} />
         <FilterChip label="Ответственный" value={ownerIds} options={[...ownerOptions, { id: "none", name: "Не назначен" }]} onChange={(v) => patch({ owner: v })} />
         {filtered && (
           <button onClick={resetFilters} className="btn-ghost h-8 text-[12px]" title="Снять все фильтры и поиск">
@@ -701,12 +702,12 @@ export function MenuButton({ row, onMenu, className = "" }: { row: TRow; onMenu?
 }
 
 /** Сегмент → трек → задачи, в порядке появления. */
-function groupRows(rows: TRow[]): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
+function groupRows(rows: TRow[], terms: Terms): Array<{ key: string; segmentId: string | null; segment: string; tracks: Array<{ track: string; rows: TRow[] }> }> {
   const segs = new Map<string, { key: string; segmentId: string | null; segment: string; tracks: Map<string, TRow[]> }>();
   for (const r of rows) {
     const k = r.segmentId ?? "none";
-    const s = segs.get(k) ?? { key: k, segmentId: r.segmentId, segment: r.segmentName ?? "Без сегмента", tracks: new Map() };
-    const t = r.trackName ?? "Без трека";
+    const s = segs.get(k) ?? { key: k, segmentId: r.segmentId, segment: r.segmentName ?? noneLabel(terms), tracks: new Map() };
+    const t = r.trackName ?? noTrackLabel(terms);
     s.tracks.set(t, [...(s.tracks.get(t) ?? []), r]);
     segs.set(k, s);
   }
@@ -774,9 +775,10 @@ export function Deadline({ row, col, today, closed, chip = false }: { row: TRow;
 }
 
 function TrackerList({ today, rows, colOf, hot, summaries, colors, onOpen, onMenu, unconfirmed, deletedInfo, onRestore, canRestore }: Common) {
+  const terms = useTerms();
   return (
     <div className="space-y-4">
-      {groupRows(rows).map((g) => (
+      {groupRows(rows, terms).map((g) => (
         <section key={g.key} className="surface overflow-hidden">
           <h2 className="border-b border-l-4 border-outline-variant bg-surface-low px-4 py-2 text-[13px] font-bold text-on-surface" style={{ borderLeftColor: colors.get(g.segmentId ?? "none") ?? "#94a3b8" }}>
             {g.segment}

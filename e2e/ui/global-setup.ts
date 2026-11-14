@@ -47,7 +47,7 @@ export default async function globalSetup(config: FullConfig) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 
     const baseURL = (config.projects[0].use.baseURL as string) ?? "http://localhost:3000";
-    const browser = await chromium.launch();
+    const browser = await chromium.launch({ executablePath: process.env.UI_CHROMIUM || undefined });
     for (const role of Object.keys(users) as Role[]) {
       const ctx = await browser.newContext({ baseURL });
       const page = await ctx.newPage();

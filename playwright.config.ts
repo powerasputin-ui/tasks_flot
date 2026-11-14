@@ -5,6 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
  * (в CI — база GitHub Actions; локально — npm run db:local). Каждый сценарий — на ширине компьютера и телефона.
  * Локально: запустите npm run dev и затем npm run test:ui (адрес — UI_BASE_URL, по умолчанию http://localhost:3000).
  * В CI: UI_START=1 — Playwright сам запускает собранное приложение (npm run start).
+ * UI_CHROMIUM — путь к своему chrome.exe, если на машине установлена сборка Chromium не той версии, что ждёт Playwright
+ * (иначе он просит «npx playwright install»).
  */
 const baseURL = process.env.UI_BASE_URL ?? "http://localhost:3000";
 
@@ -19,7 +21,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   globalSetup: "./e2e/ui/global-setup.ts",
   globalTeardown: "./e2e/ui/global-teardown.ts",
-  use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure", locale: "ru-RU", timezoneId: "Europe/Moscow" },
+  use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure", locale: "ru-RU", timezoneId: "Europe/Moscow", launchOptions: { executablePath: process.env.UI_CHROMIUM || undefined } },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1300, height: 900 } } },
     { name: "phone", use: { ...devices["Desktop Chrome"], viewport: { width: 375, height: 800 }, hasTouch: true, isMobile: true } },

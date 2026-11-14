@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { memoSectionsHint } from "@/lib/terms";
+import { useTerms } from "@/lib/use-terms";
 import { Check } from "lucide-react";
 import { composeText, type MemoField } from "@/lib/memo";
 
@@ -16,6 +18,7 @@ type Sample = { title: string; comment: string | null; segmentName: string | nul
  * Настроек живого документа нет, поэтому там кнопка «Сохранить» и пример на реальной строке.
  */
 export function MemoViewSettings({ compact = false, onApplied }: { compact?: boolean; onApplied?: () => void }) {
+  const terms = useTerms();
   const [shortName, setShortName] = useState("");
   const [fields, setFields] = useState<MemoField[]>(["track", "comment"]);
   const [options, setOptions] = useState<Array<{ key: MemoField; label: string }>>([]);
@@ -115,7 +118,7 @@ export function MemoViewSettings({ compact = false, onApplied }: { compact?: boo
   if (!loaded) return <div className="skeleton h-40 rounded-lg" />;
   const preview = sample ? composeText(sample, fields, labels) : "Пример появится, когда в таблице будут строки.";
   const heading = compact ? "label-caps" : "label-caps mb-2";
-  const hint = "«Трек» и «Сегмент» задают разделы справки: отмечен трек — разделы по трекам, только сегмент — по сегментам, ничего — просто список пунктов. Остальные столбцы идут в текст пункта.";
+  const hint = memoSectionsHint(terms);
 
   return (
     <div className={compact ? "space-y-4" : ""}>
