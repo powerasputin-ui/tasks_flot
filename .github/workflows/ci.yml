@@ -27,7 +27,7 @@ env:
 jobs:
   checks:
     name: Типы, линтер, тесты
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # закреплено: на новой ubuntu-latest Playwright 1.56 не ставит зависимости браузера
     timeout-minutes: 25
     services:
       postgres:
@@ -68,7 +68,7 @@ jobs:
 
   ui:
     name: Браузерные тесты
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # закреплено: на новой ubuntu-latest Playwright 1.56 не ставит зависимости браузера
     timeout-minutes: 30
     services:
       postgres:
